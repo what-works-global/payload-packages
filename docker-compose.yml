@@ -1,0 +1,21 @@
+services:
+  mongo:
+    image: mongo:latest
+    restart: "no"
+    ports:
+      - '27017:27017'
+    command:
+      - --storageEngine=wiredTiger
+    volumes:
+      - payload-databases:/data/db
+    logging:
+      driver: none
+    healthcheck:
+      test: mongosh --eval "db.adminCommand('ping')"
+      interval: 1s
+      timeout: 30s
+      retries: 20
+
+volumes:
+  payload-databases:
+    external: true
