@@ -1,5 +1,6 @@
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
+import { devUser } from 'helpers/credentials.js'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import path from 'path'
 import { buildConfig } from 'payload'
@@ -31,6 +32,9 @@ const buildConfigWithMemoryDB = async () => {
 
   return buildConfig({
     admin: {
+      autoLogin: {
+        email: devUser.email,
+      },
       importMap: {
         baseDir: path.resolve(dirname),
       },
