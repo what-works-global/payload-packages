@@ -22,6 +22,7 @@
     "@payloadcms/next": "3.37.0",
     "@payloadcms/richtext-lexical": "3.37.0",
     "@payloadcms/ui": "3.37.0",
+    "@payloadcms/translations": "3.37.0",
     "payload": "3.37.0"
   },
   "engines": {

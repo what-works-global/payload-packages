@@ -30,6 +30,12 @@ export default [
     },
   },
   {
+    files: ['src/flattenDocumentValues/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  {
     languageOptions: {
       parserOptions: {
         sourceType: 'module',

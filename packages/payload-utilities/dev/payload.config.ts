@@ -1,13 +1,16 @@
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
-import { devUser } from 'helpers/credentials.js'
+import {
+  defaultFieldResolvers,
+  flattenDocumentValues,
+} from '@whatworks/payload-utilities/flattenDocumentValues'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import path from 'path'
 import { buildConfig } from 'payload'
-import { payloadUtilities } from 'payload-utilities'
 import sharp from 'sharp'
 import { fileURLToPath } from 'url'
 
+import { devUser } from './helpers/credentials.js'
 import { testEmailAdapter } from './helpers/testEmailAdapter.js'
 import { seed } from './seed.js'
 
@@ -42,7 +45,25 @@ const buildConfigWithMemoryDB = async () => {
     collections: [
       {
         slug: 'posts',
-        fields: [],
+        fields: [
+          {
+            name: 'title',
+            type: 'text',
+          },
+        ],
+        hooks: {
+          afterChange: [
+            async (args) => {
+              const fields = await flattenDocumentValues({
+                collection: args.collection,
+                doc: args.doc,
+                fieldResolvers: defaultFieldResolvers,
+                req: args.req,
+              })
+              console.log(fields)
+            },
+          ],
+        },
       },
       {
         slug: 'media',
@@ -61,13 +82,7 @@ const buildConfigWithMemoryDB = async () => {
     onInit: async (payload) => {
       await seed(payload)
     },
-    plugins: [
-      payloadUtilities({
-        collections: {
-          posts: true,
-        },
-      }),
-    ],
+    plugins: [],
     secret: process.env.PAYLOAD_SECRET || 'test-secret_key',
     sharp,
     typescript: {
