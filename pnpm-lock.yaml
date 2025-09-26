@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  packages/payload-utilities:
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3.2.0
