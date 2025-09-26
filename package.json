@@ -10,7 +10,9 @@
     "dev": "pnpm --filter payload-utilities dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
-    "clean": "pnpm -r clean"
+    "clean": "pnpm -r clean",
+    "create-db": "docker volume create payload-databases",
+    "start-db": "docker compose -p payload-databases up -d"
   },
   "devDependencies": {
     "@payloadcms/db-mongodb": "3.37.0",
