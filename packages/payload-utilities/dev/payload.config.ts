@@ -3,6 +3,7 @@ import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import {
   defaultFieldResolvers,
   flattenDocumentValues,
+  relationshipTitleResolver,
 } from '@whatworks/payload-utilities/flattenDocumentValues'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import path from 'path'
@@ -45,22 +46,60 @@ const buildConfigWithMemoryDB = async () => {
     collections: [
       {
         slug: 'posts',
+        admin: {
+          useAsTitle: 'title',
+        },
         fields: [
           {
             name: 'title',
             type: 'text',
           },
+          {
+            name: 'someGroup',
+            type: 'group',
+            fields: [
+              {
+                name: 'groupTextField',
+                type: 'text',
+              },
+            ],
+          },
+          {
+            name: 'someArray',
+            type: 'array',
+            fields: [
+              {
+                name: 'arrayTextField',
+                type: 'text',
+              },
+            ],
+          },
+          {
+            name: 'author',
+            type: 'relationship',
+            relationTo: 'posts',
+          },
+          {
+            name: 'uploads',
+            type: 'upload',
+            hasMany: false,
+            relationTo: 'media',
+          },
         ],
         hooks: {
           afterChange: [
             async (args) => {
+              console.dir(args.doc, { depth: null })
               const fields = await flattenDocumentValues({
                 collection: args.collection,
                 doc: args.doc,
-                fieldResolvers: defaultFieldResolvers,
+                fieldResolvers: {
+                  ...defaultFieldResolvers,
+                  relationship: relationshipTitleResolver,
+                },
                 req: args.req,
               })
-              console.log(fields)
+              console.dir(fields, { depth: null })
             },
           ],
         },
@@ -69,7 +108,7 @@ const buildConfigWithMemoryDB = async () => {
         slug: 'media',
         fields: [],
         upload: {
-          staticDir: path.resolve(dirname, 'media'),
+          staticDir: path.resolve(dirname, 'uploads', 'media'),
         },
       },
     ],

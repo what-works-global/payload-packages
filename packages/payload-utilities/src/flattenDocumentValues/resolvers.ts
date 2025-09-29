@@ -10,6 +10,7 @@ import type {
 import { arrayResolver } from './resolvers/arrayResolver.js'
 import { groupResolver } from './resolvers/groupResolver.js'
 import { simpleResolver } from './resolvers/simpleResolver.js'
+import { uploadResolver } from './resolvers/uploadResolver.js'
 
 type ExtractFieldByType<T extends Field['type']> = Extract<Field, { type: T }>
 
@@ -56,5 +57,5 @@ export const defaultFieldResolvers: FieldResolvers = {
   text: simpleResolver,
   textarea: simpleResolver,
   ui: simpleResolver,
-  upload: simpleResolver,
+  upload: uploadResolver,
 }

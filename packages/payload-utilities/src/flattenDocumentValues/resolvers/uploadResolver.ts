@@ -2,8 +2,8 @@ import { type CollectionSlug, type Payload } from 'payload'
 
 import type { FieldResolver } from '../resolvers.js'
 
-/** Gets the title of a document by its ID */
-export const getTitle = async (
+/** Gets the file metadata of an upload document by its ID */
+export const getFileMetadata = async (
   payload: Payload,
   collectionSlug: CollectionSlug,
   documentId: string,
@@ -15,18 +15,21 @@ export const getTitle = async (
       id: documentId,
       collection: collectionSlug,
       select: {
-        [useAsTitle]: true,
+        filename: true,
+        filesize: true,
+        mimeType: true,
+        url: true,
       },
     })
-    if (doc && useAsTitle in doc) {
-      return doc[useAsTitle as keyof typeof doc]
-    }
+    return doc
   }
   return undefined
 }
 
-/** Resolves a relationship field to the title of the referenced document if admin.useAsTitle is set */
-export const relationshipTitleResolver: FieldResolver<'relationship'> = async ({
+type DocumentValue = { relationTo: CollectionSlug; value: string } | string
+
+/** Resolves an upload field to the file metadata of the referenced document */
+export const uploadResolver: FieldResolver<'upload'> = async ({
   data,
   field,
   indexPathSegments,
@@ -35,19 +38,18 @@ export const relationshipTitleResolver: FieldResolver<'relationship'> = async ({
 }) => {
   const payload = req.payload
   const relationTo = field.relationTo
-  const getCollectionSlugAndId = (
-    value: { relationTo: CollectionSlug; value: string } | string,
-  ) => {
+
+  const getCollectionSlugAndId = (value: DocumentValue) => {
     if (typeof value === 'object') {
       return { id: value.value, collectionSlug: value.relationTo }
     }
-    return { id: value, collectionSlug: relationTo as CollectionSlug }
+    return { id: value, collectionSlug: relationTo }
   }
 
   const resolveValue = async (value: any) => {
     const { id, collectionSlug } = getCollectionSlugAndId(value)
-    const title = await getTitle(payload, collectionSlug, id)
-    return title ?? id
+    const metadata = await getFileMetadata(payload, collectionSlug, id)
+    return metadata ?? id
   }
 
   let value: any

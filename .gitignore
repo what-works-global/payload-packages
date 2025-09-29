@@ -16,6 +16,8 @@ node_modules
 .next/
 /out/
 
+**/dev/uploads/
+
 # production
 dist
 
