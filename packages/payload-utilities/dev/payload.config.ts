@@ -85,11 +85,14 @@ const buildConfigWithMemoryDB = async () => {
             hasMany: false,
             relationTo: 'media',
           },
+          {
+            name: 'richText',
+            type: 'richText',
+          },
         ],
         hooks: {
           afterChange: [
             async (args) => {
-              console.dir(args.doc, { depth: null })
               const fields = await flattenDocumentValues({
                 collection: args.collection,
                 doc: args.doc,
@@ -99,7 +102,12 @@ const buildConfigWithMemoryDB = async () => {
                 },
                 req: args.req,
               })
-              console.dir(fields, { depth: null })
+              console.log(
+                fields.map((f) => ({
+                  label: f.schemaPathSegments.map((s) => s.label).join(' > '),
+                  value: f.value,
+                })),
+              )
             },
           ],
         },

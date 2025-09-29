@@ -36,6 +36,12 @@ export default [
     },
   },
   {
+    files: ['dev/**/*.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
     languageOptions: {
       parserOptions: {
         sourceType: 'module',

@@ -9,6 +9,7 @@ import type {
 
 import { arrayResolver } from './resolvers/arrayResolver.js'
 import { groupResolver } from './resolvers/groupResolver.js'
+import { richTextPlaintextResolver } from './resolvers/richTextPlaintextResolver.js'
 import { simpleResolver } from './resolvers/simpleResolver.js'
 import { uploadResolver } from './resolvers/uploadResolver.js'
 
@@ -50,7 +51,7 @@ export const defaultFieldResolvers: FieldResolvers = {
   point: simpleResolver,
   radio: simpleResolver,
   relationship: simpleResolver,
-  richText: simpleResolver,
+  richText: richTextPlaintextResolver(),
   row: simpleResolver,
   select: simpleResolver,
   tabs: simpleResolver,
