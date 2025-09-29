@@ -4,7 +4,6 @@
   "description": "A collection of utilities for Payload 3.0",
   "license": "MIT",
   "type": "module",
-  "access": "public",
   "exports": {
     ".": {
       "import": "./src/index.ts",
@@ -76,6 +75,7 @@
     "pnpm": "^9 || ^10"
   },
   "publishConfig": {
+    "access": "public",
     "exports": {
       ".": {
         "import": "./dist/index.js",
