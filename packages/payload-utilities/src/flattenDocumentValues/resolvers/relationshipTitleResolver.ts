@@ -54,7 +54,7 @@ export const relationshipTitleResolver: FieldResolver<'relationship'> = async ({
       }),
     )
   } else {
-    const { id, collectionSlug } = getCollectionSlugAndId(value)
+    const { id, collectionSlug } = getCollectionSlugAndId(data)
     const title = await getTitle(payload, collectionSlug, id)
     value = title ?? id
   }
