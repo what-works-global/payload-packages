@@ -50,11 +50,13 @@ export const relationshipTitleResolver: FieldResolver<'relationship'> = async ({
     return title ?? id
   }
 
-  let value: any
-  if (Array.isArray(data)) {
-    value = await Promise.all(data.map(resolveValue))
-  } else {
-    value = await resolveValue(data)
+  let value = data
+  if (data) {
+    if (Array.isArray(data)) {
+      value = await Promise.all(data.map(resolveValue))
+    } else {
+      value = await resolveValue(data)
+    }
   }
 
   return [
