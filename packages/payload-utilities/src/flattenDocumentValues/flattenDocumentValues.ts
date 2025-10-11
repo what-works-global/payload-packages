@@ -21,7 +21,7 @@ export interface FlattenedFieldValue {
   indexPathSegments: IndexPathSegment[]
   /** The path to the field in the collection schema */
   schemaPathSegments: SchemaPathSegment[]
-  value: string
+  value: any
 }
 
 export interface FlattenDocumentValuesArgs {
