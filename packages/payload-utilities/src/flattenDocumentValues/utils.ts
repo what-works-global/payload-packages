@@ -1,4 +1,4 @@
-import type { FieldSchemaMap, LabelFunction, PayloadRequest, StaticLabel } from 'payload'
+import type { Field, FieldSchemaMap, LabelFunction, PayloadRequest, StaticLabel } from 'payload'
 
 import { getTranslation } from '@payloadcms/translations'
 
@@ -18,3 +18,5 @@ export const getLabel = (fieldSchema: FieldSchema, req: PayloadRequest): string 
     }
   }
 }
+
+export type ExtractFieldByType<T extends Field['type']> = Extract<Field, { type: T }>

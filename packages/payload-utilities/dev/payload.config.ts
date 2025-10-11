@@ -11,6 +11,7 @@ import { buildConfig } from 'payload'
 import sharp from 'sharp'
 import { fileURLToPath } from 'url'
 
+import { flattenDocumentValuesV2 } from '../src/flattenDocumentValues/flattenDocumentValuesV2.js'
 import { devUser } from './helpers/credentials.js'
 import { testEmailAdapter } from './helpers/testEmailAdapter.js'
 import { seed } from './seed.js'
@@ -92,18 +93,14 @@ const buildConfigWithMemoryDB = async () => {
         ],
         hooks: {
           afterChange: [
-            async (args) => {
-              const fields = await flattenDocumentValues({
+            (args) => {
+              const result = flattenDocumentValuesV2({
                 collection: args.collection,
                 doc: args.doc,
-                fieldResolvers: {
-                  ...defaultFieldResolvers,
-                  relationship: relationshipTitleResolver,
-                },
                 req: args.req,
               })
               console.log(
-                fields.map((f) => ({
+                result.map((f) => ({
                   label: f.schemaPathSegments.map((s) => s.label).join(' > '),
                   value: f.value,
                 })),

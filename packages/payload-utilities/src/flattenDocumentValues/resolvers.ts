@@ -6,14 +6,13 @@ import type {
   IndexPathSegment,
   SchemaPathSegment,
 } from './index.js'
+import type { ExtractFieldByType } from './utils.js'
 
 import { arrayResolver } from './resolvers/arrayResolver.js'
 import { groupResolver } from './resolvers/groupResolver.js'
 import { richTextPlaintextResolver } from './resolvers/richTextPlaintextResolver.js'
 import { simpleResolver } from './resolvers/simpleResolver.js'
 import { uploadResolver } from './resolvers/uploadResolver.js'
-
-type ExtractFieldByType<T extends Field['type']> = Extract<Field, { type: T }>
 
 // Typed resolver function arguments
 export type FieldResolverArgs<T extends Field['type']> = {
