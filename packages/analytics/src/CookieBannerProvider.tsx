@@ -4,8 +4,6 @@ import type { ReactNode } from 'react'
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
-import CookieBanner from './CookieBanner.js'
-
 export type ConsentStrategy =
   | 'load-scripts-revoke-consent-immediately'
   | 'load-scripts-then-revoke-consent-after-geolocation-check'
@@ -151,15 +149,5 @@ export function CookieBannerProvider({
     }
   }, [consentStrategy, requiresConsent, userDecision])
 
-  return (
-    <CookieBannerContext.Provider value={value}>
-      {children}
-      <CookieBanner
-        acceptText="Accept"
-        description="We use cookies to improve your experience. By clicking 'Accept', you agree to the use of cookies."
-        rejectText="Reject"
-        title="Cookies"
-      />
-    </CookieBannerContext.Provider>
-  )
+  return <CookieBannerContext.Provider value={value}>{children}</CookieBannerContext.Provider>
 }

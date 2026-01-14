@@ -28,6 +28,7 @@
     "build:types": "tsc --outDir dist --rootDir ./src",
     "clean": "rimraf {dist,*.tsbuildinfo}",
     "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png,json,md}\" dist/",
+    "dev": "next dev dev",
     "lint": "eslint",
     "lint:fix": "eslint ./src --fix",
     "prepublishOnly": "pnpm clean && pnpm build"
@@ -44,6 +45,8 @@
     "eslint-config-next": "15.4.4",
     "next": "15.4.4",
     "prettier": "^3.4.2",
+    "postcss": "^8.4.49",
+    "autoprefixer": "^10.4.20",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "rimraf": "3.0.2",
