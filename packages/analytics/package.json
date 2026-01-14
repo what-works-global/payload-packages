@@ -9,6 +9,11 @@
       "import": "./src/index.ts",
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./api/consent": {
+      "import": "./src/api/consent.ts",
+      "types": "./src/api/consent.ts",
+      "default": "./src/api/consent.ts"
     }
   },
   "main": "./src/index.ts",
@@ -61,6 +66,11 @@
         "import": "./dist/index.js",
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
+      },
+      "./api/consent": {
+        "import": "./dist/api/consent.js",
+        "types": "./dist/api/consent.d.ts",
+        "default": "./dist/api/consent.js"
       }
     },
     "main": "./dist/index.js",

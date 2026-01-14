@@ -1,3 +1,5 @@
+import { env } from '@env'
+
 import { CookieBannerProvider } from './CookieBannerProvider.js'
 import FacebookPixel from './FacebookPixel.js'
 import GoogleAnalytics from './GoogleAnalytics.js'
@@ -10,7 +12,10 @@ export default function Analytics() {
   }
 
   return (
-    <CookieBannerProvider defaultCookiesAllowed={true}>
+    <CookieBannerProvider
+      consentApiPath="/api/consent"
+      consentStrategy="require-consent-before-loading-scripts"
+    >
       {env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID && (
         <FacebookPixel pixelId={env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID} />
       )}

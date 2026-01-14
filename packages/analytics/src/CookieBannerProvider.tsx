@@ -2,15 +2,23 @@
 
 import type { ReactNode } from 'react'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 import CookieBanner from './CookieBanner.js'
 
+export type ConsentStrategy =
+  | 'load-scripts-revoke-consent-immediately'
+  | 'load-scripts-then-revoke-consent-after-geolocation-check'
+  | 'require-consent-before-loading-scripts'
+
+type ConsentStatus = 'denied' | 'granted'
+
 interface CookieBannerContextType {
   accept: () => void
-  cookiesAllowed: boolean
-  getDecisionMade: () => boolean
+  consentStatus: ConsentStatus
   reject: () => void
+  shouldLoadScripts: boolean
+  shouldShowBanner: boolean
 }
 
 const CookieBannerContext = createContext<CookieBannerContextType | undefined>(undefined)
@@ -25,55 +33,118 @@ export function useCookieBanner() {
 
 interface CookieBannerProviderProps {
   children: ReactNode
-  defaultCookiesAllowed: boolean
+  consentApiPath: string
+  consentStrategy: ConsentStrategy
+  defaultCookiesAllowed?: boolean
+}
+
+const CONSENT_STORAGE_KEY = 'cookiesAllowed'
+
+const getStoredDecision = (): ConsentStatus | null => {
+  const stored = localStorage.getItem(CONSENT_STORAGE_KEY)
+  if (stored === 'true') {
+    return 'granted'
+  }
+  if (stored === 'false') {
+    return 'denied'
+  }
+  return null
 }
 
 export function CookieBannerProvider({
   children,
-  defaultCookiesAllowed,
+  consentApiPath,
+  consentStrategy,
 }: CookieBannerProviderProps) {
-  const [cookiesAllowed, setCookiesAllowed] = useState(defaultCookiesAllowed)
+  const [userDecision, setUserDecision] = useState<ConsentStatus | null>(null)
+  const [requiresConsent, setRequiresConsent] = useState<boolean | null>(null)
 
   useEffect(() => {
-    const cookiesAllowed = localStorage.getItem('cookiesAllowed')
-    if (cookiesAllowed === 'true') {
-      setCookiesAllowed(true)
-    } else if (cookiesAllowed === 'false') {
-      setCookiesAllowed(false)
+    const storedDecision = getStoredDecision()
+    setUserDecision(storedDecision)
+    if (storedDecision !== null) {
+      return
     }
-  }, [])
 
-  const getDecisionMade = useCallback(() => {
-    return localStorage.getItem('cookiesAllowed') !== null
-  }, [])
+    let isActive = true
+    const fetchRequiresConsent = async () => {
+      try {
+        const response = await fetch(consentApiPath, { method: 'GET' })
+        if (!response.ok) {
+          throw new Error('Consent API response not ok')
+        }
+        const data = (await response.json()) as { requiresConsent?: boolean }
+        if (isActive) {
+          setRequiresConsent(Boolean(data?.requiresConsent))
+        }
+      } catch {
+        if (isActive) {
+          setRequiresConsent(true)
+        }
+      }
+    }
 
-  const value = useMemo<CookieBannerContextType>(
-    () => ({
+    void fetchRequiresConsent()
+
+    return () => {
+      isActive = false
+    }
+  }, [consentApiPath])
+
+  const value = useMemo<CookieBannerContextType>(() => {
+    const hasUserDecision = userDecision !== null
+    const shouldShowBanner = !hasUserDecision && requiresConsent === true
+
+    let shouldLoadScripts = false
+    let consentStatus: ConsentStatus = 'denied'
+
+    if (hasUserDecision) {
+      consentStatus = userDecision
+      shouldLoadScripts =
+        consentStrategy === 'require-consent-before-loading-scripts'
+          ? userDecision === 'granted'
+          : true
+    } else {
+      switch (consentStrategy) {
+        case 'load-scripts-revoke-consent-immediately':
+          shouldLoadScripts = true
+          consentStatus = requiresConsent === false ? 'granted' : 'denied'
+          break
+        case 'load-scripts-then-revoke-consent-after-geolocation-check':
+          shouldLoadScripts = true
+          consentStatus = requiresConsent === true ? 'denied' : 'granted'
+          break
+        case 'require-consent-before-loading-scripts':
+          shouldLoadScripts = requiresConsent === false
+          consentStatus = requiresConsent === false ? 'granted' : 'denied'
+          break
+      }
+    }
+
+    return {
       accept: () => {
-        setCookiesAllowed(true)
-        localStorage.setItem('cookiesAllowed', 'true')
+        setUserDecision('granted')
+        localStorage.setItem(CONSENT_STORAGE_KEY, 'true')
       },
-      cookiesAllowed,
-      getDecisionMade,
+      consentStatus,
       reject: () => {
-        setCookiesAllowed(false)
-        localStorage.setItem('cookiesAllowed', 'false')
+        setUserDecision('denied')
+        localStorage.setItem(CONSENT_STORAGE_KEY, 'false')
       },
-    }),
-    [cookiesAllowed, getDecisionMade],
-  )
+      shouldLoadScripts,
+      shouldShowBanner,
+    }
+  }, [consentStrategy, requiresConsent, userDecision])
 
   return (
     <CookieBannerContext.Provider value={value}>
       {children}
-      {!defaultCookiesAllowed && (
-        <CookieBanner
-          acceptText="Accept"
-          description="We use cookies to improve your experience. By clicking 'Accept', you agree to the use of cookies."
-          rejectText="Reject"
-          title="Cookies"
-        />
-      )}
+      <CookieBanner
+        acceptText="Accept"
+        description="We use cookies to improve your experience. By clicking 'Accept', you agree to the use of cookies."
+        rejectText="Reject"
+        title="Cookies"
+      />
     </CookieBannerContext.Provider>
   )
 }

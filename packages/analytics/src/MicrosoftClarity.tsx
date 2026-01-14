@@ -1,7 +1,7 @@
 'use client'
 
 import Script from 'next/script'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
 
@@ -13,18 +13,42 @@ interface MicrosoftClarityProps {
 }
 
 export default function MicrosoftClarity({ clarityId }: MicrosoftClarityProps) {
-  const { cookiesAllowed } = useCookieBanner()
+  const { consentStatus, shouldLoadScripts } = useCookieBanner()
+
+  const applyConsent = useCallback((status: 'denied' | 'granted') => {
+    if (typeof window.clarity !== 'function') {
+      return
+    }
+
+    if (status === 'granted') {
+      window.clarity('consentv2', {
+        ad_Storage: 'granted',
+        analytics_Storage: 'granted',
+      })
+    } else {
+      window.clarity('consentv2', {
+        ad_Storage: 'denied',
+        analytics_Storage: 'denied',
+      })
+      window.clarity('consent', false)
+    }
+  }, [])
 
   useEffect(() => {
-    if (cookiesAllowed) {
-      if (typeof window.clarity === 'function') {
-        window.clarity('consent')
-      }
-    }
-  }, [cookiesAllowed])
+    applyConsent(consentStatus)
+  }, [applyConsent, consentStatus])
+
+  if (!clarityId || !shouldLoadScripts) {
+    return null
+  }
 
   return (
-    <Script id="ms-clarity">
+    <Script
+      id="ms-clarity"
+      onLoad={() => {
+        applyConsent(consentStatus)
+      }}
+    >
       {`
         (function(c,l,a,r,i,t,y){
         c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
@@ -38,6 +62,7 @@ export default function MicrosoftClarity({ clarityId }: MicrosoftClarityProps) {
 
 declare global {
   interface Window {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     clarity: (...args: any[]) => void
   }
 }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import { usePathname } from 'next/navigation'
@@ -12,7 +13,7 @@ interface GoogleAnalyticsProps {
 
 export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
   const pathname = usePathname()
-  const { cookiesAllowed } = useCookieBanner()
+  const { consentStatus, shouldLoadScripts } = useCookieBanner()
   const hasSentInitialRef = useRef(false)
   const lastTrackedPathnameRef = useRef<null | string>(null)
 
@@ -24,10 +25,12 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
     }
   }, [gaId, pathname])
 
-  // On mount (consent already granted due to Basic mode rendering), set consent granted.
-  // On unmount (revocation), send consent denied.
-  useEffect(() => {
-    if (typeof window.gtag === 'function') {
+  const updateConsent = useCallback((status: 'denied' | 'granted') => {
+    if (typeof window.gtag !== 'function') {
+      return
+    }
+
+    if (status === 'granted') {
       window.gtag('consent', 'update', {
         ad_personalization: 'granted',
         ad_storage: 'granted',
@@ -36,24 +39,35 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
         functionality_storage: 'granted',
         personalization_storage: 'granted',
       })
-    }
-    return () => {
-      if (typeof window.gtag === 'function') {
-        window.gtag('consent', 'update', {
-          ad_personalization: 'denied',
-          ad_storage: 'denied',
-          ad_user_data: 'denied',
-          analytics_storage: 'denied',
-          functionality_storage: 'denied',
-          personalization_storage: 'denied',
-          security_storage: 'granted',
-        })
-      }
+    } else {
+      window.gtag('consent', 'update', {
+        ad_personalization: 'denied',
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        analytics_storage: 'denied',
+        functionality_storage: 'denied',
+        personalization_storage: 'denied',
+        security_storage: 'granted',
+      })
     }
   }, [])
 
   useEffect(() => {
-    if (cookiesAllowed && gaId && typeof window.gtag === 'function') {
+    updateConsent(consentStatus)
+  }, [consentStatus, updateConsent])
+
+  useEffect(() => {
+    if (consentStatus === 'granted' && gaId && typeof window.gtag === 'function') {
+      if (!hasSentInitialRef.current) {
+        window.gtag('config', gaId, { page_path: window.location.pathname })
+        hasSentInitialRef.current = true
+        lastTrackedPathnameRef.current = window.location.pathname
+      }
+    }
+  }, [consentStatus, gaId])
+
+  useEffect(() => {
+    if (consentStatus === 'granted' && gaId && typeof window.gtag === 'function') {
       if (hasSentInitialRef.current) {
         if (lastTrackedPathnameRef.current !== pathname) {
           trackPageView()
@@ -61,13 +75,13 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
         }
       }
     }
-  }, [pathname, cookiesAllowed, gaId, trackPageView])
+  }, [pathname, consentStatus, gaId, trackPageView])
 
-  if (!gaId) {
+  if (!gaId || !shouldLoadScripts) {
     return null
   }
 
-  return cookiesAllowed ? (
+  return (
     <>
       <Script
         id="gtag-base"
@@ -86,15 +100,18 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
         id="gtag-init"
         onLoad={() => {
           if (typeof window.gtag === 'function') {
-            window.gtag('config', gaId, { page_path: window.location.pathname })
-            hasSentInitialRef.current = true
-            lastTrackedPathnameRef.current = window.location.pathname
+            updateConsent(consentStatus)
+            if (consentStatus === 'granted') {
+              window.gtag('config', gaId, { page_path: window.location.pathname })
+              hasSentInitialRef.current = true
+              lastTrackedPathnameRef.current = window.location.pathname
+            }
           }
         }}
         strategy="afterInteractive"
       />
     </>
-  ) : null
+  )
 }
 
 declare global {

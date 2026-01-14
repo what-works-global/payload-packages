@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import Script from 'next/script'
+import { useEffect } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
 
@@ -8,34 +10,56 @@ interface GoogleTagManagerProps {
   gtmId: string
 }
 
+const updateConsent = (consentStatus: 'denied' | 'granted') => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.dataLayer = window.dataLayer || []
+  window.gtag =
+    window.gtag ||
+    function gtag(...args: any[]) {
+      window.dataLayer.push(args)
+    }
+
+  if (typeof window.gtag === 'function') {
+    if (consentStatus === 'granted') {
+      window.gtag('consent', 'update', {
+        ad_personalization: 'granted',
+        ad_storage: 'granted',
+        ad_user_data: 'granted',
+        analytics_storage: 'granted',
+        functionality_storage: 'granted',
+        personalization_storage: 'granted',
+      })
+    } else {
+      window.gtag('consent', 'update', {
+        ad_personalization: 'denied',
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        analytics_storage: 'denied',
+        functionality_storage: 'denied',
+        personalization_storage: 'denied',
+        security_storage: 'granted',
+      })
+    }
+  }
+}
+
 export default function GoogleTagManager({ gtmId }: GoogleTagManagerProps) {
-  const { cookiesAllowed } = useCookieBanner()
+  const { consentStatus, shouldLoadScripts } = useCookieBanner()
+
+  useEffect(() => {
+    updateConsent(consentStatus)
+  }, [consentStatus])
+
+  if (!gtmId || !shouldLoadScripts) {
+    return null
+  }
 
   return (
     <>
-      {/* See ./gdpr-explanation.md for why this is disabled */}
-      {/* <Script
-        id="gtm-consent"
-        strategy="beforeInteractive"
-        dangerouslySetInnerHTML={{
-          __html: `
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('consent', 'default', {
-                'ad_storage': 'denied',
-                'ad_user_data': 'denied',
-                'ad_personalization': 'denied',
-                'analytics_storage': 'denied',
-                'functionality_storage': 'denied',
-                'personalization_storage': 'denied',
-                'security_storage': 'granted',
-                'wait_for_update': 500
-              });
-              window.gtag = gtag;
-            `,
-        }}
-      /> */}
-      {cookiesAllowed && (
+      {shouldLoadScripts && (
         <Script
           dangerouslySetInnerHTML={{
             __html: `
@@ -51,4 +75,11 @@ export default function GoogleTagManager({ gtmId }: GoogleTagManagerProps) {
       )}
     </>
   )
+}
+
+declare global {
+  interface Window {
+    dataLayer: any[]
+    gtag: (...args: any[]) => void
+  }
 }

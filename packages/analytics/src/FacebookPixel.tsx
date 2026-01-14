@@ -11,7 +11,7 @@ interface FacebookPixelProps {
 
 export default function FacebookPixel({ pixelId }: FacebookPixelProps) {
   const pathname = usePathname()
-  const { cookiesAllowed } = useCookieBanner()
+  const { consentStatus, shouldLoadScripts } = useCookieBanner()
 
   const trackPageView = useCallback(() => {
     if (typeof window.fbq === 'function') {
@@ -19,25 +19,30 @@ export default function FacebookPixel({ pixelId }: FacebookPixelProps) {
     }
   }, [])
 
-  useEffect(() => {
-    if (cookiesAllowed) {
-      if (typeof window.fbq === 'function') {
-        window.fbq('consent', 'grant')
-      }
+  const applyConsent = useCallback((status: 'denied' | 'granted') => {
+    if (typeof window.fbq !== 'function') {
+      return
     }
-  }, [cookiesAllowed])
 
-  useEffect(
-    () => {
-      if (pixelId) {
-        trackPageView()
-      }
-    },
+    if (status === 'granted') {
+      window.fbq('consent', 'grant')
+    } else {
+      window.fbq('consent', 'revoke')
+    }
+  }, [])
+
+  useEffect(() => {
+    applyConsent(consentStatus)
+  }, [applyConsent, consentStatus])
+
+  useEffect(() => {
+    if (pixelId && consentStatus === 'granted') {
+      trackPageView()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pathname],
-  )
+  }, [pathname, consentStatus])
 
-  if (!pixelId) {
+  if (!pixelId || !shouldLoadScripts) {
     return null
   }
 
@@ -59,9 +64,15 @@ export default function FacebookPixel({ pixelId }: FacebookPixelProps) {
           `,
         }}
         id="fb-pixel"
+        onLoad={() => {
+          applyConsent(consentStatus)
+          if (consentStatus === 'granted') {
+            trackPageView()
+          }
+        }}
         strategy="afterInteractive"
       />
-      {cookiesAllowed && (
+      {consentStatus === 'granted' && (
         <noscript>
           <img
             alt=""

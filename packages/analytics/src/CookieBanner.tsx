@@ -1,5 +1,5 @@
 'use client'
-import { type ReactNode, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
 
@@ -14,17 +14,9 @@ export default function CookieBanner({
   rejectText: string
   title: string
 }) {
-  const [isVisible, setIsVisible] = useState(false)
-  const { accept, cookiesAllowed, getDecisionMade, reject } = useCookieBanner()
+  const { accept, reject, shouldShowBanner } = useCookieBanner()
 
-  useEffect(() => {
-    const decisionMade = getDecisionMade()
-    if (!decisionMade && !cookiesAllowed) {
-      setIsVisible(true)
-    }
-  }, [cookiesAllowed, getDecisionMade])
-
-  if (!isVisible) {
+  if (!shouldShowBanner) {
     return null
   }
 
@@ -41,7 +33,6 @@ export default function CookieBanner({
               <button
                 className="p-4"
                 onClick={() => {
-                  setIsVisible(false)
                   reject()
                 }}
                 type="button"
@@ -51,7 +42,6 @@ export default function CookieBanner({
               <button
                 className="p-4"
                 onClick={() => {
-                  setIsVisible(false)
                   accept()
                 }}
                 type="button"
