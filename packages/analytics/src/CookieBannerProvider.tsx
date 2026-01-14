@@ -34,6 +34,21 @@ export function useCookieBanner() {
 interface CookieBannerProviderProps {
   children: ReactNode
   consentApiPath: string
+  /**
+   * `load-scripts-revoke-consent-immediately`
+   * - Render scripts immediately.
+   * - Default consent is denied until a user grants.
+   * - Banner shown only if geolocation requires consent.
+   *
+   * `load-scripts-then-revoke-consent-after-geolocation-check`
+   * - Render scripts immediately.
+   * - Default consent is granted until geolocation requires consent.
+   * - If consent is required, revoke and show banner.
+   *
+   * `require-consent-before-loading-scripts`
+   * - Do not render scripts until consent is granted when required.
+   * - Banner shown only if geolocation requires consent.
+   */
   consentStrategy: ConsentStrategy
   defaultCookiesAllowed?: boolean
 }
@@ -71,6 +86,7 @@ export function CookieBannerProvider({
       try {
         const response = await fetch(consentApiPath, { method: 'GET' })
         if (!response.ok) {
+          // TODO: Just console error
           throw new Error('Consent API response not ok')
         }
         const data = (await response.json()) as { requiresConsent?: boolean }

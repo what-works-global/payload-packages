@@ -1,4 +1,4 @@
-import { env } from '@env'
+// This is just an example file of how you would use this package in your own project
 
 import { CookieBannerProvider } from './CookieBannerProvider.js'
 import FacebookPixel from './FacebookPixel.js'
@@ -7,7 +7,7 @@ import GoogleTagManager from './GoogleTagManager.js'
 import MicrosoftClarity from './MicrosoftClarity.js'
 
 export default function Analytics() {
-  if (env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production') {
     return null
   }
 
@@ -16,18 +16,19 @@ export default function Analytics() {
       consentApiPath="/api/consent"
       consentStrategy="require-consent-before-loading-scripts"
     >
-      {env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID && (
-        <FacebookPixel pixelId={env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID} />
+      {process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID && (
+        <FacebookPixel pixelId={process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID} />
       )}
       {/* Avoid double-tracking: prefer GTM when both IDs are present */}
-      {env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID && !env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID && (
-        <GoogleAnalytics gaId={env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID} />
+      {process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID &&
+        !process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID && (
+          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID} />
+        )}
+      {process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID && (
+        <GoogleTagManager gtmId={process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID} />
       )}
-      {env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID && (
-        <GoogleTagManager gtmId={env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID} />
-      )}
-      {env.NEXT_PUBLIC_MS_CLARITY_ID && (
-        <MicrosoftClarity clarityId={env.NEXT_PUBLIC_MS_CLARITY_ID} />
+      {process.env.NEXT_PUBLIC_MS_CLARITY_ID && (
+        <MicrosoftClarity clarityId={process.env.NEXT_PUBLIC_MS_CLARITY_ID} />
       )}
     </CookieBannerProvider>
   )
