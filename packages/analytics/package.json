@@ -22,7 +22,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm copyfiles && pnpm build:types && pnpm build:swc",
+    "build": "pnpm copyfiles && pnpm build:css && pnpm build:types && pnpm build:swc",
+    "build:css": "tailwindcss -c tailwind.config.js -i ./src/styles.css -o ./dist/styles.css --minify",
     "build:swc": "swc ./src -d ./dist --config-file .swcrc --strip-leading-paths",
     "build:types": "tsc --outDir dist --rootDir ./src",
     "clean": "rimraf {dist,*.tsbuildinfo}",
@@ -47,6 +48,7 @@
     "react-dom": "19.1.0",
     "rimraf": "3.0.2",
     "sort-package-json": "^2.10.0",
+    "tailwindcss": "^3.4.17",
     "typescript": "5.7.3",
     "vite-tsconfig-paths": "^5.1.4"
   },
