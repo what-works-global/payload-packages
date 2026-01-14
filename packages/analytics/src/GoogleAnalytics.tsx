@@ -52,6 +52,30 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
     }
   }, [])
 
+  const getConsentDefaults = useCallback((status: 'denied' | 'granted') => {
+    if (status === 'granted') {
+      return {
+        ad_personalization: 'granted',
+        ad_storage: 'granted',
+        ad_user_data: 'granted',
+        analytics_storage: 'granted',
+        functionality_storage: 'granted',
+        personalization_storage: 'granted',
+        security_storage: 'granted',
+      }
+    }
+
+    return {
+      ad_personalization: 'denied',
+      ad_storage: 'denied',
+      ad_user_data: 'denied',
+      analytics_storage: 'denied',
+      functionality_storage: 'denied',
+      personalization_storage: 'denied',
+      security_storage: 'granted',
+    }
+  }, [])
+
   useEffect(() => {
     updateConsent(consentStatus)
   }, [consentStatus, updateConsent])
@@ -83,6 +107,18 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
 
   return (
     <>
+      <Script
+        dangerouslySetInnerHTML={{
+          __html: `
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            window.gtag = window.gtag || gtag;
+            gtag('consent', 'default', ${JSON.stringify(getConsentDefaults(consentStatus))});
+          `,
+        }}
+        id="ga-consent-default"
+        strategy="beforeInteractive"
+      />
       <Script
         id="gtag-base"
         src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}

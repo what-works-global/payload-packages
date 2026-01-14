@@ -14,7 +14,7 @@ export default function Analytics() {
   return (
     <CookieBannerProvider
       consentApiPath="/api/consent"
-      consentStrategy="require-consent-before-loading-scripts"
+      consentStrategy="load-scripts-then-revoke-consent-after-geolocation-check"
     >
       {process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID && (
         <FacebookPixel pixelId={process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID} />
