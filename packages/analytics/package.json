@@ -1,0 +1,71 @@
+{
+  "name": "@whatworks/analytics",
+  "version": "1.0.0",
+  "description": "Analytics components for Next.js with cookie consent.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm copyfiles && pnpm build:types && pnpm build:swc",
+    "build:swc": "swc ./src -d ./dist --config-file .swcrc --strip-leading-paths",
+    "build:types": "tsc --outDir dist --rootDir ./src",
+    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png,json,md}\" dist/",
+    "lint": "eslint",
+    "lint:fix": "eslint ./src --fix",
+    "prepublishOnly": "pnpm clean && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.2.0",
+    "@swc-node/register": "1.10.9",
+    "@swc/cli": "0.6.0",
+    "@types/node": "^22.5.4",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
+    "copyfiles": "2.4.1",
+    "eslint": "^9.23.0",
+    "eslint-config-next": "15.4.4",
+    "next": "15.4.4",
+    "prettier": "^3.4.2",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "rimraf": "3.0.2",
+    "sort-package-json": "^2.10.0",
+    "typescript": "5.7.3",
+    "vite-tsconfig-paths": "^5.1.4"
+  },
+  "peerDependencies": {
+    "next": "^15.4.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "engines": {
+    "node": "^18.20.2 || >=20.9.0",
+    "pnpm": "^9 || ^10"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  },
+  "registry": "https://registry.npmjs.org/",
+  "dependencies": {}
+}
