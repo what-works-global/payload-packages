@@ -50,7 +50,6 @@ interface CookieBannerProviderProps {
    * - Banner shown only if geolocation requires consent.
    */
   consentStrategy: ConsentStrategy
-  defaultCookiesAllowed?: boolean
 }
 
 const CONSENT_STORAGE_KEY = 'cookiesAllowed'
