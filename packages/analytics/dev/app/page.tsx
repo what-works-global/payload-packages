@@ -12,13 +12,14 @@ import {
 import { useMemo, useState } from 'react'
 
 const STRATEGIES: ConsentStrategy[] = [
+  'load-scripts-always-grant-consent',
   'require-consent-before-loading-scripts',
   'load-scripts-revoke-consent-immediately',
   'load-scripts-then-revoke-consent-after-geolocation-check',
 ]
 
 export default function Page() {
-  const [consentStrategy, setConsentStrategy] = useState<ConsentStrategy>(STRATEGIES[2])
+  const [consentStrategy, setConsentStrategy] = useState<ConsentStrategy>(STRATEGIES[0])
 
   const exampleIds = useMemo(
     () => ({
