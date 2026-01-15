@@ -1,7 +1,7 @@
 'use client'
 import { usePathname } from 'next/navigation'
 import Script from 'next/script'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
 
@@ -12,6 +12,8 @@ interface FacebookPixelProps {
 export default function FacebookPixel({ pixelId }: FacebookPixelProps) {
   const pathname = usePathname()
   const { consentStatus, shouldLoadScripts } = useCookieBanner()
+  const hasSentInitialRef = useRef(false)
+  const lastTrackedPathnameRef = useRef<null | string>(null)
 
   const trackPageView = useCallback(() => {
     if (typeof window.fbq === 'function') {
@@ -36,11 +38,23 @@ export default function FacebookPixel({ pixelId }: FacebookPixelProps) {
   }, [applyConsent, consentStatus])
 
   useEffect(() => {
-    if (pixelId && consentStatus === 'granted') {
-      trackPageView()
+    if (!pixelId || consentStatus !== 'granted') {
+      return
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, consentStatus])
+    if (typeof window.fbq !== 'function') {
+      return
+    }
+    if (!hasSentInitialRef.current) {
+      trackPageView()
+      hasSentInitialRef.current = true
+      lastTrackedPathnameRef.current = pathname
+      return
+    }
+    if (lastTrackedPathnameRef.current !== pathname) {
+      trackPageView()
+      lastTrackedPathnameRef.current = pathname
+    }
+  }, [pathname, consentStatus, pixelId, trackPageView])
 
   if (!pixelId || !shouldLoadScripts) {
     return null
@@ -59,14 +73,17 @@ export default function FacebookPixel({ pixelId }: FacebookPixelProps) {
             t.src=v;s=b.getElementsByTagName(e)[0];
             s.parentNode.insertBefore(t,s)}(window, document,'script',
             'https://connect.facebook.net/en_US/fbevents.js');
+            fbq('consent', '${consentStatus === 'granted' ? 'grant' : 'revoke'}');
             fbq('init', '${pixelId}');
           `,
         }}
         id="fb-pixel"
         onLoad={() => {
           applyConsent(consentStatus)
-          if (consentStatus === 'granted') {
+          if (consentStatus === 'granted' && !hasSentInitialRef.current) {
             trackPageView()
+            hasSentInitialRef.current = true
+            lastTrackedPathnameRef.current = window.location.pathname
           }
         }}
         strategy="afterInteractive"

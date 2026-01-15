@@ -3,7 +3,7 @@
 
 import { usePathname } from 'next/navigation'
 import Script from 'next/script'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
 
@@ -16,6 +16,7 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
   const { consentStatus, shouldLoadScripts } = useCookieBanner()
   const hasSentInitialRef = useRef(false)
   const lastTrackedPathnameRef = useRef<null | string>(null)
+  const [isGtagLoaded, setIsGtagLoaded] = useState(false)
 
   const trackPageView = useCallback(() => {
     if (typeof window.gtag === 'function') {
@@ -81,17 +82,17 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
   }, [consentStatus, updateConsent])
 
   useEffect(() => {
-    if (consentStatus === 'granted' && gaId && typeof window.gtag === 'function') {
+    if (isGtagLoaded && consentStatus === 'granted' && gaId && typeof window.gtag === 'function') {
       if (!hasSentInitialRef.current) {
         window.gtag('config', gaId, { page_path: window.location.pathname })
         hasSentInitialRef.current = true
         lastTrackedPathnameRef.current = window.location.pathname
       }
     }
-  }, [consentStatus, gaId])
+  }, [consentStatus, gaId, isGtagLoaded])
 
   useEffect(() => {
-    if (consentStatus === 'granted' && gaId && typeof window.gtag === 'function') {
+    if (isGtagLoaded && consentStatus === 'granted' && gaId && typeof window.gtag === 'function') {
       if (hasSentInitialRef.current) {
         if (lastTrackedPathnameRef.current !== pathname) {
           trackPageView()
@@ -99,7 +100,7 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
         }
       }
     }
-  }, [pathname, consentStatus, gaId, trackPageView])
+  }, [pathname, consentStatus, gaId, trackPageView, isGtagLoaded])
 
   if (!gaId || !shouldLoadScripts) {
     return null
@@ -121,6 +122,9 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
       />
       <Script
         id="gtag-base"
+        onLoad={() => {
+          setIsGtagLoaded(true)
+        }}
         src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
         strategy="afterInteractive"
       />
@@ -134,16 +138,6 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
           `,
         }}
         id="gtag-init"
-        onLoad={() => {
-          if (typeof window.gtag === 'function') {
-            updateConsent(consentStatus)
-            if (consentStatus === 'granted') {
-              window.gtag('config', gaId, { page_path: window.location.pathname })
-              hasSentInitialRef.current = true
-              lastTrackedPathnameRef.current = window.location.pathname
-            }
-          }
-        }}
         strategy="afterInteractive"
       />
     </>
