@@ -12,7 +12,8 @@ export default function CookieBanner({
   acceptText = 'Accept',
   description = (
     <>
-      We use cookies to improve your experience. By clicking "Accept", you agree to the use of
+      We use essential cookies to ensure the site functions properly, and optional cookies to
+      improve your experience. By clicking “Accept”, you consent to the use of non-essential
       cookies. To learn more, please view our{' '}
       <Link className="underline" href="/privacy-policy">
         Privacy Policy
