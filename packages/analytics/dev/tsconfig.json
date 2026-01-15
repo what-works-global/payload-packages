@@ -1,0 +1,25 @@
+{
+  "extends": "../tsconfig.json",
+  "exclude": [],
+  "include": [
+    "**/*.js",
+    "**/*.jsx",
+    "**/*.mjs",
+    "**/*.cjs",
+    "**/*.ts",
+    "**/*.tsx",
+    "../src/**/*.ts",
+    "../src/**/*.tsx",
+    "next.config.mjs",
+    ".next/types/**/*.ts"
+  ],
+  "compilerOptions": {
+    "baseUrl": "./",
+    "paths": {
+      "@whatworks/analytics": ["../src/index.ts"],
+      "@whatworks/analytics/api/consent": ["../src/api/consent.ts"]
+    },
+    "noEmit": true,
+    "emitDeclarationOnly": false
+  }
+}
