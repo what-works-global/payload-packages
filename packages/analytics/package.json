@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/analytics",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Analytics components for Next.js with cookie consent.",
   "license": "MIT",
   "type": "module",
