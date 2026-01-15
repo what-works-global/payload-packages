@@ -1,5 +1,6 @@
 export { default as Analytics } from './Analytics.js'
 export { default as CookieBanner } from './CookieBanner.js'
+export { CookieBannerPortal } from './CookieBannerPortal.js'
 export {
   type ConsentStrategy,
   CookieBannerProvider,

@@ -21,6 +21,7 @@
   "files": [
     "dist"
   ],
+  "sideEffects": false,
   "scripts": {
     "build": "pnpm copyfiles && pnpm build:css && pnpm build:types && pnpm build:swc",
     "build:css": "tailwindcss -c tailwind.config.js -i ./src/styles.css -o ./dist/styles.css --minify",

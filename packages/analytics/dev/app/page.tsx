@@ -18,7 +18,7 @@ const STRATEGIES: ConsentStrategy[] = [
 ]
 
 export default function Page() {
-  const [consentStrategy, setConsentStrategy] = useState<ConsentStrategy>(STRATEGIES[0])
+  const [consentStrategy, setConsentStrategy] = useState<ConsentStrategy>(STRATEGIES[2])
 
   const exampleIds = useMemo(
     () => ({
@@ -65,12 +65,7 @@ export default function Page() {
         <GoogleAnalytics gaId={exampleIds.gaId} />
         <GoogleTagManager gtmId={exampleIds.gtmId} />
         <MicrosoftClarity clarityId={exampleIds.clarityId} />
-        <CookieBanner
-          acceptText="Accept"
-          description="We use cookies to improve your experience. By clicking 'Accept', you agree to the use of cookies."
-          rejectText="Reject"
-          title="Cookies"
-        />
+        <CookieBanner />
       </CookieBannerProvider>
     </main>
   )
