@@ -57,9 +57,9 @@
     "vite-tsconfig-paths": "^5.1.4"
   },
   "peerDependencies": {
-    "next": "^15.4.4",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "next": ">=13.4.0 <16",
+    "react": ">=18.2.0 <20",
+    "react-dom": ">=18.2.0 <20"
   },
   "engines": {
     "node": "^18.20.2 || >=20.9.0",
