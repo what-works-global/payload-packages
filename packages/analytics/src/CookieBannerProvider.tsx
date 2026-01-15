@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 export type ConsentStrategy =
+  | 'load-scripts-always-grant-consent'
   | 'load-scripts-revoke-consent-immediately'
   | 'load-scripts-then-revoke-consent-after-geolocation-check'
   | 'require-consent-before-loading-scripts'
@@ -46,6 +47,11 @@ interface CookieBannerProviderProps {
    * `require-consent-before-loading-scripts`
    * - Do not render scripts until consent is granted when required.
    * - Banner shown only if geolocation requires consent.
+   *
+   * `load-scripts-always-grant-consent`
+   * - Render scripts immediately.
+   * - Consent is always granted, regardless of geolocation.
+   * - Banner is never shown.
    */
   consentStrategy: ConsentStrategy
 }
@@ -68,10 +74,20 @@ export function CookieBannerProvider({
   consentApiPath,
   consentStrategy,
 }: CookieBannerProviderProps) {
-  const [userDecision, setUserDecision] = useState<ConsentStatus | null>(null)
-  const [requiresConsent, setRequiresConsent] = useState<boolean | null>(null)
+  const [userDecision, setUserDecision] = useState<ConsentStatus | null>(
+    consentStrategy === 'load-scripts-always-grant-consent' ? 'granted' : null,
+  )
+  const [requiresConsent, setRequiresConsent] = useState<boolean | null>(
+    consentStrategy === 'load-scripts-always-grant-consent' ? false : null,
+  )
 
   useEffect(() => {
+    if (consentStrategy === 'load-scripts-always-grant-consent') {
+      setUserDecision('granted')
+      setRequiresConsent(false)
+      return
+    }
+
     const storedDecision = getStoredDecision()
     setUserDecision(storedDecision)
     if (storedDecision !== null) {
@@ -102,9 +118,28 @@ export function CookieBannerProvider({
     return () => {
       isActive = false
     }
-  }, [consentApiPath])
+  }, [consentApiPath, consentStrategy])
 
   const value = useMemo<CookieBannerContextType>(() => {
+    const accept = () => {
+      setUserDecision('granted')
+      localStorage.setItem(CONSENT_STORAGE_KEY, 'true')
+    }
+    const reject = () => {
+      setUserDecision('denied')
+      localStorage.setItem(CONSENT_STORAGE_KEY, 'false')
+    }
+
+    if (consentStrategy === 'load-scripts-always-grant-consent') {
+      return {
+        accept,
+        consentStatus: 'granted',
+        reject,
+        shouldLoadScripts: true,
+        shouldShowBanner: false,
+      }
+    }
+
     const hasUserDecision = userDecision !== null
     const shouldShowBanner = !hasUserDecision && requiresConsent === true
 
@@ -135,15 +170,9 @@ export function CookieBannerProvider({
     }
 
     return {
-      accept: () => {
-        setUserDecision('granted')
-        localStorage.setItem(CONSENT_STORAGE_KEY, 'true')
-      },
+      accept,
       consentStatus,
-      reject: () => {
-        setUserDecision('denied')
-        localStorage.setItem(CONSENT_STORAGE_KEY, 'false')
-      },
+      reject,
       shouldLoadScripts,
       shouldShowBanner,
     }
