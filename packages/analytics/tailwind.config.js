@@ -5,10 +5,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        'deep-works-300': 'var(--ww-analytics-accent, #0ea5e9)',
+        'deep-works-300': '#bcc0c2',
       },
       maxWidth: {
-        '9xl': 'var(--ww-analytics-max-width, 96rem)',
+        '9xl': '96rem',
       },
     },
   },
