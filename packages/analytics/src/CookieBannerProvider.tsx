@@ -58,6 +58,75 @@ interface CookieBannerProviderProps {
 
 const CONSENT_STORAGE_KEY = 'cookiesAllowed'
 
+type StrategyConfig = {
+  initialDecision: ConsentStatus | null
+  initialRequiresConsent: boolean | null
+  resolveWithDecision: (decision: ConsentStatus) => {
+    consentStatus: ConsentStatus
+    shouldLoadScripts: boolean
+  }
+  resolveWithoutDecision: (requiresConsent: boolean | null) => {
+    consentStatus: ConsentStatus
+    shouldLoadScripts: boolean
+  }
+  shouldSkipGeolocation: boolean
+}
+
+const STRATEGY_CONFIG: Record<ConsentStrategy, StrategyConfig> = {
+  'load-scripts-always-grant-consent': {
+    initialDecision: 'granted',
+    initialRequiresConsent: false,
+    resolveWithDecision: () => ({
+      consentStatus: 'granted',
+      shouldLoadScripts: true,
+    }),
+    resolveWithoutDecision: () => ({
+      consentStatus: 'granted',
+      shouldLoadScripts: true,
+    }),
+    shouldSkipGeolocation: true,
+  },
+  'load-scripts-revoke-consent-immediately': {
+    initialDecision: null,
+    initialRequiresConsent: null,
+    resolveWithDecision: (decision) => ({
+      consentStatus: decision,
+      shouldLoadScripts: true,
+    }),
+    resolveWithoutDecision: (requiresConsent) => ({
+      consentStatus: requiresConsent === false ? 'granted' : 'denied',
+      shouldLoadScripts: true,
+    }),
+    shouldSkipGeolocation: false,
+  },
+  'load-scripts-then-revoke-consent-after-geolocation-check': {
+    initialDecision: null,
+    initialRequiresConsent: null,
+    resolveWithDecision: (decision) => ({
+      consentStatus: decision,
+      shouldLoadScripts: true,
+    }),
+    resolveWithoutDecision: (requiresConsent) => ({
+      consentStatus: requiresConsent === true ? 'denied' : 'granted',
+      shouldLoadScripts: true,
+    }),
+    shouldSkipGeolocation: false,
+  },
+  'require-consent-before-loading-scripts': {
+    initialDecision: null,
+    initialRequiresConsent: null,
+    resolveWithDecision: (decision) => ({
+      consentStatus: decision,
+      shouldLoadScripts: decision === 'granted',
+    }),
+    resolveWithoutDecision: (requiresConsent) => ({
+      consentStatus: requiresConsent === false ? 'granted' : 'denied',
+      shouldLoadScripts: requiresConsent === false,
+    }),
+    shouldSkipGeolocation: false,
+  },
+}
+
 const getStoredDecision = (): ConsentStatus | null => {
   const stored = localStorage.getItem(CONSENT_STORAGE_KEY)
   if (stored === 'true') {
@@ -69,22 +138,46 @@ const getStoredDecision = (): ConsentStatus | null => {
   return null
 }
 
+const computeConsentState = ({
+  consentStrategy,
+  requiresConsent,
+  userDecision,
+}: {
+  consentStrategy: ConsentStrategy
+  requiresConsent: boolean | null
+  userDecision: ConsentStatus | null
+}): Pick<CookieBannerContextType, 'consentStatus' | 'shouldLoadScripts' | 'shouldShowBanner'> => {
+  const strategyConfig = STRATEGY_CONFIG[consentStrategy]
+  const hasUserDecision = userDecision !== null
+  const shouldShowBanner = !hasUserDecision && requiresConsent === true
+  const { consentStatus, shouldLoadScripts } = hasUserDecision
+    ? strategyConfig.resolveWithDecision(userDecision)
+    : strategyConfig.resolveWithoutDecision(requiresConsent)
+
+  return {
+    consentStatus,
+    shouldLoadScripts,
+    shouldShowBanner,
+  }
+}
+
 export function CookieBannerProvider({
   children,
   consentApiPath,
   consentStrategy,
 }: CookieBannerProviderProps) {
+  const strategyConfig = STRATEGY_CONFIG[consentStrategy]
   const [userDecision, setUserDecision] = useState<ConsentStatus | null>(
-    consentStrategy === 'load-scripts-always-grant-consent' ? 'granted' : null,
+    strategyConfig.initialDecision,
   )
   const [requiresConsent, setRequiresConsent] = useState<boolean | null>(
-    consentStrategy === 'load-scripts-always-grant-consent' ? false : null,
+    strategyConfig.initialRequiresConsent,
   )
 
   useEffect(() => {
-    if (consentStrategy === 'load-scripts-always-grant-consent') {
-      setUserDecision('granted')
-      setRequiresConsent(false)
+    if (strategyConfig.shouldSkipGeolocation) {
+      setUserDecision(strategyConfig.initialDecision)
+      setRequiresConsent(strategyConfig.initialRequiresConsent)
       return
     }
 
@@ -99,8 +192,11 @@ export function CookieBannerProvider({
       try {
         const response = await fetch(consentApiPath, { method: 'GET' })
         if (!response.ok) {
-          // TODO: Just console error
-          throw new Error('Consent API response not ok')
+          // eslint-disable-next-line no-console
+          console.error(
+            `Consent API response not ok: ${response.status}, assuming cookie consent is required`,
+          )
+          throw new Error(`Consent API response not ok: ${response.status}`)
         }
         const data = (await response.json()) as { requiresConsent?: boolean }
         if (isActive) {
@@ -118,7 +214,7 @@ export function CookieBannerProvider({
     return () => {
       isActive = false
     }
-  }, [consentApiPath, consentStrategy])
+  }, [consentApiPath, strategyConfig])
 
   const value = useMemo<CookieBannerContextType>(() => {
     const accept = () => {
@@ -130,44 +226,11 @@ export function CookieBannerProvider({
       localStorage.setItem(CONSENT_STORAGE_KEY, 'false')
     }
 
-    if (consentStrategy === 'load-scripts-always-grant-consent') {
-      return {
-        accept,
-        consentStatus: 'granted',
-        reject,
-        shouldLoadScripts: true,
-        shouldShowBanner: false,
-      }
-    }
-
-    const hasUserDecision = userDecision !== null
-    const shouldShowBanner = !hasUserDecision && requiresConsent === true
-
-    let shouldLoadScripts = false
-    let consentStatus: ConsentStatus = 'denied'
-
-    if (hasUserDecision) {
-      consentStatus = userDecision
-      shouldLoadScripts =
-        consentStrategy === 'require-consent-before-loading-scripts'
-          ? userDecision === 'granted'
-          : true
-    } else {
-      switch (consentStrategy) {
-        case 'load-scripts-revoke-consent-immediately':
-          shouldLoadScripts = true
-          consentStatus = requiresConsent === false ? 'granted' : 'denied'
-          break
-        case 'load-scripts-then-revoke-consent-after-geolocation-check':
-          shouldLoadScripts = true
-          consentStatus = requiresConsent === true ? 'denied' : 'granted'
-          break
-        case 'require-consent-before-loading-scripts':
-          shouldLoadScripts = requiresConsent === false
-          consentStatus = requiresConsent === false ? 'granted' : 'denied'
-          break
-      }
-    }
+    const { consentStatus, shouldLoadScripts, shouldShowBanner } = computeConsentState({
+      consentStrategy,
+      requiresConsent,
+      userDecision,
+    })
 
     return {
       accept,
