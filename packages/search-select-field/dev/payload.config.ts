@@ -72,17 +72,13 @@ export default buildConfig({
             selectSearch({
               name: 'favoriteFruit',
               label: 'Favorite Fruit',
-              custom: {
-                searchFunction: async ({ query, limit }) => {
-                  const normalized = query.trim().toLowerCase()
-                  const filtered = fruits.filter((fruit) =>
-                    fruit.toLowerCase().includes(normalized),
-                  )
-                  return filtered.slice(0, limit).map((fruit) => ({
-                    label: fruit,
-                    value: fruit.toLowerCase(),
-                  }))
-                },
+              searchFunction: async ({ query, limit }) => {
+                const normalized = query.trim().toLowerCase()
+                const filtered = fruits.filter((fruit) => fruit.toLowerCase().includes(normalized))
+                return filtered.slice(0, limit).map((fruit) => ({
+                  label: fruit,
+                  value: fruit.toLowerCase(),
+                }))
               },
               admin: {
                 components: {
@@ -102,22 +98,14 @@ export default buildConfig({
         selectSearch({
           name: 'primaryFruit',
           label: 'Primary Fruit',
-          custom: {
-            searchFunction: async ({ query, limit }) => {
-              const normalized = query.trim().toLowerCase()
-              const filtered = fruits.filter((fruit) =>
-                fruit.toLowerCase().includes(normalized),
-              )
-              return filtered.slice(0, limit).map((fruit) => ({
-                label: fruit,
-                value: fruit.toLowerCase(),
-              }))
-            },
-          },
-          admin: {
-            components: {
-              Field: '@whatworks/payload-search-select-field/client#SearchSelectField',
-            },
+          hasMany: true,
+          searchFunction: async ({ query, limit }) => {
+            const normalized = query.trim().toLowerCase()
+            const filtered = fruits.filter((fruit) => fruit.toLowerCase().includes(normalized))
+            return filtered.slice(0, limit).map((fruit) => ({
+              label: fruit,
+              value: fruit.toLowerCase(),
+            }))
           },
         }),
       ],

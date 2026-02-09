@@ -12,11 +12,7 @@ const debounceMs = 300
 export const SearchSelectField: TextFieldClientComponent = (props) => {
   const { field, path, schemaPath: schemaPathProp } = props
 
-  const {
-    value,
-    setValue,
-    showError,
-  } = useField<string | string[]>({
+  const { value, setValue, showError } = useField<string | string[]>({
     path,
   })
 
@@ -24,6 +20,7 @@ export const SearchSelectField: TextFieldClientComponent = (props) => {
   const { config } = useConfig()
 
   const [options, setOptions] = useState<OptionObject[]>([])
+
   const [inputValue, setInputValue] = useState('')
   const [remoteError, setRemoteError] = useState<string | null>(null)
 
