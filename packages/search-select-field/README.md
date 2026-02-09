@@ -1,10 +1,11 @@
-# Payload Dynamic Search Select Field
+# Payload Search Select Field
 
-Server-backed search select field and plugin for Payload.
+Server-backed search select field and plugin for Payload. The client component queries a shared endpoint
+and passes the current search query plus any currently selected values.
 
 ## Usage
 
-- Add the plugin:
+Add the plugin:
 
 ```ts
 import { searchSelectPlugin } from '@whatworks/payload-search-select-field'
@@ -14,17 +15,22 @@ export default buildConfig({
 })
 ```
 
-- Add a field:
+Add a field with `selectSearch` (recommended):
 
 ```ts
 import { selectSearch } from '@whatworks/payload-search-select-field'
 
 selectSearch({
   name: 'stripeCustomer',
-  custom: {
-    searchFunction: async ({ query }) => {
-      return [{ value: 'cus_123', label: `Result for ${query}` }]
-    },
+  hasMany: true,
+  searchFunction: async ({ query, selectedValues }) => {
+    return [
+      { value: 'cus_123', label: `Result for ${query}` },
+      ...selectedValues.map((value) => ({
+        value,
+        label: `Selected: ${value}`,
+      })),
+    ]
   },
   admin: {
     components: {
@@ -33,5 +39,10 @@ selectSearch({
   },
 })
 ```
+
+`searchFunction` receives:
+- `query`: the current input text.
+- `selectedValues`: an array of currently selected values (empty array when nothing is selected).
+- `req`, `field`, and `collection`/`global` context.
 
 The client component calls the shared endpoint path from `searchSelectEndpoint`.
