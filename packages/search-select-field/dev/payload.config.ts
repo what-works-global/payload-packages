@@ -39,6 +39,8 @@ const fruits = [
   'Watermelon',
 ]
 
+const fruitsEntries = fruits.map((fruit) => [fruit.toLowerCase(), fruit])
+
 export default buildConfig({
   admin: {
     user: 'users',
@@ -55,56 +57,32 @@ export default buildConfig({
       auth: true,
       fields: [],
     },
-    {
-      slug: 'posts',
-      admin: {
-        useAsTitle: 'title',
-      },
-      fields: [
-        {
-          name: 'title',
-          type: 'text',
-        },
-        {
-          name: 'customer',
-          type: 'group',
-          fields: [
-            selectSearch({
-              name: 'favoriteFruit',
-              label: 'Favorite Fruit',
-              searchFunction: async ({ query, limit }) => {
-                const normalized = query.trim().toLowerCase()
-                const filtered = fruits.filter((fruit) => fruit.toLowerCase().includes(normalized))
-                return filtered.slice(0, limit).map((fruit) => ({
-                  label: fruit,
-                  value: fruit.toLowerCase(),
-                }))
-              },
-              admin: {
-                components: {
-                  Field: '@whatworks/payload-search-select-field/client#SearchSelectField',
-                },
-              },
-            }),
-          ],
-        },
-      ],
-    },
   ],
   globals: [
     {
-      slug: 'settings',
+      slug: 'example',
       fields: [
         selectSearch({
-          name: 'primaryFruit',
-          label: 'Primary Fruit',
+          name: 'fruits',
+          label: 'Fruits',
           hasMany: true,
-          searchFunction: async ({ query, limit }) => {
+          searchFunction: async ({ query, limit, selectedValues }) => {
             const normalized = query.trim().toLowerCase()
-            const filtered = fruits.filter((fruit) => fruit.toLowerCase().includes(normalized))
-            return filtered.slice(0, limit).map((fruit) => ({
-              label: fruit,
-              value: fruit.toLowerCase(),
+            const queryFiltered = fruitsEntries
+              .filter(([value]) => value.includes(normalized))
+              .slice(0, limit)
+            const selectedFiltered = fruitsEntries.filter(([value]) =>
+              selectedValues.includes(value),
+            )
+            const seen = new Set<string>()
+            const combined = [...queryFiltered, ...selectedFiltered].filter(([value]) => {
+              if (seen.has(value)) return false
+              seen.add(value)
+              return true
+            })
+            return combined.map(([value, label]) => ({
+              label: label,
+              value: value,
             }))
           },
         }),

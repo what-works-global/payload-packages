@@ -49,6 +49,9 @@ export const searchSelectEndpointHandler = (): Endpoint => ({
 
     const safeLimit = Math.min(Number(body.limit) || 10, maxLimit)
     const safeQuery = String(body.query || '').slice(0, maxQueryLength)
+    const selectedValues = Array.isArray(body.selectedValues)
+      ? body.selectedValues.map((value) => String(value))
+      : []
 
     const config = req.payload.config
     const entityConfig =
@@ -91,6 +94,7 @@ export const searchSelectEndpointHandler = (): Endpoint => ({
       req,
       query: safeQuery,
       limit: safeLimit,
+      selectedValues,
       field: fieldResult.field,
       collection: collectionConfig,
       global: globalConfig,

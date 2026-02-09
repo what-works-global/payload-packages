@@ -15,6 +15,7 @@ export type SearchSelectFunctionArgs = {
   req: PayloadRequest
   query: string
   limit: number
+  selectedValues: string[]
   field: FlattenedField
   collection?: SanitizedCollectionConfig
   global?: SanitizedGlobalConfig
@@ -30,6 +31,7 @@ export type SearchSelectRequest = {
   schemaPath: string
   query?: string
   limit?: number
+  selectedValues?: string[]
 }
 
 export type SearchSelectResponse = {

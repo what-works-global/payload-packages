@@ -37,6 +37,18 @@ export const SearchSelectField: TextFieldClientComponent = (props) => {
   const baseURL = config.serverURL || ''
   const endpointURL = `${baseURL}${apiRoute}${searchSelectEndpoint}`
 
+  const selectedValues = useMemo(() => {
+    if (hasMany) {
+      return Array.isArray(value) ? value.map((entry) => String(entry)) : []
+    }
+
+    if (Array.isArray(value) || value === null || value === undefined) {
+      return []
+    }
+
+    return [String(value)]
+  }, [hasMany, value])
+
   const fetchOptions = useCallback(
     async (query: string) => {
       if (!slug || !schemaPath) {
@@ -66,6 +78,7 @@ export const SearchSelectField: TextFieldClientComponent = (props) => {
           schemaPath,
           query,
           limit: defaultLimit,
+          selectedValues,
         }),
       })
 
@@ -80,7 +93,7 @@ export const SearchSelectField: TextFieldClientComponent = (props) => {
       const data = (await res.json()) as { options?: OptionObject[] }
       setOptions(Array.isArray(data.options) ? data.options : [])
     },
-    [endpointURL, entityType, schemaPath, slug],
+    [endpointURL, entityType, schemaPath, selectedValues, slug],
   )
 
   useEffect(() => {
