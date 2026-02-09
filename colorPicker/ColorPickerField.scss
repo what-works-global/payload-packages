@@ -1,0 +1,49 @@
+@import '~@payloadcms/ui/scss';
+
+.custom-color-picker {
+  &__btn-wrap {
+    display: flex;
+    flex-direction: row;
+    gap: base(0.75);
+    margin-top: base(0.75);
+  }
+
+  & .btn {
+    margin: 0;
+  }
+
+  &__input {
+    // Payload exports a mixin from the vars file for quickly applying formInput rules to the class for our input
+    @include formInput;
+  }
+
+  &__colors {
+    display: flex;
+    flex-wrap: wrap;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .error {
+    background-color: var(--theme-error-100);
+    border: 1px solid var(--theme-error-400);
+  }
+}
+
+.chip {
+  border-radius: 50%;
+  border: $style-stroke-width-m solid transparent;
+  height: base(1.25);
+  width: base(1.25);
+  margin-right: base(0.5);
+  box-shadow: none;
+
+  &--selected {
+    box-shadow: 0 0 0 $style-stroke-width-m var(--color-success-300);
+  }
+
+  &--clickable {
+    cursor: pointer;
+  }
+}

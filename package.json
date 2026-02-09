@@ -10,6 +10,7 @@
     "dev": "pnpm --filter payload-utilities dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
+    "typecheck": "pnpm -r --if-present typecheck",
     "clean": "pnpm -r clean",
     "create-db": "docker volume create payload-databases",
     "start-db": "docker compose -p payload-databases up -d"
