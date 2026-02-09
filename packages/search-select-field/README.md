@@ -22,7 +22,7 @@ import { selectSearch } from '@whatworks/payload-search-select-field'
 selectSearch({
   name: 'stripeCustomer',
   custom: {
-    searchFunction: async ({ query, limit }) => {
+    searchFunction: async ({ query }) => {
       return [{ value: 'cus_123', label: `Result for ${query}` }]
     },
   },

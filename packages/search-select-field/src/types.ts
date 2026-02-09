@@ -14,7 +14,6 @@ export type SearchSelectOption = {
 export type SearchSelectFunctionArgs = {
   req: PayloadRequest
   query: string
-  limit: number
   selectedValues: string[]
   field: FlattenedField
   collection?: SanitizedCollectionConfig
@@ -30,7 +29,6 @@ export type SearchSelectRequest = {
   slug: string
   schemaPath: string
   query?: string
-  limit?: number
   selectedValues?: string[]
 }
 

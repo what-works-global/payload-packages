@@ -66,11 +66,11 @@ export default buildConfig({
           name: 'fruits',
           label: 'Fruits',
           hasMany: true,
-          searchFunction: async ({ query, limit, selectedValues }) => {
+          searchFunction: async ({ query, selectedValues }) => {
             const normalized = query.trim().toLowerCase()
             const queryFiltered = fruitsEntries
               .filter(([value]) => value.includes(normalized))
-              .slice(0, limit)
+              .slice(0, 10)
             const selectedFiltered = fruitsEntries.filter(([value]) =>
               selectedValues.includes(value),
             )

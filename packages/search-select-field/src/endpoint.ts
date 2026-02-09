@@ -8,7 +8,6 @@ import { getFieldByPath } from 'payload'
 import type { SearchSelectRequest, SearchSelectResponse, SearchSelectFunction } from './types.js'
 import { searchSelectEndpoint } from './endpointName.js'
 
-const maxLimit = 50
 const maxQueryLength = 200
 
 const parseBody = async (req: PayloadRequest): Promise<Partial<SearchSelectRequest>> => {
@@ -47,7 +46,6 @@ export const searchSelectEndpointHandler = (): Endpoint => ({
       return Response.json({ error: 'Missing slug or schemaPath' }, { status: 400 })
     }
 
-    const safeLimit = Math.min(Number(body.limit) || 10, maxLimit)
     const safeQuery = String(body.query || '').slice(0, maxQueryLength)
     const selectedValues = Array.isArray(body.selectedValues)
       ? body.selectedValues.map((value) => String(value))
@@ -93,7 +91,6 @@ export const searchSelectEndpointHandler = (): Endpoint => ({
     const options = await searchFunction({
       req,
       query: safeQuery,
-      limit: safeLimit,
       selectedValues,
       field: fieldResult.field,
       collection: collectionConfig,

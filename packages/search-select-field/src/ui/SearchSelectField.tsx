@@ -6,7 +6,6 @@ import { SelectInput, useConfig, useDocumentInfo, useField } from '@payloadcms/u
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { searchSelectEndpoint } from '../endpointName.js'
 
-const defaultLimit = 10
 const debounceMs = 300
 
 export const SearchSelectField: TextFieldClientComponent = (props) => {
@@ -77,7 +76,6 @@ export const SearchSelectField: TextFieldClientComponent = (props) => {
           slug,
           schemaPath,
           query,
-          limit: defaultLimit,
           selectedValues,
         }),
       })
