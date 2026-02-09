@@ -1,10 +1,11 @@
-import type { Endpoint, PayloadRequest, SanitizedCollectionConfig, SanitizedGlobalConfig } from 'payload'
-import { getFieldByPath } from 'payload'
 import type {
-  SearchSelectRequest,
-  SearchSelectResponse,
-  SearchSelectFunction,
-} from './types.js'
+  Endpoint,
+  PayloadRequest,
+  SanitizedCollectionConfig,
+  SanitizedGlobalConfig,
+} from 'payload'
+import { getFieldByPath } from 'payload'
+import type { SearchSelectRequest, SearchSelectResponse, SearchSelectFunction } from './types.js'
 import { searchSelectEndpoint } from './endpointName.js'
 
 const maxLimit = 50
@@ -66,7 +67,7 @@ export const searchSelectEndpointHandler = (): Endpoint => ({
 
     const fieldResult = getFieldByPath({
       fields,
-      path: schemaPath,
+      path: schemaPath.split('.').slice(1).join('.'),
     })
 
     if (!fieldResult) {
