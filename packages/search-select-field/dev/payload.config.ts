@@ -3,7 +3,7 @@ import path from 'path'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 
-import { searchSelectPlugin, selectSearch } from '../src/index.js'
+import { searchSelectPlugin, selectSearch } from '@whatworks/payload-search-select-field'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)

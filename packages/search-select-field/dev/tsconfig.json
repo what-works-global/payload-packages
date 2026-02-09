@@ -1,17 +1,31 @@
 {
   "compilerOptions": {
     "target": "es5",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "./dist",
-    "rootDir": ".",
-    "jsx": "preserve",
+    "rootDir": "..",
+    "jsx": "react-jsx",
     "paths": {
-      "@payload-config": ["./payload.config.ts"],
-      "payload/generated-types": ["./payload-types.ts"]
+      "@payload-config": [
+        "./payload.config.ts"
+      ],
+      "payload/generated-types": [
+        "./payload-types.ts"
+      ],
+      "@whatworks/payload-search-select-field": [
+        "../src/index.ts"
+      ],
+      "@whatworks/payload-search-select-field/*": [
+        "../src/*"
+      ]
     },
     "noEmit": true,
     "incremental": true,
@@ -25,6 +39,17 @@
       }
     ]
   },
-  "include": ["**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "dist", "build"]
+  "include": [
+    "../src/**/*.ts",
+    "../src/**/*.tsx",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build"
+  ]
 }
