@@ -6,12 +6,32 @@ export type SelectSearchFieldArgs = {
   admin?: TextField['admin']
   custom?: Record<string, unknown>
   hasMany?: boolean
+  /** Send full form data to `searchFunction` as `data` on each request.
+   * @default false
+   */
+  passDataToSearchFunction?: boolean
+  /** Send sibling field data to `searchFunction` as `siblingData` on each request.
+   * @default false
+   */
+  passSiblingDataToSearchFunction?: boolean
   searchFunction: SelectSearchFunction
   type?: 'text'
 } & Omit<TextField, 'admin' | 'custom' | 'hasMany' | 'type'>
 
 export const selectSearchField = (args: SelectSearchFieldArgs): Field => {
-  const { searchFunction, ...rest } = args
+  const { passDataToSearchFunction, passSiblingDataToSearchFunction, searchFunction, ...rest } =
+    args
+
+  const resolvedPassDataToSearchFunction =
+    passDataToSearchFunction ??
+    (args.custom as { passDataToSearchFunction?: boolean } | undefined)?.passDataToSearchFunction ??
+    false
+  const resolvedPassSiblingDataToSearchFunction =
+    passSiblingDataToSearchFunction ??
+    (args.custom as { passSiblingDataToSearchFunction?: boolean } | undefined)
+      ?.passSiblingDataToSearchFunction ??
+    false
+
   return {
     ...rest,
     type: 'text',
@@ -19,9 +39,13 @@ export const selectSearchField = (args: SelectSearchFieldArgs): Field => {
       ...args.admin,
       components: {
         ...args.admin?.components,
-        Field:
-          args.admin?.components?.Field ??
-          '@whatworks/payload-select-search-field/client#SelectSearchField',
+        Field: {
+          clientProps: {
+            passDataToSearchFunction: resolvedPassDataToSearchFunction,
+            passSiblingDataToSearchFunction: resolvedPassSiblingDataToSearchFunction,
+          },
+          path: '@whatworks/payload-select-search-field/client#SelectSearchField',
+        },
       },
     },
     custom: {

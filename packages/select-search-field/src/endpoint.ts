@@ -1,4 +1,5 @@
 import type {
+  Data,
   Endpoint,
   PayloadRequest,
   SanitizedCollectionConfig,
@@ -23,6 +24,14 @@ const parseBody = async (req: PayloadRequest): Promise<Partial<SelectSearchReque
   }
 
   return {}
+}
+
+const parseData = (value: unknown): Data | undefined => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Data
+  }
+
+  return undefined
 }
 
 export const selectSearchEndpointHandler = (): Endpoint => ({
@@ -51,6 +60,8 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
     const selectedValues = Array.isArray(body.selectedValues)
       ? body.selectedValues.map((value) => String(value))
       : []
+    const data = parseData(body.data)
+    const siblingData = parseData(body.siblingData)
 
     const config = req.payload.config
     const entityConfig =
@@ -91,11 +102,13 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
 
     const options = await searchFunction({
       collection: collectionConfig,
+      data,
       field: fieldResult.field,
       global: globalConfig,
       query: safeQuery,
       req,
       selectedValues,
+      siblingData,
     })
 
     if (!Array.isArray(options)) {

@@ -28,6 +28,8 @@ import { selectSearch } from '@whatworks/payload-select-search-field'
 selectSearch({
   name: 'stripeCustomer',
   hasMany: true,
+  passDataToSearchFunction: true,
+  passSiblingDataToSearchFunction: true,
   searchFunction: async ({ query, selectedValues }) => {
     return [
       { value: 'cus_123', label: `Result for ${query}` },
@@ -43,6 +45,8 @@ selectSearch({
 `searchFunction` receives:
 - `query`: the current input text.
 - `selectedValues`: an array of currently selected values (empty array when nothing is selected).
+- `siblingData`: sibling field values for the current field path when `passSiblingDataToSearchFunction: true`.
+- `data`: full form data when `passDataToSearchFunction: true`.
 - `req`, `field`, and `collection`/`global` context.
 
 The client component calls the shared endpoint path from `selectSearchEndpoint`.

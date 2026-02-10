@@ -1,16 +1,23 @@
 'use client'
 
 import type { ReactSelectOption } from '@payloadcms/ui'
-import type { OptionObject, TextFieldClientComponent } from 'payload'
+import type { OptionObject, TextFieldClientComponent, TextFieldClientProps } from 'payload'
 
-import { SelectInput, useConfig, useDocumentInfo, useField } from '@payloadcms/ui'
+import { SelectInput, useConfig, useDocumentInfo, useField, useForm } from '@payloadcms/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import type { SelectSearchRequest } from '../types.js'
 
 import { selectSearchEndpoint } from '../endpointName.js'
 
 const debounceMs = 300
 
-export const SelectSearchField: TextFieldClientComponent = (props) => {
+type SelectSearchFieldClientProps = {
+  passDataToSearchFunction?: boolean
+  passSiblingDataToSearchFunction?: boolean
+} & TextFieldClientProps
+
+export const SelectSearchField: TextFieldClientComponent = (props: SelectSearchFieldClientProps) => {
   const { field, path, schemaPath: schemaPathProp } = props
 
   const { setValue, showError, value } = useField<string | string[]>({
@@ -19,6 +26,7 @@ export const SelectSearchField: TextFieldClientComponent = (props) => {
 
   const { collectionSlug, globalSlug } = useDocumentInfo()
   const { config } = useConfig()
+  const { getData, getSiblingData } = useForm()
 
   const [options, setOptions] = useState<OptionObject[]>([])
 
@@ -32,6 +40,8 @@ export const SelectSearchField: TextFieldClientComponent = (props) => {
 
   const schemaPath = schemaPathProp ?? field.name
   const hasMany = field.hasMany ?? false
+  const passDataToSearchFunction = props.passDataToSearchFunction === true
+  const passSiblingDataToSearchFunction = props.passSiblingDataToSearchFunction === true
 
   const apiPath = config.routes?.api || '/api'
   const apiRoute = apiPath.startsWith('/') ? apiPath : `/${apiPath}`
@@ -66,14 +76,24 @@ export const SelectSearchField: TextFieldClientComponent = (props) => {
 
       setRemoteError(null)
 
+      const payload: SelectSearchRequest = {
+        slug,
+        entityType,
+        query,
+        schemaPath,
+        selectedValues,
+      }
+
+      if (passDataToSearchFunction) {
+        payload.data = getData()
+      }
+
+      if (passSiblingDataToSearchFunction) {
+        payload.siblingData = getSiblingData(path)
+      }
+
       const res = await fetch(endpointURL, {
-        body: JSON.stringify({
-          slug,
-          entityType,
-          query,
-          schemaPath,
-          selectedValues,
-        }),
+        body: JSON.stringify(payload),
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
@@ -93,7 +113,18 @@ export const SelectSearchField: TextFieldClientComponent = (props) => {
       const data = (await res.json()) as { options?: OptionObject[] }
       setOptions(Array.isArray(data.options) ? data.options : [])
     },
-    [endpointURL, entityType, schemaPath, selectedValues, slug],
+    [
+      endpointURL,
+      entityType,
+      getData,
+      getSiblingData,
+      passDataToSearchFunction,
+      passSiblingDataToSearchFunction,
+      path,
+      schemaPath,
+      selectedValues,
+      slug,
+    ],
   )
 
   useEffect(() => {

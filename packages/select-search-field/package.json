@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-select-search-field",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Payload plugin and field component for server-backed search select fields.",
   "license": "MIT",
   "type": "module",
@@ -23,9 +23,9 @@
     "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
     "generate:importmap": "pnpm dev:generate-importmap",
     "generate:types": "pnpm dev:generate-types",
-    "lint": "eslint",
-    "lint:fix": "eslint ./src --fix",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "typecheck": "tsc --outDir dist --rootDir ./src"
   },
   "repository": {
     "type": "git",

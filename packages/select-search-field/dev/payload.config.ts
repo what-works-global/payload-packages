@@ -64,6 +64,10 @@ export default buildConfig({
     {
       slug: 'example',
       fields: [
+        {
+          name: 'test',
+          type: 'text',
+        },
         selectSearchField({
           name: 'fruits',
           hasMany: true,
