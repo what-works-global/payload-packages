@@ -1,11 +1,11 @@
-export { searchSelectPlugin } from './plugin.js'
-export { searchSelectEndpoint } from './endpointName.js'
-export { searchSelectEndpointHandler } from './endpoint.js'
+export { selectSearchPlugin as selectSearchPlugin } from './plugin.js'
+export { selectSearchEndpoint } from './endpointName.js'
+export { selectSearchEndpointHandler } from './endpoint.js'
 export { selectSearch } from './selectSearch.js'
 export type {
-  SearchSelectFunction,
-  SearchSelectFunctionArgs,
-  SearchSelectOption,
-  SearchSelectRequest,
-  SearchSelectResponse,
+  SelectSearchFunction,
+  SelectSearchFunctionArgs,
+  SelectSearchOption,
+  SelectSearchRequest,
+  SelectSearchResponse,
 } from './types.js'

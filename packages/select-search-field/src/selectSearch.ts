@@ -1,10 +1,10 @@
 import type { Field, TextField } from 'payload'
-import type { SearchSelectFunction } from './types.js'
+import type { SelectSearchFunction } from './types.js'
 
 export type SelectSearchFieldArgs = Omit<TextField, 'admin' | 'custom' | 'type' | 'hasMany'> & {
   hasMany?: boolean
   type?: 'text'
-  searchFunction: SearchSelectFunction
+  searchFunction: SelectSearchFunction
   custom?: Record<string, unknown>
   admin?: TextField['admin']
 }
@@ -24,7 +24,7 @@ export const selectSearch = (args: SelectSearchFieldArgs): Field => {
         ...args.admin?.components,
         Field:
           args.admin?.components?.Field ??
-          '@whatworks/payload-search-select-field/client#SearchSelectField',
+          '@whatworks/payload-select-search-field/client#SelectSearchField',
       },
     },
   } as Field

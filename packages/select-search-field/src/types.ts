@@ -5,13 +5,13 @@ import type {
   SanitizedGlobalConfig,
 } from 'payload'
 
-export type SearchSelectOption = {
+export type SelectSearchOption = {
   label: string
   value: string
   [key: string]: unknown
 }
 
-export type SearchSelectFunctionArgs = {
+export type SelectSearchFunctionArgs = {
   req: PayloadRequest
   query: string
   selectedValues: string[]
@@ -20,11 +20,11 @@ export type SearchSelectFunctionArgs = {
   global?: SanitizedGlobalConfig
 }
 
-export type SearchSelectFunction = (
-  args: SearchSelectFunctionArgs,
-) => Promise<SearchSelectOption[]> | SearchSelectOption[]
+export type SelectSearchFunction = (
+  args: SelectSearchFunctionArgs,
+) => Promise<SelectSearchOption[]> | SelectSearchOption[]
 
-export type SearchSelectRequest = {
+export type SelectSearchRequest = {
   entityType: 'collection' | 'global'
   slug: string
   schemaPath: string
@@ -32,6 +32,6 @@ export type SearchSelectRequest = {
   selectedValues?: string[]
 }
 
-export type SearchSelectResponse = {
-  options: SearchSelectOption[]
+export type SelectSearchResponse = {
+  options: SelectSearchOption[]
 }

@@ -1,1 +1,1 @@
-export { SearchSelectField } from '../ui/SearchSelectField.js'
+export { SelectSearchField } from '../ui/SelectSearchField.js'

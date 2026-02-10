@@ -1,5 +1,5 @@
 {
-  "name": "@whatworks/payload-search-select-field",
+  "name": "@whatworks/payload-select-search-field",
   "version": "0.1.0",
   "description": "Payload plugin and field component for server-backed search select fields.",
   "license": "MIT",

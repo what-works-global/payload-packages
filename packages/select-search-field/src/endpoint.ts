@@ -5,32 +5,32 @@ import type {
   SanitizedGlobalConfig,
 } from 'payload'
 import { getFieldByPath } from 'payload'
-import type { SearchSelectRequest, SearchSelectResponse, SearchSelectFunction } from './types.js'
-import { searchSelectEndpoint } from './endpointName.js'
+import type { SelectSearchRequest, SelectSearchResponse, SelectSearchFunction } from './types.js'
+import { selectSearchEndpoint } from './endpointName.js'
 
 const maxQueryLength = 200
 
-const parseBody = async (req: PayloadRequest): Promise<Partial<SearchSelectRequest>> => {
+const parseBody = async (req: PayloadRequest): Promise<Partial<SelectSearchRequest>> => {
   if (typeof req.json === 'function') {
-    return (await req.json()) as Partial<SearchSelectRequest>
+    return (await req.json()) as Partial<SelectSearchRequest>
   }
 
   if (req.body && typeof req.body === 'object') {
-    return req.body as Partial<SearchSelectRequest>
+    return req.body as Partial<SelectSearchRequest>
   }
 
   return {}
 }
 
-export const searchSelectEndpointHandler = (): Endpoint => ({
+export const selectSearchEndpointHandler = (): Endpoint => ({
   method: 'post',
-  path: searchSelectEndpoint,
+  path: selectSearchEndpoint,
   handler: async (req: PayloadRequest) => {
     if (!req.user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    let body: Partial<SearchSelectRequest>
+    let body: Partial<SelectSearchRequest>
     try {
       body = await parseBody(req)
     } catch (error) {
@@ -76,7 +76,7 @@ export const searchSelectEndpointHandler = (): Endpoint => ({
     }
 
     const searchFunction = fieldResult?.field?.custom?.searchFunction as
-      | SearchSelectFunction
+      | SelectSearchFunction
       | undefined
 
     if (typeof searchFunction !== 'function') {
@@ -101,7 +101,7 @@ export const searchSelectEndpointHandler = (): Endpoint => ({
       return Response.json({ error: 'Invalid searchFunction response' }, { status: 500 })
     }
 
-    const res: SearchSelectResponse = {
+    const res: SelectSearchResponse = {
       options,
     }
 

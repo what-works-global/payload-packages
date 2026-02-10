@@ -3,13 +3,13 @@ import path from 'path'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 
-import { searchSelectPlugin, selectSearch } from '@whatworks/payload-search-select-field'
+import { selectSearchPlugin, selectSearch } from '@whatworks/payload-select-search-field'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 const databaseURL =
-  process.env.DATABASE_URI || 'mongodb://127.0.0.1:27017/payload-search-select-dev'
+  process.env.DATABASE_URI || 'mongodb://127.0.0.1:27017/payload-select-search-dev'
 
 const fruits = [
   'Apple',
@@ -92,8 +92,8 @@ export default buildConfig({
   db: mongooseAdapter({
     url: databaseURL,
   }),
-  plugins: [searchSelectPlugin()],
-  secret: process.env.PAYLOAD_SECRET || 'search-select-dev-secret',
+  plugins: [selectSearchPlugin()],
+  secret: process.env.PAYLOAD_SECRET || 'select-search-dev-secret',
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },

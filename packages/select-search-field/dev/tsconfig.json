@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "es5",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "strict": true,
     "esModuleInterop": true,
@@ -14,18 +10,10 @@
     "rootDir": "..",
     "jsx": "react-jsx",
     "paths": {
-      "@payload-config": [
-        "./payload.config.ts"
-      ],
-      "payload/generated-types": [
-        "./payload-types.ts"
-      ],
-      "@whatworks/payload-search-select-field": [
-        "../src/index.ts"
-      ],
-      "@whatworks/payload-search-select-field/*": [
-        "../src/*"
-      ]
+      "@payload-config": ["./payload.config.ts"],
+      "payload/generated-types": ["./payload-types.ts"],
+      "@whatworks/payload-select-search-field": ["../src/index.ts"],
+      "@whatworks/payload-select-search-field/*": ["../src/*"]
     },
     "noEmit": true,
     "incremental": true,
@@ -47,9 +35,5 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "build"
-  ]
+  "exclude": ["node_modules", "dist", "build"]
 }

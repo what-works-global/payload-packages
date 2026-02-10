@@ -1,9 +1,9 @@
 import type { Plugin } from 'payload'
-import { searchSelectEndpointHandler } from './endpoint.js'
+import { selectSearchEndpointHandler } from './endpoint.js'
 
-export const searchSelectPlugin = (): Plugin => {
+export const selectSearchPlugin = (): Plugin => {
   return async (config) => {
-    config.endpoints = [...(config.endpoints || []), searchSelectEndpointHandler()]
+    config.endpoints = [...(config.endpoints || []), selectSearchEndpointHandler()]
     return config
   }
 }

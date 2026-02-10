@@ -8,17 +8,17 @@ and passes the current search query plus any currently selected values.
 Add the plugin:
 
 ```ts
-import { searchSelectPlugin } from '@whatworks/payload-search-select-field'
+import { selectSearchPlugin } from '@whatworks/payload-select-search-field'
 
 export default buildConfig({
-  plugins: [searchSelectPlugin()],
+  plugins: [selectSearchPlugin()],
 })
 ```
 
-Add a field with `selectSearch` (recommended):
+Add a field with `selectSearch` (recommended):c
 
 ```ts
-import { selectSearch } from '@whatworks/payload-search-select-field'
+import { selectSearch } from '@whatworks/payload-select-search-field'
 
 selectSearch({
   name: 'stripeCustomer',
@@ -34,7 +34,7 @@ selectSearch({
   },
   admin: {
     components: {
-      Field: '@whatworks/payload-search-select-field/client#SearchSelectField',
+      Field: '@whatworks/payload-select-search-field/client#SelectSearchField',
     },
   },
 })
@@ -45,4 +45,4 @@ selectSearch({
 - `selectedValues`: an array of currently selected values (empty array when nothing is selected).
 - `req`, `field`, and `collection`/`global` context.
 
-The client component calls the shared endpoint path from `searchSelectEndpoint`.
+The client component calls the shared endpoint path from `selectSearchEndpoint`.

@@ -4,11 +4,11 @@ import type { OptionObject, TextFieldClientComponent } from 'payload'
 import type { ReactSelectOption } from '@payloadcms/ui'
 import { SelectInput, useConfig, useDocumentInfo, useField } from '@payloadcms/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { searchSelectEndpoint } from '../endpointName.js'
+import { selectSearchEndpoint } from '../endpointName.js'
 
 const debounceMs = 300
 
-export const SearchSelectField: TextFieldClientComponent = (props) => {
+export const SelectSearchField: TextFieldClientComponent = (props) => {
   const { field, path, schemaPath: schemaPathProp } = props
 
   const { value, setValue, showError } = useField<string | string[]>({
@@ -34,7 +34,7 @@ export const SearchSelectField: TextFieldClientComponent = (props) => {
   const apiPath = config.routes?.api || '/api'
   const apiRoute = apiPath.startsWith('/') ? apiPath : `/${apiPath}`
   const baseURL = config.serverURL || ''
-  const endpointURL = `${baseURL}${apiRoute}${searchSelectEndpoint}`
+  const endpointURL = `${baseURL}${apiRoute}${selectSearchEndpoint}`
 
   const selectedValues = useMemo(() => {
     if (hasMany) {
@@ -147,7 +147,7 @@ export const SearchSelectField: TextFieldClientComponent = (props) => {
       return Array.isArray(value) ? value : []
     }
 
-    return Array.isArray(value) ? '' : value ?? ''
+    return Array.isArray(value) ? '' : (value ?? '')
   }, [hasMany, value])
 
   return (

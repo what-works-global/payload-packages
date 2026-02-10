@@ -1,1 +1,1 @@
-export const searchSelectEndpoint = '/search-select'
+export const selectSearchEndpoint = '/select-search'
