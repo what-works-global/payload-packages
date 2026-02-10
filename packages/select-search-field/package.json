@@ -1,0 +1,79 @@
+{
+  "name": "@whatworks/payload-select-search-field",
+  "version": "1.0.0",
+  "description": "Payload plugin and field component for server-backed search select fields.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rimraf {dist,*.tsbuildinfo,package}",
+    "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png}\" dist/",
+    "dev": "next dev dev",
+    "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "prepack": "pnpm prepublishOnly",
+    "prepublishOnly": "pnpm clean && pnpm build && pnpm copyfiles",
+    "typecheck": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "import": "./dist/exports/client.js",
+        "types": "./dist/exports/client.d.ts",
+        "default": "./dist/exports/client.js"
+      }
+    },
+    "registry": "https://registry.npmjs.org/"
+  },
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "import": "./src/exports/client.ts",
+      "types": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    }
+  },
+  "peerDependencies": {
+    "@payloadcms/ui": "^3.0.0",
+    "payload": "^3.0.0",
+    "react": ">=18.2.0 <20",
+    "react-dom": ">=18.2.0 <20"
+  },
+  "devDependencies": {
+    "@payloadcms/db-mongodb": "^3.0.0",
+    "@payloadcms/eslint-config": "^3.0.0",
+    "@payloadcms/next": "^3.0.0",
+    "@types/node": "^22.5.4",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.2",
+    "copyfiles": "^2.4.1",
+    "cross-env": "^7.0.3",
+    "next": "^16.1.6",
+    "payload": "^3.0.0",
+    "rimraf": "^6.0.1",
+    "sharp": "^0.34.1",
+    "typescript": "5.5.3"
+  }
+}

@@ -10,26 +10,31 @@
     "dev": "pnpm --filter payload-utilities dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
+    "typecheck": "pnpm -r --if-present typecheck",
     "clean": "pnpm -r clean",
     "create-db": "docker volume create payload-databases",
     "start-db": "docker compose -p payload-databases up -d"
   },
   "devDependencies": {
-    "@payloadcms/db-mongodb": "3.37.0",
-    "@payloadcms/db-postgres": "3.37.0",
-    "@payloadcms/db-sqlite": "3.37.0",
-    "@payloadcms/eslint-config": "3.9.0",
-    "@payloadcms/next": "3.37.0",
-    "@payloadcms/richtext-lexical": "3.37.0",
-    "@payloadcms/ui": "3.37.0",
-    "@payloadcms/translations": "3.37.0",
-    "payload": "3.37.0"
+    "@payloadcms/db-mongodb": "^3.0.0",
+    "@payloadcms/db-postgres": "^3.0.0",
+    "@payloadcms/db-sqlite": "^3.0.0",
+    "@payloadcms/eslint-config": "^3.0.0",
+    "@payloadcms/next": "^3.0.0",
+    "@payloadcms/richtext-lexical": "^3.0.0",
+    "@payloadcms/ui": "^3.0.0",
+    "@payloadcms/translations": "^3.0.0",
+    "payload": "^3.0.0"
   },
   "engines": {
     "node": "^18.20.2 || >=20.9.0",
     "pnpm": "^9 || ^10"
   },
   "pnpm": {
+    "overrides": {
+      "payload": "^3.0.0",
+      "@payloadcms/*": "^3.0.0"
+    },
     "onlyBuiltDependencies": [
       "sharp",
       "esbuild",
