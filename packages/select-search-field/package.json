@@ -27,6 +27,11 @@
     "lint:fix": "eslint ./src --fix",
     "typecheck": "tsc --noEmit"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/what-works-global/payload-packages",
+    "directory": "packages/select-search-field"
+  },
   "publishConfig": {
     "access": "public",
     "main": "./dist/index.js",
