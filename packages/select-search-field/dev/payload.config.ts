@@ -1,8 +1,8 @@
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
+import { selectSearchField, selectSearchPlugin } from '@whatworks/payload-select-search-field'
 import path from 'path'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
-import { selectSearchPlugin, selectSearchField } from '@whatworks/payload-select-search-field'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -42,13 +42,13 @@ const fruitsEntries = fruits.map((fruit) => [fruit.toLowerCase(), fruit])
 
 export default buildConfig({
   admin: {
-    user: 'users',
     autoLogin: {
       email: 'dev@payloadcms.com',
     },
     importMap: {
       baseDir: path.resolve(dirname),
     },
+    user: 'users',
   },
   collections: [
     {
@@ -57,15 +57,18 @@ export default buildConfig({
       fields: [],
     },
   ],
+  db: mongooseAdapter({
+    url: databaseURL,
+  }),
   globals: [
     {
       slug: 'example',
       fields: [
         selectSearchField({
           name: 'fruits',
-          label: 'Fruits',
           hasMany: true,
-          searchFunction: async ({ query, selectedValues }) => {
+          label: 'Fruits',
+          searchFunction: ({ query, selectedValues }) => {
             const normalized = query.trim().toLowerCase()
             const queryFiltered = fruitsEntries
               .filter(([value]) => value.includes(normalized))
@@ -75,27 +78,21 @@ export default buildConfig({
             )
             const seen = new Set<string>()
             const combined = [...queryFiltered, ...selectedFiltered].filter(([value]) => {
-              if (seen.has(value)) return false
+              if (seen.has(value)) {
+                return false
+              }
               seen.add(value)
               return true
             })
             return combined.map(([value, label]) => ({
-              label: label,
-              value: value,
+              label,
+              value,
             }))
           },
         }),
       ],
     },
   ],
-  db: mongooseAdapter({
-    url: databaseURL,
-  }),
-  plugins: [selectSearchPlugin()],
-  secret: process.env.PAYLOAD_SECRET || 'select-search-dev-secret',
-  typescript: {
-    outputFile: path.resolve(dirname, 'payload-types.ts'),
-  },
   onInit: async (payload) => {
     const existing = await payload.find({
       collection: 'users',
@@ -111,5 +108,10 @@ export default buildConfig({
         },
       })
     }
+  },
+  plugins: [selectSearchPlugin()],
+  secret: process.env.PAYLOAD_SECRET || 'select-search-dev-secret',
+  typescript: {
+    outputFile: path.resolve(dirname, 'payload-types.ts'),
   },
 })
