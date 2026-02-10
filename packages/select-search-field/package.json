@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-select-search-field",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Payload plugin and field component for server-backed search select fields.",
   "license": "MIT",
   "type": "module",
@@ -25,6 +25,7 @@
     "generate:types": "pnpm dev:generate-types",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "prepublishOnly": "rimraf tsconfig.tsbuildinfo && pnpm clean && pnpm build",
     "typecheck": "tsc --outDir dist --rootDir ./src"
   },
   "repository": {
