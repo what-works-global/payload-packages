@@ -1,23 +1,20 @@
 import type { Field, TextField } from 'payload'
+
 import type { SelectSearchFunction } from './types.js'
 
-export type SelectSearchFieldArgs = Omit<TextField, 'admin' | 'custom' | 'type' | 'hasMany'> & {
-  hasMany?: boolean
-  type?: 'text'
-  searchFunction: SelectSearchFunction
-  custom?: Record<string, unknown>
+export type SelectSearchFieldArgs = {
   admin?: TextField['admin']
-}
+  custom?: Record<string, unknown>
+  hasMany?: boolean
+  searchFunction: SelectSearchFunction
+  type?: 'text'
+} & Omit<TextField, 'admin' | 'custom' | 'hasMany' | 'type'>
 
 export const selectSearchField = (args: SelectSearchFieldArgs): Field => {
   const { searchFunction, ...rest } = args
   return {
     ...rest,
     type: 'text',
-    custom: {
-      ...args.custom,
-      searchFunction: args.searchFunction,
-    },
     admin: {
       ...args.admin,
       components: {
@@ -26,6 +23,10 @@ export const selectSearchField = (args: SelectSearchFieldArgs): Field => {
           args.admin?.components?.Field ??
           '@whatworks/payload-select-search-field/client#SelectSearchField',
       },
+    },
+    custom: {
+      ...args.custom,
+      searchFunction,
     },
   } as Field
 }

@@ -6,18 +6,18 @@ import type {
 } from 'payload'
 
 export type SelectSearchOption = {
+  [key: string]: unknown
   label: string
   value: string
-  [key: string]: unknown
 }
 
 export type SelectSearchFunctionArgs = {
-  req: PayloadRequest
-  query: string
-  selectedValues: string[]
-  field: FlattenedField
   collection?: SanitizedCollectionConfig
+  field: FlattenedField
   global?: SanitizedGlobalConfig
+  query: string
+  req: PayloadRequest
+  selectedValues: string[]
 }
 
 export type SelectSearchFunction = (
@@ -26,10 +26,10 @@ export type SelectSearchFunction = (
 
 export type SelectSearchRequest = {
   entityType: 'collection' | 'global'
-  slug: string
-  schemaPath: string
   query?: string
+  schemaPath: string
   selectedValues?: string[]
+  slug: string
 }
 
 export type SelectSearchResponse = {

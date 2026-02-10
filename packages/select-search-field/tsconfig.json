@@ -1,10 +1,8 @@
 {
   "compilerOptions": {
     "baseUrl": ".",
-    "declarationDir": "./dist",
-    "outDir": "./dist",
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "rootDir": "./src",
+    "rootDir": "./",
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,

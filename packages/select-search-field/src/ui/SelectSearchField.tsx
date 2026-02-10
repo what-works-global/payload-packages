@@ -1,9 +1,11 @@
 'use client'
 
-import type { OptionObject, TextFieldClientComponent } from 'payload'
 import type { ReactSelectOption } from '@payloadcms/ui'
+import type { OptionObject, TextFieldClientComponent } from 'payload'
+
 import { SelectInput, useConfig, useDocumentInfo, useField } from '@payloadcms/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
 import { selectSearchEndpoint } from '../endpointName.js'
 
 const debounceMs = 300
@@ -11,7 +13,7 @@ const debounceMs = 300
 export const SelectSearchField: TextFieldClientComponent = (props) => {
   const { field, path, schemaPath: schemaPathProp } = props
 
-  const { value, setValue, showError } = useField<string | string[]>({
+  const { setValue, showError, value } = useField<string | string[]>({
     path,
   })
 
@@ -21,7 +23,7 @@ export const SelectSearchField: TextFieldClientComponent = (props) => {
   const [options, setOptions] = useState<OptionObject[]>([])
 
   const [inputValue, setInputValue] = useState('')
-  const [remoteError, setRemoteError] = useState<string | null>(null)
+  const [remoteError, setRemoteError] = useState<null | string>(null)
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -65,19 +67,19 @@ export const SelectSearchField: TextFieldClientComponent = (props) => {
       setRemoteError(null)
 
       const res = await fetch(endpointURL, {
-        method: 'POST',
+        body: JSON.stringify({
+          slug,
+          entityType,
+          query,
+          schemaPath,
+          selectedValues,
+        }),
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include',
+        method: 'POST',
         signal: controller.signal,
-        body: JSON.stringify({
-          entityType,
-          slug,
-          schemaPath,
-          query,
-          selectedValues,
-        }),
       })
 
       if (!res.ok) {
@@ -117,7 +119,7 @@ export const SelectSearchField: TextFieldClientComponent = (props) => {
   }, [])
 
   const handleChange = useCallback(
-    (option: ReactSelectOption | ReactSelectOption[] | null) => {
+    (option: null | ReactSelectOption | ReactSelectOption[]) => {
       if (Array.isArray(option)) {
         const values = option.map((entry) => String(entry.value))
         setValue(values)

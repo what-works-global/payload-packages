@@ -4,8 +4,11 @@ import type {
   SanitizedCollectionConfig,
   SanitizedGlobalConfig,
 } from 'payload'
+
 import { getFieldByPath } from 'payload'
-import type { SelectSearchRequest, SelectSearchResponse, SelectSearchFunction } from './types.js'
+
+import type { SelectSearchFunction, SelectSearchRequest, SelectSearchResponse } from './types.js'
+
 import { selectSearchEndpoint } from './endpointName.js'
 
 const maxQueryLength = 200
@@ -23,8 +26,6 @@ const parseBody = async (req: PayloadRequest): Promise<Partial<SelectSearchReque
 }
 
 export const selectSearchEndpointHandler = (): Endpoint => ({
-  method: 'post',
-  path: selectSearchEndpoint,
   handler: async (req: PayloadRequest) => {
     if (!req.user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -33,11 +34,11 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
     let body: Partial<SelectSearchRequest>
     try {
       body = await parseBody(req)
-    } catch (error) {
+    } catch {
       return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { entityType, slug, schemaPath } = body
+    const { slug, entityType, schemaPath } = body
     if (entityType !== 'collection' && entityType !== 'global') {
       return Response.json({ error: 'Invalid entityType' }, { status: 400 })
     }
@@ -89,12 +90,12 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
       entityType === 'global' ? (entityConfig as SanitizedGlobalConfig) : undefined
 
     const options = await searchFunction({
-      req,
-      query: safeQuery,
-      selectedValues,
-      field: fieldResult.field,
       collection: collectionConfig,
+      field: fieldResult.field,
       global: globalConfig,
+      query: safeQuery,
+      req,
+      selectedValues,
     })
 
     if (!Array.isArray(options)) {
@@ -107,4 +108,6 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
 
     return Response.json(res)
   },
+  method: 'post',
+  path: selectSearchEndpoint,
 })
