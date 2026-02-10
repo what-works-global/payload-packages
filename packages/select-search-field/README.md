@@ -15,7 +15,7 @@ export default buildConfig({
 })
 ```
 
-Add a field with `selectSearch` (recommended):c
+Add a field with `selectSearch` (recommended):
 
 ```ts
 import { selectSearch } from '@whatworks/payload-select-search-field'
@@ -31,11 +31,6 @@ selectSearch({
         label: `Selected: ${value}`,
       })),
     ]
-  },
-  admin: {
-    components: {
-      Field: '@whatworks/payload-select-search-field/client#SelectSearchField',
-    },
   },
 })
 ```
