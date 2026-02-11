@@ -28,6 +28,15 @@ const serializeRefetchValue = (value: unknown): string => {
   }
 }
 
+const isAbortError = (error: unknown): boolean => {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    error.name === 'AbortError'
+  )
+}
+
 type SelectSearchFieldClientProps = {
   debounce?: {
     query?: number
@@ -140,26 +149,36 @@ export const SelectSearchField: TextFieldClientComponent = (
         payload.siblingData = getSiblingData(path)
       }
 
-      const res = await fetch(endpointURL, {
-        body: JSON.stringify(payload),
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        method: 'POST',
-        signal: controller.signal,
-      })
+      try {
+        const res = await fetch(endpointURL, {
+          body: JSON.stringify(payload),
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+          signal: controller.signal,
+        })
 
-      if (!res.ok) {
-        const errorBody = await res.json().catch(() => null)
-        const message = errorBody?.error || 'Failed to fetch options'
+        if (!res.ok) {
+          const errorBody = await res.json().catch(() => null)
+          const message = errorBody?.error || 'Failed to fetch options'
+          setRemoteError(message)
+          setOptions([])
+          return
+        }
+
+        const data = (await res.json()) as { options?: OptionObject[] }
+        setOptions(Array.isArray(data.options) ? data.options : [])
+      } catch (error) {
+        if (isAbortError(error)) {
+          return
+        }
+
+        const message = error instanceof Error ? error.message : 'Failed to fetch options'
         setRemoteError(message)
         setOptions([])
-        return
       }
-
-      const data = (await res.json()) as { options?: OptionObject[] }
-      setOptions(Array.isArray(data.options) ? data.options : [])
     },
     [
       endpointURL,
