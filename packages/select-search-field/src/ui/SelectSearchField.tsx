@@ -3,21 +3,44 @@
 import type { ReactSelectOption } from '@payloadcms/ui'
 import type { OptionObject, TextFieldClientComponent, TextFieldClientProps } from 'payload'
 
-import { SelectInput, useConfig, useDocumentInfo, useField, useForm } from '@payloadcms/ui'
+import {
+  SelectInput,
+  useConfig,
+  useDocumentInfo,
+  useField,
+  useForm,
+  useFormFields,
+} from '@payloadcms/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { SelectSearchRequest } from '../types.js'
 
 import { selectSearchEndpoint } from '../endpointName.js'
 
-const debounceMs = 300
+const defaultQueryDebounceMs = 300
+const defaultWatchedFieldsDebounceMs = 700
+
+const serializeRefetchValue = (value: unknown): string => {
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return ''
+  }
+}
 
 type SelectSearchFieldClientProps = {
+  debounce?: {
+    query?: number
+    watchedFields?: number
+  }
   passDataToSearchFunction?: boolean
   passSiblingDataToSearchFunction?: boolean
+  watchFieldPaths?: string[]
 } & TextFieldClientProps
 
-export const SelectSearchField: TextFieldClientComponent = (props: SelectSearchFieldClientProps) => {
+export const SelectSearchField: TextFieldClientComponent = (
+  props: SelectSearchFieldClientProps,
+) => {
   const { field, path, schemaPath: schemaPathProp } = props
 
   const { setValue, showError, value } = useField<string | string[]>({
@@ -34,6 +57,9 @@ export const SelectSearchField: TextFieldClientComponent = (props: SelectSearchF
   const [remoteError, setRemoteError] = useState<null | string>(null)
 
   const abortRef = useRef<AbortController | null>(null)
+  const fetchOptionsRef = useRef<((query: string) => Promise<void>) | null>(null)
+  const latestInputValueRef = useRef('')
+  const hasInitializedWatchedFieldsEffectRef = useRef(false)
 
   const entityType = globalSlug ? 'global' : 'collection'
   const slug = globalSlug || collectionSlug
@@ -42,6 +68,10 @@ export const SelectSearchField: TextFieldClientComponent = (props: SelectSearchF
   const hasMany = field.hasMany ?? false
   const passDataToSearchFunction = props.passDataToSearchFunction === true
   const passSiblingDataToSearchFunction = props.passSiblingDataToSearchFunction === true
+  // `selectSearch` normalizes these values before passing to `clientProps`.
+  const queryDebounceMs = props.debounce?.query ?? defaultQueryDebounceMs
+  const watchedFieldsDebounceMs = props.debounce?.watchedFields ?? defaultWatchedFieldsDebounceMs
+  const watchFieldPaths = props.watchFieldPaths ?? []
 
   const apiPath = config.routes?.api || '/api'
   const apiRoute = apiPath.startsWith('/') ? apiPath : `/${apiPath}`
@@ -59,6 +89,24 @@ export const SelectSearchField: TextFieldClientComponent = (props: SelectSearchF
 
     return [String(value)]
   }, [hasMany, value])
+
+  const watchedFieldPathsRefetchToken = useFormFields(([fields]) => {
+    if (watchFieldPaths.length === 0) {
+      return ''
+    }
+
+    const watchedPathValues: Array<[string, unknown]> = []
+
+    for (const watchPath of watchFieldPaths) {
+      if (!Object.prototype.hasOwnProperty.call(fields, watchPath)) {
+        continue
+      }
+
+      watchedPathValues.push([watchPath, fields[watchPath]?.value])
+    }
+
+    return serializeRefetchValue(watchedPathValues)
+  })
 
   const fetchOptions = useCallback(
     async (query: string) => {
@@ -128,18 +176,47 @@ export const SelectSearchField: TextFieldClientComponent = (props: SelectSearchF
   )
 
   useEffect(() => {
+    fetchOptionsRef.current = fetchOptions
+  }, [fetchOptions])
+
+  useEffect(() => {
+    latestInputValueRef.current = inputValue
+  }, [inputValue])
+
+  useEffect(() => {
     if (!slug || !schemaPath) {
       return
     }
 
+    // Query typing should feel responsive, so use a shorter debounce.
     const timeout = setTimeout(() => {
-      void fetchOptions(inputValue)
-    }, debounceMs)
+      void fetchOptionsRef.current?.(inputValue)
+    }, queryDebounceMs)
 
     return () => {
       clearTimeout(timeout)
     }
-  }, [fetchOptions, inputValue, schemaPath, slug])
+  }, [inputValue, queryDebounceMs, schemaPath, slug])
+
+  useEffect(() => {
+    if (!slug || !schemaPath || watchFieldPaths.length === 0) {
+      return
+    }
+
+    if (!hasInitializedWatchedFieldsEffectRef.current) {
+      hasInitializedWatchedFieldsEffectRef.current = true
+      return
+    }
+
+    // Watched field changes can happen in bursts, so use a longer debounce.
+    const timeout = setTimeout(() => {
+      void fetchOptionsRef.current?.(latestInputValueRef.current)
+    }, watchedFieldsDebounceMs)
+
+    return () => {
+      clearTimeout(timeout)
+    }
+  }, [schemaPath, slug, watchFieldPaths.length, watchedFieldsDebounceMs, watchedFieldPathsRefetchToken])
 
   useEffect(() => {
     return () => {

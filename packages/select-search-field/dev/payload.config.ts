@@ -72,26 +72,29 @@ export default buildConfig({
           name: 'fruits',
           hasMany: true,
           label: 'Fruits',
-          searchFunction: ({ query, selectedValues }) => {
-            const normalized = query.trim().toLowerCase()
-            const queryFiltered = fruitsEntries
-              .filter(([value]) => value.includes(normalized))
-              .slice(0, 10)
-            const selectedFiltered = fruitsEntries.filter(([value]) =>
-              selectedValues.includes(value),
-            )
-            const seen = new Set<string>()
-            const combined = [...queryFiltered, ...selectedFiltered].filter(([value]) => {
-              if (seen.has(value)) {
-                return false
-              }
-              seen.add(value)
-              return true
-            })
-            return combined.map(([value, label]) => ({
-              label,
-              value,
-            }))
+          search: {
+            watchFieldPaths: ['test'],
+            searchFunction: ({ query, selectedValues }) => {
+              const normalized = query.trim().toLowerCase()
+              const queryFiltered = fruitsEntries
+                .filter(([value]) => value.includes(normalized))
+                .slice(0, 10)
+              const selectedFiltered = fruitsEntries.filter(([value]) =>
+                selectedValues.includes(value),
+              )
+              const seen = new Set<string>()
+              const combined = [...queryFiltered, ...selectedFiltered].filter(([value]) => {
+                if (seen.has(value)) {
+                  return false
+                }
+                seen.add(value)
+                return true
+              })
+              return combined.map(([value, label]) => ({
+                label,
+                value,
+              }))
+            },
           },
         }),
       ],

@@ -28,19 +28,30 @@ import { selectSearch } from '@whatworks/payload-select-search-field'
 selectSearch({
   name: 'stripeCustomer',
   hasMany: true,
-  passDataToSearchFunction: true,
-  passSiblingDataToSearchFunction: true,
-  searchFunction: async ({ query, selectedValues }) => {
-    return [
-      { value: 'cus_123', label: `Result for ${query}` },
-      ...selectedValues.map((value) => ({
-        value,
-        label: `Selected: ${value}`,
-      })),
-    ]
+  search: {
+    debounce: {
+      query: 250,
+      watchedFields: 600,
+    },
+    passDataToSearchFunction: true,
+    passSiblingDataToSearchFunction: true,
+    watchFieldPaths: ['customerType', 'region'],
+    searchFunction: async ({ query, selectedValues }) => {
+      return [
+        { value: 'cus_123', label: `Result for ${query}` },
+        ...selectedValues.map((value) => ({
+          value,
+          label: `Selected: ${value}`,
+        })),
+      ]
+    },
   },
 })
 ```
+
+`debounce` controls request timing:
+- `query`: debounce in ms for search input typing.
+- `watchedFields`: debounce in ms for `watchFieldPaths`-driven refetches.
 
 `searchFunction` receives:
 - `query`: the current input text.
