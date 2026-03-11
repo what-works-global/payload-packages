@@ -1,17 +1,15 @@
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import {
-  defaultFieldResolvers,
-  flattenDocumentValues,
   relationshipTitleResolver,
-} from '@whatworks/payload-utilities/flattenDocumentValues'
+  transformDocument,
+} from '@whatworks/payload-utilities/traverseDocument'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import path from 'path'
 import { buildConfig } from 'payload'
 import sharp from 'sharp'
 import { fileURLToPath } from 'url'
 
-import { flattenDocumentValuesV2 } from '../src/flattenDocumentValues/flattenDocumentValuesV2.js'
 import { devUser } from './helpers/credentials.js'
 import { testEmailAdapter } from './helpers/testEmailAdapter.js'
 import { seed } from './seed.js'
@@ -56,29 +54,28 @@ const buildConfigWithMemoryDB = async () => {
             type: 'text',
           },
           {
-            name: 'someGroup',
-            type: 'group',
-            fields: [
-              {
-                name: 'groupTextField',
-                type: 'text',
-              },
-            ],
-          },
-          {
-            name: 'someArray',
-            type: 'array',
-            fields: [
-              {
-                name: 'arrayTextField',
-                type: 'text',
-              },
-            ],
-          },
-          {
-            name: 'author',
+            name: 'nonPolymorphicSingle',
             type: 'relationship',
+            hasMany: false,
             relationTo: 'posts',
+          },
+          {
+            name: 'nonPolymorphicMany',
+            type: 'relationship',
+            hasMany: true,
+            relationTo: 'posts',
+          },
+          {
+            name: 'polymorphicSingle',
+            type: 'relationship',
+            hasMany: false,
+            relationTo: ['posts', 'media'],
+          },
+          {
+            name: 'polymorphicMany',
+            type: 'relationship',
+            hasMany: true,
+            relationTo: ['posts', 'media'],
           },
           {
             name: 'uploads',
@@ -86,25 +83,19 @@ const buildConfigWithMemoryDB = async () => {
             hasMany: false,
             relationTo: 'media',
           },
-          {
-            name: 'richText',
-            type: 'richText',
-          },
         ],
         hooks: {
           afterChange: [
-            (args) => {
-              const result = flattenDocumentValuesV2({
+            async (args) => {
+              const result = await transformDocument({
                 collection: args.collection,
                 doc: args.doc,
+                fieldResolvers: {
+                  relationship: relationshipTitleResolver,
+                },
                 req: args.req,
               })
-              console.log(
-                result.map((f) => ({
-                  label: f.schemaPathSegments.map((s) => s.label).join(' > '),
-                  value: f.value,
-                })),
-              )
+              console.dir(result, { depth: null })
             },
           ],
         },

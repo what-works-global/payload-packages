@@ -29,44 +29,45 @@ export const getFileMetadata = async (
 type DocumentValue = { relationTo: CollectionSlug; value: string } | string
 
 /** Resolves an upload field to the file metadata of the referenced document */
-export const uploadResolver: FieldResolver<'upload'> = async ({
-  data,
+export const uploadMetadataResolver: FieldResolver<'upload'> = async ({
   field,
-  indexPathSegments,
   req,
-  schemaPathSegments,
+  value,
 }) => {
   const payload = req.payload
   const relationTo = field.relationTo
+  const fallbackCollectionSlug =
+    typeof relationTo === 'string'
+      ? relationTo
+      : relationTo.length === 1
+        ? relationTo[0]
+        : undefined
 
   const getCollectionSlugAndId = (value: DocumentValue) => {
     if (typeof value === 'object') {
       return { id: value.value, collectionSlug: value.relationTo }
     }
-    return { id: value, collectionSlug: relationTo }
+    return { id: value, collectionSlug: fallbackCollectionSlug }
   }
 
-  const resolveValue = async (value: any) => {
+  const resolveValue = async (value: DocumentValue) => {
     const { id, collectionSlug } = getCollectionSlugAndId(value)
+    if (!collectionSlug) {
+      return id
+    }
+
     const metadata = await getFileMetadata(payload, collectionSlug, id)
     return metadata ?? id
   }
 
-  let value = data
-  if (data) {
-    if (Array.isArray(data)) {
-      value = await Promise.all(data.map(resolveValue))
+  let resolvedValue = value
+  if (value) {
+    if (Array.isArray(value)) {
+      resolvedValue = await Promise.all(value.map((item) => resolveValue(item as DocumentValue)))
     } else {
-      value = await resolveValue(data)
+      resolvedValue = await resolveValue(value as DocumentValue)
     }
   }
 
-  return [
-    {
-      field,
-      indexPathSegments,
-      schemaPathSegments,
-      value,
-    },
-  ]
+  return resolvedValue
 }

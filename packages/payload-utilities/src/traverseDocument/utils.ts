@@ -6,6 +6,12 @@ type ExtractMapValue<T> = T extends Map<any, infer V> ? V : never
 
 type FieldSchema = ExtractMapValue<FieldSchemaMap>
 
+/**
+ * Resolves a display label for a schema field.
+ *
+ * Supports function, localized object, and string labels.
+ * Returns `undefined` when the schema has no label.
+ */
 export const getLabel = (fieldSchema: FieldSchema, req: PayloadRequest): string | undefined => {
   if ('label' in fieldSchema && fieldSchema.label) {
     const fieldLabel = fieldSchema.label as LabelFunction | StaticLabel

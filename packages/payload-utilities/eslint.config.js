@@ -20,9 +20,13 @@ export const defaultESLintIgnores = [
   '**/build/',
   '**/node_modules/',
   '**/temp/',
+  'dev/.next/**',
 ]
 
 export default [
+  {
+    ignores: defaultESLintIgnores,
+  },
   ...payloadEsLintConfig,
   {
     rules: {
@@ -30,7 +34,7 @@ export default [
     },
   },
   {
-    files: ['src/flattenDocumentValues/**/*.ts'],
+    files: ['src/traverseDocument/**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
     },

@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-utilities",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "A collection of utilities for Payload 3.0",
   "license": "MIT",
   "type": "module",
@@ -10,10 +10,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./flattenDocumentValues": {
-      "import": "./src/flattenDocumentValues/index.ts",
-      "types": "./src/flattenDocumentValues/index.ts",
-      "default": "./src/flattenDocumentValues/index.ts"
+    "./traverseDocument": {
+      "import": "./src/traverseDocument/index.ts",
+      "types": "./src/traverseDocument/index.ts",
+      "default": "./src/traverseDocument/index.ts"
     }
   },
   "main": "./src/index.ts",
@@ -33,8 +33,8 @@
     "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
     "generate:importmap": "pnpm dev:generate-importmap",
     "generate:types": "pnpm dev:generate-types",
-    "lint": "eslint",
-    "lint:fix": "eslint ./src --fix",
+    "lint": "eslint ./src ./dev --ext .ts,.tsx,.js,.mjs",
+    "lint:fix": "eslint ./src ./dev --ext .ts,.tsx,.js,.mjs --fix",
     "prepublishOnly": "pnpm clean && pnpm build",
     "test": "pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
@@ -82,10 +82,10 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       },
-      "./flattenDocumentValues": {
-        "import": "./dist/flattenDocumentValues/index.js",
-        "types": "./dist/flattenDocumentValues/index.d.ts",
-        "default": "./dist/flattenDocumentValues/index.js"
+      "./traverseDocument": {
+        "import": "./dist/traverseDocument/index.js",
+        "types": "./dist/traverseDocument/index.d.ts",
+        "default": "./dist/traverseDocument/index.js"
       }
     },
     "main": "./dist/index.js",
