@@ -6,23 +6,24 @@ catalog:
   '@types/react': 19.2.9
   '@types/react-dom': 19.2.3
   '@eslint/eslintrc': 3.2.0
+  '@floating-ui/react': 0.27.17
   '@swc-node/register': 1.10.9
   '@swc/cli': 0.6.0
-  '@payloadcms/db-mongodb': 3.2.0
-  '@payloadcms/db-postgres': 3.2.0
-  '@payloadcms/db-sqlite': 3.2.0
+  '@payloadcms/db-mongodb': 3.30.0
+  '@payloadcms/db-postgres': 3.30.0
+  '@payloadcms/db-sqlite': 3.30.0
   '@payloadcms/eslint-config': 3.0.0
-  '@payloadcms/next': 3.2.0
-  '@payloadcms/richtext-lexical': 3.2.0
-  '@payloadcms/translations': 3.2.0
-  '@payloadcms/ui': 3.2.0
+  '@payloadcms/next': 3.30.0
+  '@payloadcms/richtext-lexical': 3.30.0
+  '@payloadcms/translations': 3.30.0
+  '@payloadcms/ui': 3.30.0
   'autoprefixer': 10.4.20
   'copyfiles': 2.4.1
   'cross-env': 7.0.3
   'eslint': 9.23.0
   'eslint-config-next': 15.4.11
   'next': 15.4.11
-  'payload': 3.2.0
+  'payload': 3.30.0
   'prettier': 3.4.2
   'postcss': 8.4.49
   'react': 19.2.1
