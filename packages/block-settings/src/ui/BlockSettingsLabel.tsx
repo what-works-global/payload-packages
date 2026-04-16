@@ -17,7 +17,6 @@ import {
 import React, { useEffect, useMemo, useRef } from 'react'
 
 import {
-  BLOCK_SETTINGS_HIDDEN_CLASS,
   blockSettingsFieldMatches,
   DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
 } from '../shared.js'
@@ -259,20 +258,6 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
     blockPermissions,
     settingsFieldName,
   })
-  const settingsFieldForDrawer = settingsField
-    ? {
-        ...settingsField,
-        admin: {
-          ...settingsField.admin,
-          className:
-            settingsField.admin?.className
-              ?.split(' ')
-              .filter((className) => className && className !== BLOCK_SETTINGS_HIDDEN_CLASS)
-              .join(' ') || undefined,
-          hideGutter: settingsField.admin?.hideGutter,
-        },
-      }
-    : undefined
 
   const settingsTitle = useMemo(() => `${rowLabel} Settings`, [rowLabel])
 
@@ -287,7 +272,7 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
           <SectionTitle path={`${path}.blockName`} readOnly={Boolean(readOnly)} />
         )}
       </div>
-      {hasSettings && settingsField && settingsFieldForDrawer && (
+      {hasSettings && settingsField && (
         <React.Fragment>
           <DrawerToggler
             aria-label={settingsTitle}
@@ -304,7 +289,7 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
               schemaPath={settingsSchemaPath}
             />
             <GroupField
-              field={settingsFieldForDrawer}
+              field={settingsField}
               parentPath={settingsPath}
               path={settingsPath}
               permissions={settingsPermissions}
