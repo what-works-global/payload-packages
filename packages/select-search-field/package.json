@@ -64,15 +64,15 @@
     }
   },
   "peerDependencies": {
-    "@payloadcms/ui": "^3.0.0",
-    "payload": "^3.0.0",
+    "@payloadcms/ui": "^3.30.0",
+    "payload": "^3.30.0",
     "react": ">=18.2.0 <20",
     "react-dom": ">=18.2.0 <20"
   },
   "devDependencies": {
-    "@payloadcms/db-mongodb": "catalog:",
-    "@payloadcms/eslint-config": "catalog:",
-    "@payloadcms/next": "catalog:",
+    "@payloadcms/db-mongodb": "3.30.0",
+    "@payloadcms/eslint-config": "3.28.0",
+    "@payloadcms/next": "3.30.0",
     "@swc-node/register": "catalog:",
     "@swc/cli": "catalog:",
     "@types/node": "catalog:",
@@ -85,7 +85,7 @@
     "copyfiles": "catalog:",
     "cross-env": "catalog:",
     "next": "catalog:",
-    "payload": "catalog:",
+    "payload": "3.30.0",
     "rimraf": "catalog:",
     "sharp": "catalog:",
     "typescript": "catalog:"

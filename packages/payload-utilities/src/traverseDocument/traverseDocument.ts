@@ -200,10 +200,14 @@ export function traverseDocument(args: TraverseDocumentArgs): Promise<void> | vo
 export function traverseDocument(args: TraverseDocumentArgs): Promise<void> | void {
   const { collection, doc, req } = args
 
+  // `PayloadRequest['i18n']` and `getSchemaMap`'s `I18nClient` come from different
+  // package instances in this repo, so bridge them at the call site.
+  const i18n = req.i18n as Parameters<typeof getSchemaMap>[0]['i18n']
+
   const schemaMap = getSchemaMap({
     collectionSlug: collection.slug,
     config: req.payload.config,
-    i18n: req.i18n,
+    i18n,
   })
   const schemaPathOrder = new Map<string, number>()
   let schemaRank = 0

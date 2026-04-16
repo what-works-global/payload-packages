@@ -15,26 +15,11 @@
     "create-db": "docker volume create payload-databases",
     "start-db": "docker compose -p payload-databases up -d"
   },
-  "devDependencies": {
-    "@payloadcms/db-mongodb": "catalog:",
-    "@payloadcms/db-postgres": "catalog:",
-    "@payloadcms/db-sqlite": "catalog:",
-    "@payloadcms/eslint-config": "catalog:",
-    "@payloadcms/next": "catalog:",
-    "@payloadcms/richtext-lexical": "^3.0.0",
-    "@payloadcms/ui": "catalog:",
-    "@payloadcms/translations": "^3.0.0",
-    "payload": "catalog:"
-  },
   "engines": {
     "node": "^18.20.2 || >=20.9.0",
     "pnpm": "^9 || ^10"
   },
   "pnpm": {
-    "overrides": {
-      "payload": "^3.0.0",
-      "@payloadcms/*": "^3.0.0"
-    },
     "onlyBuiltDependencies": [
       "sharp",
       "esbuild",

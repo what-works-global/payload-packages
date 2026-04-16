@@ -68,7 +68,10 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "payload": "^3.0.0"
+    "payload": "^3.0.2"
+  },
+  "dependencies": {
+    "@payloadcms/ui": "catalog:"
   },
   "engines": {
     "node": "^18.20.2 || >=20.9.0",
@@ -91,6 +94,5 @@
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts"
   },
-  "registry": "https://registry.npmjs.org/",
-  "dependencies": {}
+  "registry": "https://registry.npmjs.org/"
 }
