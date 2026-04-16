@@ -5,9 +5,15 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
-      "@/*": ["./*"]
+      "@payload-config": ["./payload.config.ts"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx", "../../src/**/*.ts", "../../src/**/*.tsx"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../../src/**/*.ts",
+    "../../src/**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }

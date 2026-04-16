@@ -8,6 +8,10 @@ const dirname = path.dirname(filename)
 const databaseURL =
   process.env.DATABASE_URI || 'mongodb://127.0.0.1:27017/payload-block-settings-dev'
 
+if (!process.env.ROOT_DIR) {
+  process.env.ROOT_DIR = dirname
+}
+
 export default buildConfig({
   admin: {
     autoLogin: {
@@ -23,6 +27,26 @@ export default buildConfig({
       slug: 'users',
       auth: true,
       fields: [],
+    },
+    {
+      slug: 'pages',
+      fields: [
+        {
+          type: 'blocks',
+          name: 'components',
+          blocks: [
+            {
+              slug: 'component',
+              fields: [
+                {
+                  name: 'title',
+                  type: 'text',
+                },
+              ],
+            },
+          ],
+        },
+      ],
     },
   ],
   db: mongooseAdapter({
