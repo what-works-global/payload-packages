@@ -1,21 +1,26 @@
 'use client'
 
-import type { ClientField, SanitizedFieldPermissions } from 'payload'
+import type { ClientBlock, ClientField, SanitizedFieldPermissions } from 'payload'
 
 import { getTranslation } from '@payloadcms/translations'
 import {
   Drawer,
   DrawerToggler,
+  GroupField,
   Pill,
-  RenderFields,
   SectionTitle,
   useConfig,
+  useFormFields,
   useRowLabel,
   useTranslation,
 } from '@payloadcms/ui'
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 
-import { blockSettingsFieldMatches, DEFAULT_BLOCK_SETTINGS_FIELD_NAME } from '../shared.js'
+import {
+  BLOCK_SETTINGS_HIDDEN_CLASS,
+  blockSettingsFieldMatches,
+  DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
+} from '../shared.js'
 import type { BlockSettingsLabelClientProps } from '../types.js'
 import './BlockSettingsLabel.scss'
 
@@ -40,11 +45,13 @@ const SettingsIcon: React.FC = () => (
 )
 
 type BlockSettingsLabelProps = BlockSettingsLabelClientProps & {
-  readonly blockType: string
-  readonly field: ClientField & { name: string }
+  readonly field: ClientField & {
+    readonly blockReferences?: (ClientBlock | string)[]
+    readonly blocks?: ClientBlock[]
+    readonly name: string
+  }
   readonly permissions?: SanitizedFieldPermissions
   readonly readOnly?: boolean
-  readonly rowNumber: number
   readonly schemaPath?: string
 }
 
@@ -56,6 +63,7 @@ type ConfigBlock = {
   labels?: {
     singular?: string
   }
+  slug?: string
 }
 
 const getBlockPermissions = (
@@ -101,13 +109,13 @@ type RenderFieldsPermissions =
     }
   | SanitizedFieldPermissions
 
-const getSettingsPermissions = ({
+const getSettingsGroupPermissions = ({
   blockPermissions,
   settingsFieldName,
 }: {
   blockPermissions: RenderFieldsPermissions
   settingsFieldName: string
-}): RenderFieldsPermissions => {
+}): SanitizedFieldPermissions => {
   if (blockPermissions === true) {
     return true
   }
@@ -120,51 +128,158 @@ const getSettingsPermissions = ({
     return true
   }
 
-  if (groupPermission && typeof groupPermission === 'object' && 'fields' in groupPermission) {
-    return (groupPermission.fields ?? true) as RenderFieldsPermissions
+  if (groupPermission && typeof groupPermission === 'object') {
+    return groupPermission
   }
 
   return true
 }
 
+type DebugFieldSnapshot = {
+  readonly childStates: Record<
+    string,
+    | {
+        readonly errorMessage?: string
+        readonly initialValue?: unknown
+        readonly passesCondition?: boolean
+        readonly valid?: boolean
+        readonly value?: unknown
+      }
+    | null
+  >
+  readonly groupPath: string
+  readonly groupState:
+    | {
+        readonly disableFormData?: boolean
+        readonly errorMessage?: string
+        readonly initialValue?: unknown
+        readonly passesCondition?: boolean
+        readonly valid?: boolean
+        readonly value?: unknown
+      }
+    | null
+  readonly schemaPath: string
+}
+
+const BlockSettingsDebug: React.FC<{
+  readonly childPaths: string[]
+  readonly groupPath: string
+  readonly label: string
+  readonly schemaPath: string
+}> = ({ childPaths, groupPath, label, schemaPath }) => {
+  const snapshot = useFormFields(([fields]) => {
+    const groupField = fields?.[groupPath]
+
+    return {
+      childStates: Object.fromEntries(
+        childPaths.map((childPath) => [
+          childPath,
+          fields?.[childPath]
+            ? {
+                errorMessage: fields[childPath].errorMessage,
+                initialValue: fields[childPath].initialValue,
+                passesCondition: fields[childPath].passesCondition,
+                valid: fields[childPath].valid,
+                value: fields[childPath].value,
+              }
+            : null,
+        ]),
+      ),
+      groupPath,
+      groupState: groupField
+        ? {
+            disableFormData: groupField.disableFormData,
+            errorMessage: groupField.errorMessage,
+            initialValue: groupField.initialValue,
+            passesCondition: groupField.passesCondition,
+            valid: groupField.valid,
+            value: groupField.value,
+          }
+        : null,
+      schemaPath,
+    } satisfies DebugFieldSnapshot
+  })
+
+  const previousSnapshot = useRef<string | null>(null)
+
+  useEffect(() => {
+    const serializedSnapshot = JSON.stringify(snapshot)
+
+    if (previousSnapshot.current === serializedSnapshot) {
+      return
+    }
+
+    previousSnapshot.current = serializedSnapshot
+
+    console.log('[block-settings]', label, snapshot)
+  }, [label, snapshot])
+
+  return null
+}
+
 export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => {
-  const {
-    blockType,
-    field,
-    permissions,
-    readOnly,
-    rowNumber,
-    settingsFieldName = DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
-    schemaPath,
-  } = props
+  const { field, permissions, readOnly, settingsFieldName = DEFAULT_BLOCK_SETTINGS_FIELD_NAME, schemaPath } = props
 
   const { config } = useConfig()
   const { i18n } = useTranslation()
-  const { path } = useRowLabel<{ blockName?: string }>()
+  const { data, path, rowNumber } = useRowLabel<{ blockName?: string; blockType?: string }>()
+
+  const blockType = data?.blockType
+  const resolvedRowNumber =
+    typeof rowNumber === 'number'
+      ? rowNumber + 1
+      : Number.parseInt(path.split('.').at(-1) ?? '', 10) + 1
 
   const blocksMap = config.blocksMap as Record<string, ConfigBlock> | undefined
-  const block = blocksMap?.[blockType]
+  const block =
+    field.blocks?.find((candidate) => candidate.slug === blockType) ??
+    field.blockReferences?.find(
+      (candidate): candidate is ClientBlock => typeof candidate !== 'string' && candidate.slug === blockType,
+    ) ??
+    (blockType ? blocksMap?.[blockType] : undefined)
   const settingsField = block?.fields.find((candidate: ClientField) =>
     blockSettingsFieldMatches(candidate, settingsFieldName),
   )
   const settingsFields = settingsField?.fields ?? []
 
-  const hasSettings = settingsFields.length > 0
-  const rowLabel = getTranslation(block?.labels?.singular ?? blockType, i18n)
+  const hasSettings = Boolean(settingsField && settingsFields.length > 0)
+  const blockSlug = block?.slug ?? blockType
+  const rowLabel = getTranslation(block?.labels?.singular ?? blockSlug ?? 'Block', i18n)
   const drawerSlug = `${path}__${settingsFieldName}__drawer`
-  const blockSchemaPath = `${schemaPath ?? field.name}${blockType}`
-  const blockPermissions = getBlockPermissions(permissions, blockType)
-  const settingsPermissions = getSettingsPermissions({
+  const blockSchemaPath = blockSlug ? `${schemaPath ?? field.name}${blockSlug}` : undefined
+  const settingsSchemaPath = blockSchemaPath
+    ? `${blockSchemaPath}.${settingsFieldName}`
+    : `${field.name}.${settingsFieldName}`
+  const settingsPath = `${path}.${settingsFieldName}`
+  const settingsChildPaths = settingsFields
+    .filter((candidate): candidate is ClientField & { name: string } => 'name' in candidate)
+    .map((candidate) => `${settingsPath}.${candidate.name}`)
+  const blockPermissions = blockSlug ? getBlockPermissions(permissions, blockSlug) : true
+  const settingsPermissions = getSettingsGroupPermissions({
     blockPermissions,
     settingsFieldName,
   })
+  const settingsFieldForDrawer = settingsField
+    ? {
+        ...settingsField,
+        admin: {
+          ...settingsField.admin,
+          className:
+            settingsField.admin?.className
+              ?.split(' ')
+              .filter((className) => className && className !== BLOCK_SETTINGS_HIDDEN_CLASS)
+              .join(' ') || undefined,
+          hideGutter: settingsField.admin?.hideGutter,
+        },
+      }
+    : undefined
 
   const settingsTitle = useMemo(() => `${rowLabel} Settings`, [rowLabel])
 
   return (
     <div className={baseClass}>
       <div className={`${baseClass}__header`}>
-        <span className={`${baseClass}__number`}>{String(rowNumber).padStart(2, '0')}</span>
+        <span className={`${baseClass}__number`}>{String(resolvedRowNumber).padStart(2, '0')}</span>
         <Pill className={`${baseClass}__pill`} pillStyle="white" size="small">
           {rowLabel}
         </Pill>
@@ -172,7 +287,7 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
           <SectionTitle path={`${path}.blockName`} readOnly={Boolean(readOnly)} />
         )}
       </div>
-      {hasSettings && (
+      {hasSettings && settingsField && settingsFieldForDrawer && (
         <React.Fragment>
           <DrawerToggler
             aria-label={settingsTitle}
@@ -182,14 +297,19 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
             <SettingsIcon />
           </DrawerToggler>
           <Drawer slug={drawerSlug} title={settingsTitle}>
-            <RenderFields
-              fields={settingsFields}
-              margins="small"
-              parentIndexPath=""
-              parentPath={`${path}.${settingsFieldName}`}
-              parentSchemaPath={`${blockSchemaPath}.${settingsFieldName}`}
+            <BlockSettingsDebug
+              childPaths={settingsChildPaths}
+              groupPath={settingsPath}
+              label={settingsTitle}
+              schemaPath={settingsSchemaPath}
+            />
+            <GroupField
+              field={settingsFieldForDrawer}
+              parentPath={settingsPath}
+              path={settingsPath}
               permissions={settingsPermissions}
               readOnly={Boolean(readOnly)}
+              schemaPath={settingsSchemaPath}
             />
           </Drawer>
         </React.Fragment>
