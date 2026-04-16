@@ -1,5 +1,5 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../../../tsconfig.dev.base.json",
   "exclude": [],
   "include": [
     "**/*.js",
@@ -28,8 +28,6 @@
       "payload-utilities/rsc": [
         "../src/exports/rsc.ts"
       ]
-    },
-    "noEmit": true,
-    "emitDeclarationOnly": false,
+    }
   }
 }

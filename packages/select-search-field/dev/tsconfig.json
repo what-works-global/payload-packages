@@ -1,5 +1,7 @@
 {
+  "extends": "../../../tsconfig.dev.base.json",
   "compilerOptions": {
+    "baseUrl": "./",
     "target": "es5",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
@@ -15,7 +17,6 @@
       "@whatworks/payload-select-search-field": ["../src/index.ts"],
       "@whatworks/payload-select-search-field/*": ["../src/*"]
     },
-    "noEmit": true,
     "incremental": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",

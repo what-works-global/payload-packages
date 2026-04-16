@@ -1,5 +1,5 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../../../tsconfig.dev.base.json",
   "exclude": [],
   "include": [
     "**/*.js",
@@ -18,8 +18,6 @@
     "paths": {
       "@whatworks/analytics": ["../src/index.ts"],
       "@whatworks/analytics/api/consent": ["../src/api/consent.ts"]
-    },
-    "noEmit": true,
-    "emitDeclarationOnly": false
+    }
   }
 }
