@@ -1,0 +1,43 @@
+.payload-block-settings {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--base) * 0.375);
+  width: 100%;
+  max-width: 100%;
+  pointer-events: none;
+
+  &__header {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--base) * 0.375);
+    min-width: 0;
+    overflow: hidden;
+    width: 100%;
+  }
+
+  &__number,
+  &__pill {
+    flex-shrink: 0;
+  }
+
+  &__button {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    color: var(--theme-elevation-700);
+    cursor: pointer;
+    display: inline-flex;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    pointer-events: auto;
+    position: relative;
+    z-index: 1;
+
+    &:hover,
+    &:focus-visible {
+      color: var(--theme-text);
+    }
+  }
+}

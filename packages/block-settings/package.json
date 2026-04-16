@@ -17,7 +17,7 @@
     "build:types": "tsc --outDir dist --rootDir ./src",
     "clean": "rimraf {dist,*.tsbuildinfo}",
     "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png,json}\" dist/",
-    "dev": "next dev dev --turbo",
+    "dev": "next dev dev",
     "dev:generate-importmap": "pnpm dev:payload generate:importmap",
     "dev:generate-types": "pnpm dev:payload generate:types",
     "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
@@ -26,7 +26,8 @@
     "lint": "eslint ./src ./dev --ext .ts,.tsx,.js,.mjs",
     "lint:fix": "eslint ./src ./dev --ext .ts,.tsx,.js,.mjs --fix",
     "prepublishOnly": "pnpm clean && pnpm build",
-    "typecheck": "tsc --outDir dist --rootDir ./src"
+    "typecheck": "tsc --outDir dist --rootDir ./src",
+    "typecheck:dev": "tsc -p dev/tsconfig.json --noEmit"
   },
   "repository": {
     "type": "git",
@@ -42,6 +43,11 @@
         "import": "./dist/index.js",
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
+      },
+      "./client": {
+        "import": "./dist/exports/client.js",
+        "types": "./dist/exports/client.d.ts",
+        "default": "./dist/exports/client.js"
       }
     },
     "registry": "https://registry.npmjs.org/"
@@ -51,10 +57,21 @@
       "import": "./src/index.ts",
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./client": {
+      "import": "./src/exports/client.ts",
+      "types": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
     }
   },
   "peerDependencies": {
-    "payload": "^3.0.0"
+    "payload": "^3.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "@payloadcms/translations": "catalog:",
+    "@payloadcms/ui": "catalog:"
   },
   "devDependencies": {
     "@payloadcms/db-mongodb": "catalog:",

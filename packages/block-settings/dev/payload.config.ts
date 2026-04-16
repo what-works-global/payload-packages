@@ -1,5 +1,6 @@
 import path from 'path'
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
+import { blockSettingsGroup, blockSettingsPlugin } from '@whatworks/payload-block-settings'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 
@@ -42,6 +43,29 @@ export default buildConfig({
                   name: 'title',
                   type: 'text',
                 },
+                blockSettingsGroup({
+                  fields: [
+                    {
+                      name: 'theme',
+                      type: 'select',
+                      defaultValue: 'light',
+                      options: ['light', 'dark'],
+                    },
+                    {
+                      name: 'anchor',
+                      type: 'text',
+                    },
+                  ],
+                }),
+              ],
+            },
+            {
+              slug: 'content',
+              fields: [
+                {
+                  name: 'headline',
+                  type: 'text',
+                },
               ],
             },
           ],
@@ -68,7 +92,7 @@ export default buildConfig({
       })
     }
   },
-  plugins: [],
+  plugins: [blockSettingsPlugin()],
   secret: process.env.PAYLOAD_SECRET || 'block-settings-dev-secret',
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
