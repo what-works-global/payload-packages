@@ -16,15 +16,15 @@
     "start-db": "docker compose -p payload-databases up -d"
   },
   "devDependencies": {
-    "@payloadcms/db-mongodb": "^3.0.0",
-    "@payloadcms/db-postgres": "^3.0.0",
-    "@payloadcms/db-sqlite": "^3.0.0",
-    "@payloadcms/eslint-config": "^3.0.0",
-    "@payloadcms/next": "^3.0.0",
+    "@payloadcms/db-mongodb": "catalog:",
+    "@payloadcms/db-postgres": "catalog:",
+    "@payloadcms/db-sqlite": "catalog:",
+    "@payloadcms/eslint-config": "catalog:",
+    "@payloadcms/next": "catalog:",
     "@payloadcms/richtext-lexical": "^3.0.0",
-    "@payloadcms/ui": "^3.0.0",
+    "@payloadcms/ui": "catalog:",
     "@payloadcms/translations": "^3.0.0",
-    "payload": "^3.0.0"
+    "payload": "catalog:"
   },
   "engines": {
     "node": "^18.20.2 || >=20.9.0",
