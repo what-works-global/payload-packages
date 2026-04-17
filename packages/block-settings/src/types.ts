@@ -8,11 +8,15 @@ export interface BlockSettingsPluginOptions {
   readonly overrideExistingLabel?: boolean
 }
 
-export type BlockSettingsFieldOptions = Omit<NamedGroupField, 'fields' | 'name' | 'type'> & {
+export interface BlockSettingsFieldSettingsOptions {
   readonly canonical?: boolean
-  readonly fields: Field[]
   readonly location?: 'drawer' | 'inline'
+}
+
+export type BlockSettingsFieldOptions = Omit<NamedGroupField, 'fields' | 'name' | 'type'> & {
+  readonly fields: Field[]
   readonly name?: string
+  readonly settings?: BlockSettingsFieldSettingsOptions
 }
 
 export type BlockSettingsLabelClientProps = Record<string, never>

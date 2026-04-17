@@ -14,13 +14,15 @@ const hiddenGroupFieldPath = '@whatworks/payload-block-settings/client#HiddenSet
 
 export const blockSettingsField = ({
   admin,
-  canonical,
   fields,
   label = 'Settings',
-  location = DEFAULT_BLOCK_SETTINGS_LOCATION,
   name = DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
+  settings,
   ...rest
 }: BlockSettingsFieldOptions): NamedGroupField => {
+  const resolvedCanonical = settings?.canonical === true
+  const resolvedLocation = settings?.location ?? DEFAULT_BLOCK_SETTINGS_LOCATION
+
   return {
     ...rest,
     admin: {
@@ -31,8 +33,8 @@ export const blockSettingsField = ({
       },
       custom: {
         ...admin?.custom,
-        [BLOCK_SETTINGS_CANONICAL_CUSTOM_KEY]: canonical === true,
-        [BLOCK_SETTINGS_LOCATION_CUSTOM_KEY]: location,
+        [BLOCK_SETTINGS_CANONICAL_CUSTOM_KEY]: resolvedCanonical,
+        [BLOCK_SETTINGS_LOCATION_CUSTOM_KEY]: resolvedLocation,
         [BLOCK_SETTINGS_CUSTOM_KEY]: true,
       },
     },

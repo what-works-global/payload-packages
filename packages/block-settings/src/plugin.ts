@@ -54,7 +54,7 @@ const mergeBlockSettingsFields = ({
 
   if (canonicalSettingsFields.length > 1) {
     throw new Error(
-      `Multiple canonical block settings fields found on block "${block.slug}". Only one blockSettingsField({ canonical: true }) is allowed per block.`,
+      `Multiple canonical block settings fields found on block "${block.slug}". Only one blockSettingsField({ settings: { canonical: true } }) is allowed per block.`,
     )
   }
 

@@ -1,6 +1,6 @@
 # Payload Block Settings
 
-Proof-of-concept Payload plugin for rendering a block-level settings drawer from a custom block header label.
+Payload plugin for rendering a block-level settings drawer from a custom block header label.
 
 ## How it works
 
@@ -8,7 +8,7 @@ Proof-of-concept Payload plugin for rendering a block-level settings drawer from
 2. Install `blockSettingsPlugin()` in your Payload config.
 3. The plugin finds blocks with that tagged settings group and injects a custom `admin.components.Label`.
 4. That label preserves the normal block header UI and adds a cog button.
-5. Clicking the cog opens a drawer that renders the merged settings group fields at the correct form path.
+5. Clicking the cog toggles the visibility of the hidden fields
 
 ## Usage
 
@@ -36,8 +36,6 @@ export default buildConfig({
                   type: 'text',
                 },
                 blockSettingsField({
-                  canonical: true,
-                  location: 'drawer',
                   fields: [
                     {
                       name: 'theme',
@@ -49,9 +47,11 @@ export default buildConfig({
                       type: 'text',
                     },
                   ],
+                  settings: {
+                    location: 'drawer',
+                  },
                 }),
                 blockSettingsField({
-                  location: 'inline',
                   fields: [
                     {
                       name: 'variant',
@@ -59,6 +59,10 @@ export default buildConfig({
                       options: ['default', 'featured'],
                     },
                   ],
+                  settings: {
+                    canonical: true,
+                    location: 'inline',
+                  },
                 }),
               ],
             },
@@ -71,13 +75,12 @@ export default buildConfig({
 })
 ```
 
-Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error. When groups are merged, the first tagged settings field becomes the canonical stored group unless one field is declared with `canonical: true`, in which case that field becomes the source of truth. If more than one tagged settings field is marked `canonical: true`, the plugin throws an error.
+Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error. When groups are merged, the first tagged settings field becomes the canonical stored group unless one field is declared with `settings: { canonical: true }`, in which case that field becomes the source of truth. If more than one tagged settings field is marked `settings: { canonical: true }`, the plugin throws an error.
 
-`location` defaults to `'drawer'`. When set to `'inline'`, the Settings button toggles the settings group open and closed inside the block body instead of opening a drawer.
+`settings.location` defaults to `'inline'`. When set to `'drawer'`, the Settings button opens a drawer. When set to `'inline'`, the Settings button toggles the settings group open and closed inside the block body.
 
 ## Notes
 
-- The helper uses `hidden: true`, so the settings group does not render in the normal block body.
 - The default settings field name is `settings`.
 - The merged settings group is always moved to the first position in the block's `fields` array.
 - By default the plugin does not overwrite an existing `block.admin.components.Label`.

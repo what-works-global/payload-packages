@@ -44,8 +44,6 @@ export default buildConfig({
                   type: 'text',
                 },
                 blockSettingsField({
-                  canonical: true,
-                  location: 'inline',
                   fields: [
                     {
                       name: 'theme',
@@ -58,6 +56,10 @@ export default buildConfig({
                       type: 'text',
                     },
                   ],
+                  settings: {
+                    canonical: true,
+                    location: 'inline',
+                  },
                 }),
                 blockSettingsField({
                   fields: [
