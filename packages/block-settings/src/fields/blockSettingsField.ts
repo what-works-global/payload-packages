@@ -1,18 +1,18 @@
 import type { Field, GroupField } from 'payload'
 
 import { BLOCK_SETTINGS_CUSTOM_KEY, DEFAULT_BLOCK_SETTINGS_FIELD_NAME } from '../shared.js'
-import type { BlockSettingsGroupOptions } from '../types.js'
+import type { BlockSettingsFieldOptions } from '../types.js'
 
 type NamedGroupField = Extract<GroupField, { name: string }>
 const hiddenGroupFieldPath = '@whatworks/payload-block-settings/client#HiddenSettingsGroupField'
 
-export const blockSettingsGroup = ({
+export const blockSettingsField = ({
   admin,
   fields,
   label = 'Settings',
   name = DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
   ...rest
-}: BlockSettingsGroupOptions): NamedGroupField => {
+}: BlockSettingsFieldOptions): NamedGroupField => {
   return {
     ...rest,
     admin: {

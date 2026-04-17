@@ -1,6 +1,6 @@
 import path from 'path'
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
-import { blockSettingsGroup, blockSettingsPlugin } from '@whatworks/payload-block-settings'
+import { blockSettingsField, blockSettingsPlugin } from '@whatworks/payload-block-settings'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 
@@ -43,7 +43,7 @@ export default buildConfig({
                   name: 'title',
                   type: 'text',
                 },
-                blockSettingsGroup({
+                blockSettingsField({
                   fields: [
                     {
                       name: 'theme',

@@ -9,7 +9,7 @@ export interface BlockSettingsPluginOptions {
   readonly settingsFieldName?: string
 }
 
-export type BlockSettingsGroupOptions = Omit<NamedGroupField, 'fields' | 'name' | 'type'> & {
+export type BlockSettingsFieldOptions = Omit<NamedGroupField, 'fields' | 'name' | 'type'> & {
   readonly fields: Field[]
   readonly name?: string
 }

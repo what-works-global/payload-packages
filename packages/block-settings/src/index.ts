@@ -1,11 +1,8 @@
-export { blockSettingsGroup } from './fields/blockSettingsGroup.js'
+export { blockSettingsField } from './fields/blockSettingsField.js'
 export { blockSettingsPlugin } from './plugin.js'
-export {
-  BLOCK_SETTINGS_CUSTOM_KEY,
-  DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
-} from './shared.js'
+export { BLOCK_SETTINGS_CUSTOM_KEY, DEFAULT_BLOCK_SETTINGS_FIELD_NAME } from './shared.js'
 export type {
-  BlockSettingsGroupOptions,
+  BlockSettingsFieldOptions,
   BlockSettingsLabelClientProps,
   BlockSettingsPluginOptions,
   DefaultBlockSettingsFieldName,

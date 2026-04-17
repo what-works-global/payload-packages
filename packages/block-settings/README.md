@@ -4,7 +4,7 @@ Proof-of-concept Payload plugin for rendering a block-level settings drawer from
 
 ## How it works
 
-1. Define a hidden named group on a block with `blockSettingsGroup()`.
+1. Define a hidden named group on a block with `blockSettingsField()`.
 2. Install `blockSettingsPlugin()` in your Payload config.
 3. The plugin finds blocks with that tagged settings group and injects a custom `admin.components.Label`.
 4. That label preserves the normal block header UI and adds a cog button.
@@ -15,7 +15,7 @@ Proof-of-concept Payload plugin for rendering a block-level settings drawer from
 ```ts
 import { buildConfig } from 'payload'
 import {
-  blockSettingsGroup,
+  blockSettingsField,
   blockSettingsPlugin,
 } from '@whatworks/payload-block-settings'
 
@@ -35,7 +35,7 @@ export default buildConfig({
                   name: 'title',
                   type: 'text',
                 },
-                blockSettingsGroup({
+                blockSettingsField({
                   fields: [
                     {
                       name: 'theme',
