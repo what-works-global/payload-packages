@@ -5,6 +5,5 @@ export type {
   BlockSettingsFieldOptions,
   BlockSettingsFieldSettingsOptions,
   BlockSettingsLabelClientProps,
-  BlockSettingsPluginOptions,
   DefaultBlockSettingsFieldName,
 } from './types.js'

@@ -1,11 +1,6 @@
 import type { Block, Config, Field, Plugin, Tab } from 'payload'
 
 import { blockSettingsFieldIsCanonical, blockSettingsFieldMatches } from './shared.js'
-import type { BlockSettingsPluginOptions } from './types.js'
-
-const defaultPluginOptions: Required<Pick<BlockSettingsPluginOptions, 'overrideExistingLabel'>> = {
-  overrideExistingLabel: false,
-}
 
 const labelComponentPath = '@whatworks/payload-block-settings/client#BlockSettingsLabel'
 
@@ -136,13 +131,8 @@ const visitNodes = ({
 }
 
 export const blockSettingsPlugin =
-  (incomingOptions: BlockSettingsPluginOptions = {}): Plugin =>
+  (): Plugin =>
   (config: Config): Config => {
-    const options = {
-      ...defaultPluginOptions,
-      ...incomingOptions,
-    }
-
     const visitedBlocks = new Set<Block>()
 
     const patchBlock = (block: Block): void => {
@@ -159,10 +149,6 @@ export const blockSettingsPlugin =
 
       if (!block.admin.components) {
         block.admin.components = {}
-      }
-
-      if (block.admin.components.Label && !options.overrideExistingLabel) {
-        return
       }
 
       block.admin.components.Label = {

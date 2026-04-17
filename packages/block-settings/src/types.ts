@@ -4,10 +4,6 @@ import type { DEFAULT_BLOCK_SETTINGS_FIELD_NAME } from './shared.js'
 
 type NamedGroupField = Extract<GroupField, { name: string }>
 
-export interface BlockSettingsPluginOptions {
-  readonly overrideExistingLabel?: boolean
-}
-
 export interface BlockSettingsFieldSettingsOptions {
   readonly canonical?: boolean
   readonly location?: 'drawer' | 'inline'
