@@ -44,6 +44,7 @@ export default buildConfig({
                   type: 'text',
                 },
                 blockSettingsField({
+                  canonical: true,
                   fields: [
                     {
                       name: 'theme',

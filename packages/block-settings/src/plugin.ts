@@ -1,6 +1,6 @@
 import type { Block, Config, Field, Plugin, Tab } from 'payload'
 
-import { blockSettingsFieldMatches } from './shared.js'
+import { blockSettingsFieldIsCanonical, blockSettingsFieldMatches } from './shared.js'
 import type { BlockSettingsPluginOptions } from './types.js'
 
 const defaultPluginOptions: Required<Pick<BlockSettingsPluginOptions, 'overrideExistingLabel'>> = {
@@ -54,12 +54,21 @@ const mergeBlockSettingsFields = ({
     }
   }
 
-  const [firstSettingsField, ...restSettingsFields] = matchingFields
+  const canonicalSettingsFields = matchingFields.filter((field) => blockSettingsFieldIsCanonical(field))
+
+  if (canonicalSettingsFields.length > 1) {
+    throw new Error(
+      `Multiple canonical block settings fields found on block "${block.slug}". Only one blockSettingsField({ canonical: true }) is allowed per block.`,
+    )
+  }
+
+  const canonicalSettingsField = canonicalSettingsFields[0] ?? matchingFields[0]
+  const restSettingsFields = matchingFields.filter((field) => field !== canonicalSettingsField)
   const mergedSettingsField = {
-    ...firstSettingsField,
+    ...canonicalSettingsField,
     fields: matchingFields.flatMap((field) => field.fields),
   }
-  const mergedSettingsFieldIndex = block.fields.findIndex((field) => field === firstSettingsField)
+  const mergedSettingsFieldIndex = block.fields.findIndex((field) => field === canonicalSettingsField)
   const settingsFieldsToRemove = new Set<Field>(restSettingsFields)
   const nextFields = block.fields.filter((field) => !settingsFieldsToRemove.has(field))
 

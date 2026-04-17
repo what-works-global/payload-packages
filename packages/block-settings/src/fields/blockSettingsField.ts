@@ -1,6 +1,10 @@
 import type { Field, GroupField } from 'payload'
 
-import { BLOCK_SETTINGS_CUSTOM_KEY, DEFAULT_BLOCK_SETTINGS_FIELD_NAME } from '../shared.js'
+import {
+  BLOCK_SETTINGS_CANONICAL_CUSTOM_KEY,
+  BLOCK_SETTINGS_CUSTOM_KEY,
+  DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
+} from '../shared.js'
 import type { BlockSettingsFieldOptions } from '../types.js'
 
 type NamedGroupField = Extract<GroupField, { name: string }>
@@ -8,6 +12,7 @@ const hiddenGroupFieldPath = '@whatworks/payload-block-settings/client#HiddenSet
 
 export const blockSettingsField = ({
   admin,
+  canonical,
   fields,
   label = 'Settings',
   name = DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
@@ -23,6 +28,7 @@ export const blockSettingsField = ({
       },
       custom: {
         ...admin?.custom,
+        [BLOCK_SETTINGS_CANONICAL_CUSTOM_KEY]: canonical === true,
         [BLOCK_SETTINGS_CUSTOM_KEY]: true,
       },
     },

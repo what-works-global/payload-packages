@@ -36,6 +36,7 @@ export default buildConfig({
                   type: 'text',
                 },
                 blockSettingsField({
+                  canonical: true,
                   fields: [
                     {
                       name: 'theme',
@@ -68,7 +69,7 @@ export default buildConfig({
 })
 ```
 
-Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error. When groups are merged, the first tagged settings field becomes the canonical stored group and the later tagged groups are folded into it.
+Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error. When groups are merged, the first tagged settings field becomes the canonical stored group unless one field is declared with `canonical: true`, in which case that field becomes the source of truth. If more than one tagged settings field is marked `canonical: true`, the plugin throws an error.
 
 ## Notes
 

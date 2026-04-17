@@ -1,6 +1,7 @@
 import type { ClientField, Field, GroupField } from 'payload'
 
 export const BLOCK_SETTINGS_CUSTOM_KEY = 'blockSettings'
+export const BLOCK_SETTINGS_CANONICAL_CUSTOM_KEY = 'blockSettingsCanonical'
 export const DEFAULT_BLOCK_SETTINGS_FIELD_NAME = 'settings'
 
 type NamedGroupField = Extract<GroupField, { name: string }>
@@ -13,4 +14,12 @@ export const blockSettingsFieldMatches = (
   }
 
   return Boolean(field.admin?.custom?.[BLOCK_SETTINGS_CUSTOM_KEY])
+}
+
+export const blockSettingsFieldIsCanonical = (field: ClientField | Field): boolean => {
+  if (!blockSettingsFieldMatches(field)) {
+    return false
+  }
+
+  return Boolean(field.admin?.custom?.[BLOCK_SETTINGS_CANONICAL_CUSTOM_KEY])
 }
