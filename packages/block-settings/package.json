@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-block-settings",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Utilities for configuring and composing Payload block settings.",
   "license": "MIT",
   "type": "module",
@@ -66,12 +66,10 @@
   },
   "peerDependencies": {
     "payload": "^3.0.0",
+    "@payloadcms/translations": "^3.0.0",
+    "@payloadcms/ui": "^3.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
-  },
-  "dependencies": {
-    "@payloadcms/translations": "catalog:",
-    "@payloadcms/ui": "catalog:"
   },
   "devDependencies": {
     "@payloadcms/db-mongodb": "catalog:",
