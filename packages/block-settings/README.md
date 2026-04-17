@@ -1,5 +1,14 @@
 # Payload Block Settings Plugin
 
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/blackbanner.svg">
+  <img alt="Payload Block Settings Plugin" src="./assets/whitebanner.svg">
+</picture>
+
+<hr />
+&nbsp;
+
 Hide extra fields for blocks behind a visibility toggle button.
 
 ## Demo
@@ -166,4 +175,3 @@ export const MyBlockLabel: BlockLabelActionComponent = (props) => {
 - Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error. When groups are merged, the first tagged settings field becomes the canonical stored group unless one field is declared with `settings: { canonical: true }`, in which case that field becomes the source of truth. If more than one tagged settings field is marked `settings: { canonical: true }`, the plugin throws an error.
 - The default settings field name is `settings`.
 - The merged settings group field is always moved to the first position in the block's `fields` array.
-- The plugin always overrides `block.admin.components.Label` for blocks that use `blockSettingsField()`.
