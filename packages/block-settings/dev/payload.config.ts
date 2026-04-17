@@ -45,6 +45,7 @@ export default buildConfig({
                 },
                 blockSettingsField({
                   canonical: true,
+                  location: 'inline',
                   fields: [
                     {
                       name: 'theme',
@@ -77,6 +78,20 @@ export default buildConfig({
             {
               slug: 'content',
               fields: [
+                blockSettingsField({
+                  fields: [
+                    {
+                      name: 'variant',
+                      type: 'select',
+                      defaultValue: 'default',
+                      options: ['default', 'featured'],
+                    },
+                    {
+                      name: 'showBorder',
+                      type: 'checkbox',
+                    },
+                  ],
+                }),
                 {
                   name: 'headline',
                   type: 'text',

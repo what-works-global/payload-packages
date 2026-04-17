@@ -37,6 +37,7 @@ export default buildConfig({
                 },
                 blockSettingsField({
                   canonical: true,
+                  location: 'drawer',
                   fields: [
                     {
                       name: 'theme',
@@ -50,6 +51,7 @@ export default buildConfig({
                   ],
                 }),
                 blockSettingsField({
+                  location: 'inline',
                   fields: [
                     {
                       name: 'variant',
@@ -71,8 +73,11 @@ export default buildConfig({
 
 Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error. When groups are merged, the first tagged settings field becomes the canonical stored group unless one field is declared with `canonical: true`, in which case that field becomes the source of truth. If more than one tagged settings field is marked `canonical: true`, the plugin throws an error.
 
+`location` defaults to `'drawer'`. When set to `'inline'`, the Settings button toggles the settings group open and closed inside the block body instead of opening a drawer.
+
 ## Notes
 
 - The helper uses `hidden: true`, so the settings group does not render in the normal block body.
 - The default settings field name is `settings`.
+- The merged settings group is always moved to the first position in the block's `fields` array.
 - By default the plugin does not overwrite an existing `block.admin.components.Label`.

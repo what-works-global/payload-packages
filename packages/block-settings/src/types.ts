@@ -11,6 +11,7 @@ export interface BlockSettingsPluginOptions {
 export type BlockSettingsFieldOptions = Omit<NamedGroupField, 'fields' | 'name' | 'type'> & {
   readonly canonical?: boolean
   readonly fields: Field[]
+  readonly location?: 'drawer' | 'inline'
   readonly name?: string
 }
 

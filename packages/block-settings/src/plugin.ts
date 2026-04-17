@@ -30,10 +30,6 @@ const mergeBlockSettingsFields = ({
     return undefined
   }
 
-  if (matchingFields.length === 1) {
-    return matchingFields[0]
-  }
-
   const seenFieldNames = new Set<string>()
 
   for (const settingsField of matchingFields) {
@@ -63,17 +59,14 @@ const mergeBlockSettingsFields = ({
   }
 
   const canonicalSettingsField = canonicalSettingsFields[0] ?? matchingFields[0]
-  const restSettingsFields = matchingFields.filter((field) => field !== canonicalSettingsField)
   const mergedSettingsField = {
     ...canonicalSettingsField,
     fields: matchingFields.flatMap((field) => field.fields),
   }
-  const mergedSettingsFieldIndex = block.fields.findIndex((field) => field === canonicalSettingsField)
-  const settingsFieldsToRemove = new Set<Field>(restSettingsFields)
-  const nextFields = block.fields.filter((field) => !settingsFieldsToRemove.has(field))
+  const settingsFieldsToRemove = new Set<Field>(matchingFields)
+  const remainingFields = block.fields.filter((field) => !settingsFieldsToRemove.has(field))
 
-  nextFields.splice(mergedSettingsFieldIndex, 1, mergedSettingsField)
-  block.fields = nextFields
+  block.fields = [mergedSettingsField, ...remainingFields]
 
   return mergedSettingsField
 }

@@ -3,7 +3,9 @@ import type { Field, GroupField } from 'payload'
 import {
   BLOCK_SETTINGS_CANONICAL_CUSTOM_KEY,
   BLOCK_SETTINGS_CUSTOM_KEY,
+  BLOCK_SETTINGS_LOCATION_CUSTOM_KEY,
   DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
+  DEFAULT_BLOCK_SETTINGS_LOCATION,
 } from '../shared.js'
 import type { BlockSettingsFieldOptions } from '../types.js'
 
@@ -15,6 +17,7 @@ export const blockSettingsField = ({
   canonical,
   fields,
   label = 'Settings',
+  location = DEFAULT_BLOCK_SETTINGS_LOCATION,
   name = DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
   ...rest
 }: BlockSettingsFieldOptions): NamedGroupField => {
@@ -29,6 +32,7 @@ export const blockSettingsField = ({
       custom: {
         ...admin?.custom,
         [BLOCK_SETTINGS_CANONICAL_CUSTOM_KEY]: canonical === true,
+        [BLOCK_SETTINGS_LOCATION_CUSTOM_KEY]: location,
         [BLOCK_SETTINGS_CUSTOM_KEY]: true,
       },
     },

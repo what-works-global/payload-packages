@@ -5,18 +5,23 @@ import type { ClientBlock, ClientField, SanitizedFieldPermissions } from 'payloa
 import { getTranslation } from '@payloadcms/translations'
 import {
   Drawer,
-  DrawerToggler,
   GroupField,
   Pill,
   SectionTitle,
   useConfig,
+  useModal,
   useRowLabel,
   useTranslation,
 } from '@payloadcms/ui'
 import React, { useMemo } from 'react'
 
-import { blockSettingsFieldMatches } from '../shared.js'
+import {
+  blockSettingsFieldMatches,
+  getBlockSettingsFieldLocation,
+  getBlockSettingsToggleSlug,
+} from '../shared.js'
 import type { BlockSettingsLabelClientProps } from '../types.js'
+import { toggleInlineSettings, useInlineSettingsOpen } from './inlineSettingsStore.js'
 import './BlockSettingsLabel.scss'
 
 const baseClass = 'payload-block-settings'
@@ -29,9 +34,9 @@ const SettingsIcon: React.FC = () => (
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
   >
     <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
     <circle cx="12" cy="12" r="3" />
@@ -132,6 +137,7 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
   const { field, permissions, readOnly, schemaPath } = props
 
   const { config } = useConfig()
+  const { modalState, openModal } = useModal()
   const { i18n } = useTranslation()
   const { data, path, rowNumber } = useRowLabel<{ blockName?: string; blockType?: string }>()
 
@@ -154,16 +160,19 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
   )
   const settingsFields = settingsField?.fields ?? []
   const resolvedSettingsFieldName = settingsField?.name
+  const settingsLocation = settingsField ? getBlockSettingsFieldLocation(settingsField) : 'drawer'
 
-  const hasSettings = Boolean(settingsField && resolvedSettingsFieldName && settingsFields.length > 0)
+  const hasSettings = Boolean(
+    settingsField && resolvedSettingsFieldName && settingsFields.length > 0,
+  )
   const blockSlug = block?.slug ?? blockType
   const rowLabel = getTranslation(block?.labels?.singular ?? blockSlug ?? 'Block', i18n)
-  const drawerSlug = `${path}__${resolvedSettingsFieldName}__drawer`
   const blockSchemaPath = blockSlug ? `${schemaPath ?? field.name}${blockSlug}` : undefined
   const settingsSchemaPath = blockSchemaPath
     ? `${blockSchemaPath}.${resolvedSettingsFieldName}`
     : `${field.name}.${resolvedSettingsFieldName}`
   const settingsPath = `${path}.${resolvedSettingsFieldName}`
+  const settingsToggleSlug = getBlockSettingsToggleSlug(settingsPath)
   const blockPermissions = blockSlug ? getBlockPermissions(permissions, blockSlug) : true
   const settingsPermissions = resolvedSettingsFieldName
     ? getSettingsGroupPermissions({
@@ -171,8 +180,19 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
         settingsFieldName: resolvedSettingsFieldName,
       })
     : true
+  const isInlineSettingsVisible = useInlineSettingsOpen(settingsPath)
+  const areSettingsVisible =
+    settingsLocation === 'inline'
+      ? isInlineSettingsVisible
+      : modalState[settingsToggleSlug]?.isOpen === true
 
   const settingsTitle = useMemo(() => `${rowLabel} Settings`, [rowLabel])
+  const buttonClassName = [
+    `${baseClass}__button`,
+    areSettingsVisible && `${baseClass}__button--active`,
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <div className={baseClass}>
@@ -187,23 +207,34 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
       </div>
       {hasSettings && settingsField && resolvedSettingsFieldName && (
         <React.Fragment>
-          <DrawerToggler
+          <button
             aria-label={settingsTitle}
-            className={`${baseClass}__button`}
-            slug={drawerSlug}
+            aria-pressed={settingsLocation === 'inline' ? areSettingsVisible : undefined}
+            className={buttonClassName}
+            onClick={() => {
+              if (settingsLocation === 'inline') {
+                toggleInlineSettings(settingsPath)
+                return
+              }
+
+              openModal(settingsToggleSlug)
+            }}
+            type="button"
           >
             <SettingsIcon />
-          </DrawerToggler>
-          <Drawer slug={drawerSlug} title={settingsTitle}>
-            <GroupField
-              field={settingsField}
-              parentPath={settingsPath}
-              path={settingsPath}
-              permissions={settingsPermissions}
-              readOnly={Boolean(readOnly)}
-              schemaPath={settingsSchemaPath}
-            />
-          </Drawer>
+          </button>
+          {settingsLocation === 'drawer' && (
+            <Drawer slug={settingsToggleSlug} title={settingsTitle}>
+              <GroupField
+                field={settingsField}
+                parentPath={settingsPath}
+                path={settingsPath}
+                permissions={settingsPermissions}
+                readOnly={Boolean(readOnly)}
+                schemaPath={settingsSchemaPath}
+              />
+            </Drawer>
+          )}
         </React.Fragment>
       )}
     </div>
