@@ -6,14 +6,13 @@
   <img alt="Payload Block Settings Plugin" src="./assets/whitebanner.svg">
 </picture>
 
-<hr />
 &nbsp;
 
 Hide extra fields for blocks behind a visibility toggle button.
 
 ## Demo
   
-[demo.mov](https://github.com/user-attachments/assets/f8b59b43-9660-4492-87ac-bdb87ae2aff0)
+[demo.mov](https://github.com/user-attachments/assets/f4671529-9455-454d-95b1-455040448783)
 
 ## Contents
 
