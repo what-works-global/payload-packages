@@ -1,6 +1,6 @@
 # Payload Utilities
 
-<a href="https://whatworks.com.au" target="_blank" rel="noopener noreferrer">
+<a href="https://whatworks.com.au/?utm_source=github">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
     <img alt="Payload Utilities" src="../../assets/whitebanner.svg">
