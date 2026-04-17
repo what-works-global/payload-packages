@@ -151,8 +151,10 @@ export const blockSettingsPlugin =
         block.admin.components = {}
       }
 
-      block.admin.components.Label = {
-        path: labelComponentPath,
+      if (!block.admin.components.Label) {
+        block.admin.components.Label = {
+          path: labelComponentPath,
+        }
       }
     }
 
