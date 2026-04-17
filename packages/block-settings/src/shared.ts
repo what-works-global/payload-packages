@@ -7,9 +7,8 @@ type NamedGroupField = Extract<GroupField, { name: string }>
 
 export const blockSettingsFieldMatches = (
   field: ClientField | Field,
-  settingsFieldName = DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
 ): field is NamedGroupField => {
-  if (!('name' in field) || field.type !== 'group' || field.name !== settingsFieldName) {
+  if (!('name' in field) || field.type !== 'group') {
     return false
   }
 

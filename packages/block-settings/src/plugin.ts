@@ -3,11 +3,8 @@ import type { Block, Config, Field, Plugin, Tab } from 'payload'
 import { blockSettingsFieldMatches } from './shared.js'
 import type { BlockSettingsPluginOptions } from './types.js'
 
-const defaultPluginOptions: Required<
-  Pick<BlockSettingsPluginOptions, 'overrideExistingLabel' | 'settingsFieldName'>
-> = {
+const defaultPluginOptions: Required<Pick<BlockSettingsPluginOptions, 'overrideExistingLabel'>> = {
   overrideExistingLabel: false,
-  settingsFieldName: 'settings',
 }
 
 const labelComponentPath = '@whatworks/payload-block-settings/client#BlockSettingsLabel'
@@ -24,14 +21,10 @@ const getFieldName = (field: Field): string | undefined => {
 
 const mergeBlockSettingsFields = ({
   block,
-  settingsFieldName,
 }: {
   block: Block
-  settingsFieldName: string
 }): Field | undefined => {
-  const matchingFields = block.fields.filter((field) =>
-    blockSettingsFieldMatches(field, settingsFieldName),
-  )
+  const matchingFields = block.fields.filter((field) => blockSettingsFieldMatches(field))
 
   if (matchingFields.length === 0) {
     return undefined
@@ -151,10 +144,7 @@ export const blockSettingsPlugin =
     const visitedBlocks = new Set<Block>()
 
     const patchBlock = (block: Block): void => {
-      const mergedSettingsField = mergeBlockSettingsFields({
-        block,
-        settingsFieldName: options.settingsFieldName,
-      })
+      const mergedSettingsField = mergeBlockSettingsFields({ block })
       const hasSettingsField = Boolean(mergedSettingsField)
 
       if (!hasSettingsField) {
@@ -174,9 +164,6 @@ export const blockSettingsPlugin =
       }
 
       block.admin.components.Label = {
-        clientProps: {
-          settingsFieldName: options.settingsFieldName,
-        },
         path: labelComponentPath,
       }
     }

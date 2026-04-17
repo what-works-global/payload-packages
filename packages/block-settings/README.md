@@ -68,11 +68,10 @@ export default buildConfig({
 })
 ```
 
-Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error.
+Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error. When groups are merged, the first tagged settings field becomes the canonical stored group and the later tagged groups are folded into it.
 
 ## Notes
 
 - The helper uses `hidden: true`, so the settings group does not render in the normal block body.
 - The default settings field name is `settings`.
-- If you change the group name, pass the same `settingsFieldName` to `blockSettingsPlugin({ settingsFieldName })`.
 - By default the plugin does not overwrite an existing `block.admin.components.Label`.

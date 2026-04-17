@@ -15,7 +15,7 @@ import {
 } from '@payloadcms/ui'
 import React, { useMemo } from 'react'
 
-import { blockSettingsFieldMatches, DEFAULT_BLOCK_SETTINGS_FIELD_NAME } from '../shared.js'
+import { blockSettingsFieldMatches } from '../shared.js'
 import type { BlockSettingsLabelClientProps } from '../types.js'
 import './BlockSettingsLabel.scss'
 
@@ -129,13 +129,7 @@ const getSettingsGroupPermissions = ({
 }
 
 export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => {
-  const {
-    field,
-    permissions,
-    readOnly,
-    settingsFieldName = DEFAULT_BLOCK_SETTINGS_FIELD_NAME,
-    schemaPath,
-  } = props
+  const { field, permissions, readOnly, schemaPath } = props
 
   const { config } = useConfig()
   const { i18n } = useTranslation()
@@ -156,24 +150,27 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
     ) ??
     (blockType ? blocksMap?.[blockType] : undefined)
   const settingsField = block?.fields.find((candidate: ClientField) =>
-    blockSettingsFieldMatches(candidate, settingsFieldName),
+    blockSettingsFieldMatches(candidate),
   )
   const settingsFields = settingsField?.fields ?? []
+  const resolvedSettingsFieldName = settingsField?.name
 
-  const hasSettings = Boolean(settingsField && settingsFields.length > 0)
+  const hasSettings = Boolean(settingsField && resolvedSettingsFieldName && settingsFields.length > 0)
   const blockSlug = block?.slug ?? blockType
   const rowLabel = getTranslation(block?.labels?.singular ?? blockSlug ?? 'Block', i18n)
-  const drawerSlug = `${path}__${settingsFieldName}__drawer`
+  const drawerSlug = `${path}__${resolvedSettingsFieldName}__drawer`
   const blockSchemaPath = blockSlug ? `${schemaPath ?? field.name}${blockSlug}` : undefined
   const settingsSchemaPath = blockSchemaPath
-    ? `${blockSchemaPath}.${settingsFieldName}`
-    : `${field.name}.${settingsFieldName}`
-  const settingsPath = `${path}.${settingsFieldName}`
+    ? `${blockSchemaPath}.${resolvedSettingsFieldName}`
+    : `${field.name}.${resolvedSettingsFieldName}`
+  const settingsPath = `${path}.${resolvedSettingsFieldName}`
   const blockPermissions = blockSlug ? getBlockPermissions(permissions, blockSlug) : true
-  const settingsPermissions = getSettingsGroupPermissions({
-    blockPermissions,
-    settingsFieldName,
-  })
+  const settingsPermissions = resolvedSettingsFieldName
+    ? getSettingsGroupPermissions({
+        blockPermissions,
+        settingsFieldName: resolvedSettingsFieldName,
+      })
+    : true
 
   const settingsTitle = useMemo(() => `${rowLabel} Settings`, [rowLabel])
 
@@ -188,7 +185,7 @@ export const BlockSettingsLabel: React.FC<BlockSettingsLabelProps> = (props) => 
           <SectionTitle path={`${path}.blockName`} readOnly={Boolean(readOnly)} />
         )}
       </div>
-      {hasSettings && settingsField && (
+      {hasSettings && settingsField && resolvedSettingsFieldName && (
         <React.Fragment>
           <DrawerToggler
             aria-label={settingsTitle}

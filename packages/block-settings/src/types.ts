@@ -6,7 +6,6 @@ type NamedGroupField = Extract<GroupField, { name: string }>
 
 export interface BlockSettingsPluginOptions {
   readonly overrideExistingLabel?: boolean
-  readonly settingsFieldName?: string
 }
 
 export type BlockSettingsFieldOptions = Omit<NamedGroupField, 'fields' | 'name' | 'type'> & {
@@ -14,8 +13,6 @@ export type BlockSettingsFieldOptions = Omit<NamedGroupField, 'fields' | 'name' 
   readonly name?: string
 }
 
-export type BlockSettingsLabelClientProps = {
-  readonly settingsFieldName?: string
-}
+export type BlockSettingsLabelClientProps = Record<string, never>
 
 export type DefaultBlockSettingsFieldName = typeof DEFAULT_BLOCK_SETTINGS_FIELD_NAME
