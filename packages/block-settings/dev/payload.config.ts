@@ -57,6 +57,20 @@ export default buildConfig({
                     },
                   ],
                 }),
+                blockSettingsField({
+                  fields: [
+                    {
+                      name: 'variant',
+                      type: 'select',
+                      defaultValue: 'default',
+                      options: ['default', 'featured'],
+                    },
+                    {
+                      name: 'showBorder',
+                      type: 'checkbox',
+                    },
+                  ],
+                }),
               ],
             },
             {
