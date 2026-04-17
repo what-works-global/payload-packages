@@ -1,0 +1,25 @@
+{
+  "extends": "../../../tsconfig.dev.base.json",
+  "compilerOptions": {
+    "baseUrl": "./",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@payload-config": ["./payload.config.ts"],
+      "@whatworks/payload-block-settings": ["../src/index.ts"],
+      "@whatworks/payload-block-settings/client": ["../src/exports/client.ts"]
+    }
+  },
+  "include": [
+    "**/*.js",
+    "**/*.jsx",
+    "**/*.mjs",
+    "**/*.cjs",
+    "**/*.ts",
+    "**/*.tsx",
+    "../src/**/*.ts",
+    "../src/**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

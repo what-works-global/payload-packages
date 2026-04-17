@@ -1,0 +1,21 @@
+.blocks-field__block-header .block-settings-toggle {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: var(--theme-elevation-700);
+  cursor: pointer;
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  margin-right: 0;
+  padding: calc(var(--base) * 0.2);
+}
+
+.blocks-field__block-header .block-settings-toggle:hover,
+.blocks-field__block-header .block-settings-toggle:focus-visible,
+.blocks-field__block-header .block-settings-toggle--active {
+  background: var(--theme-elevation-0);
+  color: var(--theme-text);
+}

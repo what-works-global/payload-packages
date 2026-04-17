@@ -18,6 +18,9 @@ catalogs:
     '@payloadcms/next':
       specifier: 3.30.0
       version: 3.30.0
+    '@payloadcms/translations':
+      specifier: 3.30.0
+      version: 3.30.0
     '@payloadcms/ui':
       specifier: 3.30.0
       version: 3.30.0
@@ -159,6 +162,13 @@ importers:
         version: 5.1.4(typescript@5.7.3)(vite@6.4.2(@types/node@22.19.9)(jiti@1.21.7)(sass@1.77.4)(tsx@4.19.2)(yaml@2.8.3))
 
   packages/block-settings:
+    dependencies:
+      '@payloadcms/translations':
+        specifier: 'catalog:'
+        version: 3.30.0
+      '@payloadcms/ui':
+        specifier: 'catalog:'
+        version: 3.30.0(@types/react@19.2.9)(monaco-editor@0.55.1)(next@15.4.11(@playwright/test@1.59.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4))(payload@3.30.0(graphql@16.13.2)(typescript@5.7.3))(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.7.3)
     devDependencies:
       '@payloadcms/db-mongodb':
         specifier: 'catalog:'
@@ -6947,7 +6957,7 @@ snapshots:
   '@typescript-eslint/eslint-plugin@8.58.2(@typescript-eslint/parser@8.26.1(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3))(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3)':
     dependencies:
       '@eslint-community/regexpp': 4.12.2
-      '@typescript-eslint/parser': 8.26.1(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3)
+      '@typescript-eslint/parser': 8.26.1(eslint@9.22.0(jiti@1.21.7))(typescript@5.7.3)
       '@typescript-eslint/scope-manager': 8.58.2
       '@typescript-eslint/type-utils': 8.58.2(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3)
       '@typescript-eslint/utils': 8.58.2(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3)
@@ -6998,18 +7008,6 @@ snapshots:
       '@typescript-eslint/visitor-keys': 8.26.1
       debug: 4.4.3
       eslint: 9.22.0(jiti@1.21.7)
-      typescript: 5.7.3
-    transitivePeerDependencies:
-      - supports-color
-
-  '@typescript-eslint/parser@8.26.1(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3)':
-    dependencies:
-      '@typescript-eslint/scope-manager': 8.26.1
-      '@typescript-eslint/types': 8.26.1
-      '@typescript-eslint/typescript-estree': 8.26.1(typescript@5.7.3)
-      '@typescript-eslint/visitor-keys': 8.26.1
-      debug: 4.4.3
-      eslint: 9.23.0(jiti@1.21.7)
       typescript: 5.7.3
     transitivePeerDependencies:
       - supports-color

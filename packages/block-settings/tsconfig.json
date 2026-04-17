@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext"
+  },
+  "include": ["./src/**/*.ts", "./src/**/*.tsx", "./dev/next-env.d.ts"]
+}
