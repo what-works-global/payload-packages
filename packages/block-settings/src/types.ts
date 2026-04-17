@@ -15,6 +15,6 @@ export type BlockSettingsFieldOptions = Omit<NamedGroupField, 'fields' | 'name' 
   readonly settings?: BlockSettingsFieldSettingsOptions
 }
 
-export type BlockSettingsLabelClientProps = Record<string, never>
+export interface BlockSettingsLabelClientProps {}
 
 export type DefaultBlockSettingsFieldName = typeof DEFAULT_BLOCK_SETTINGS_FIELD_NAME

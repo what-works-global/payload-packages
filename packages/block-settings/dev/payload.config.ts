@@ -93,6 +93,9 @@ export default buildConfig({
                       type: 'checkbox',
                     },
                   ],
+                  settings: {
+                    location: 'drawer',
+                  },
                 }),
                 {
                   name: 'headline',
@@ -105,6 +108,7 @@ export default buildConfig({
       ],
     },
   ],
+  plugins: [blockSettingsPlugin()],
   db: mongooseAdapter({
     url: databaseURL,
   }),
@@ -124,7 +128,6 @@ export default buildConfig({
       })
     }
   },
-  plugins: [blockSettingsPlugin()],
   secret: process.env.PAYLOAD_SECRET || 'block-settings-dev-secret',
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
