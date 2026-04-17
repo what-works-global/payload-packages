@@ -2,6 +2,10 @@
 
 Hide extra fields for blocks behind a visibility toggle button.
 
+## Demo
+  
+[demo.mov](https://github.com/user-attachments/assets/f8b59b43-9660-4492-87ac-bdb87ae2aff0)
+
 ## Contents
 
 - [Usage](#usage)
