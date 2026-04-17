@@ -37,6 +37,10 @@ export default buildConfig({
           name: 'components',
           blocks: [
             {
+              slug: 'blockWithoutSettings',
+              fields: [],
+            },
+            {
               slug: 'component',
               fields: [
                 {

@@ -29,9 +29,9 @@ export const getBlockSettingsFieldLocation = (field: ClientField | Field): 'draw
     return DEFAULT_BLOCK_SETTINGS_LOCATION
   }
 
-  return field.admin?.custom?.[BLOCK_SETTINGS_LOCATION_CUSTOM_KEY] === 'inline'
-    ? 'inline'
-    : DEFAULT_BLOCK_SETTINGS_LOCATION
+  const stored = field.admin?.custom?.[BLOCK_SETTINGS_LOCATION_CUSTOM_KEY]
+
+  return stored === 'drawer' || stored === 'inline' ? stored : DEFAULT_BLOCK_SETTINGS_LOCATION
 }
 
 export const getBlockSettingsToggleSlug = (path: string): string => {
