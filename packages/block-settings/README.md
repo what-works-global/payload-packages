@@ -1,10 +1,12 @@
 # Payload Block Settings Plugin
 
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./assets/blackbanner.svg">
-  <img alt="Payload Block Settings Plugin" src="./assets/whitebanner.svg">
-</picture>
+<a href="https://whatworks.com.au" target="_blank" rel="noopener noreferrer">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
+    <img alt="Payload Block Settings Plugin" src="../../assets/whitebanner.svg">
+  </picture>
+</a>
 
 &nbsp;
 
@@ -16,6 +18,7 @@ Hide extra fields for blocks behind a visibility toggle button.
 
 ## Contents
 
+- [Installation](#installation)
 - [Usage](#usage)
 - [Arguments](#arguments)
   - [`settings` object](#settings-object)
@@ -23,6 +26,12 @@ Hide extra fields for blocks behind a visibility toggle button.
   - [Add actions alongside the default label](#add-actions-alongside-the-default-label)
   - [Build a label from scratch](#build-a-label-from-scratch)
 - [Notes](#notes)
+
+## Installation
+
+```bash
+pnpm add @whatworks/payload-block-settings
+```
 
 ## Usage
 

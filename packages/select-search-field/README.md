@@ -1,5 +1,14 @@
 # Payload Search Select Field
 
+<a href="https://whatworks.com.au" target="_blank" rel="noopener noreferrer">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
+    <img alt="Payload Search Select Field" src="../../assets/whitebanner.svg">
+  </picture>
+</a>
+
+&nbsp;
+
 Server-backed search select field and plugin for Payload. The client component queries a shared endpoint
 and passes the current search query plus any currently selected values.
 
@@ -7,6 +16,12 @@ and passes the current search query plus any currently selected values.
 
 https://github.com/user-attachments/assets/0f49d3f9-8473-4d77-8e20-ee07a1276a8e
 
+
+## Installation
+
+```bash
+pnpm add @whatworks/payload-select-search-field
+```
 
 ## Usage
 
