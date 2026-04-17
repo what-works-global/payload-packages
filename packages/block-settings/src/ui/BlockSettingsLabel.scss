@@ -34,10 +34,12 @@
     pointer-events: auto;
     position: relative;
     z-index: 1;
+    padding: calc(var(--base) * 0.2);
 
     &:hover,
     &:focus-visible {
       color: var(--theme-text);
+      background: var(--theme-elevation-0);
     }
   }
 }
