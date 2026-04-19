@@ -1,6 +1,6 @@
 # Whatworks Payload Packages
 
-<a href="https://whatworks.com.au" target="_blank" rel="noopener noreferrer">
+<a href="https://whatworks.com.au/?utm_source=github.com">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/blackbanner.svg">
     <img alt="Whatworks Payload Packages" src="./assets/whitebanner.svg">
