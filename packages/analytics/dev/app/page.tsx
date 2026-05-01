@@ -68,6 +68,34 @@ export default function Page() {
         <MicrosoftClarity clarityId={exampleIds.clarityId} />
         <CookieBanner />
       </CookieBannerProvider>
+
+      <section style={{ marginTop: '60vh', maxWidth: '48rem' }}>
+        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Long-form page content</h2>
+        <p style={{ marginBottom: '1rem' }}>
+          This block gives the page enough height to scroll while the cookie banner stays fixed at
+          the bottom of the viewport.
+        </p>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <p>
+            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus. Suspendisse
+            lectus tortor, dignissim sit amet, adipiscing nec, ultricies sed, dolor.
+          </p>
+          <p>
+            Cras elementum ultrices diam. Maecenas ligula massa, varius a, semper congue, euismod
+            non, mi. Proin porttitor, orci nec nonummy molestie, enim est eleifend mi, non fermentum
+            diam nisl sit amet erat.
+          </p>
+          <p>
+            Duis arcu massa, scelerisque vitae, consequat in, pretium a, enim. Pellentesque congue.
+            Ut in risus volutpat libero pharetra tempor. Cras vestibulum bibendum augue.
+          </p>
+          <p>
+            Ut tincidunt tincidunt erat. Maecenas fermentum consequat mi. Donec fermentum.
+            Pellentesque malesuada nulla a mi. Duis sapien sem, aliquet nec, commodo eget, consequat
+            quis, neque.
+          </p>
+        </div>
+      </section>
     </main>
   )
 }

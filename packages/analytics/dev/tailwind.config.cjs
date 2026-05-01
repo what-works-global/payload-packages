@@ -6,6 +6,9 @@ module.exports = {
     path.join(__dirname, '..', 'src', '**/*.{ts,tsx,js,jsx}'),
     path.join(__dirname, 'app', '**/*.{ts,tsx,js,jsx}'),
   ],
+  corePlugins: {
+    container: false,
+  },
   important: '.ww',
   theme: {
     extend: {
