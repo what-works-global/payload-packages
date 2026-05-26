@@ -1,0 +1,18 @@
+@import '~@payloadcms/ui/scss';
+
+.danger-bar {
+  --red-50: #fef2f2;
+  --red-700: #b91c1c;
+  background-color: var(--red-50);
+  color: var(--red-700);
+  padding: 8px 0px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: 500;
+  gap: 8px;
+  &__icon {
+    width: base(0.8);
+    height: base(0.8);
+  }
+}
