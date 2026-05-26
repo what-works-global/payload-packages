@@ -33,6 +33,9 @@ export function definePackageBuild({ entry, styles, external, copy }: PackageBui
     sourcemap: true,
     clean: true,
     fixedExtension: false,
+    inputOptions: {
+      transform: { jsx: { runtime: 'automatic' } },
+    },
   }
 
   const externalArr: StringOrRegExp[] = external ? [external].flat() : []
