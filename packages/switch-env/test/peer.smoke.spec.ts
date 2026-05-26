@@ -21,8 +21,8 @@ describe('@whatworks/payload-switch-env peer smoke', () => {
     const plugin = switchEnvPlugin({
       db: {
         developmentArgs: { url: 'http://localhost' },
-        productionArgs: { url: 'http://localhost' },
         function: stubDatabaseAdapter,
+        productionArgs: { url: 'http://localhost' },
       },
       payloadVersion: '3.54.0',
     })
@@ -33,8 +33,8 @@ describe('@whatworks/payload-switch-env peer smoke', () => {
     const plugin = switchEnvPlugin({
       db: {
         developmentArgs: { url: 'http://localhost' },
-        productionArgs: { url: 'http://localhost' },
         function: stubDatabaseAdapter,
+        productionArgs: { url: 'http://localhost' },
       },
       payloadVersion: '3.54.0',
     })
