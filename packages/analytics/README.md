@@ -68,13 +68,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 Each script is only rendered when its ID is present. Pass IDs as props, or set the matching env var:
 
-| Prop                | Env var                              |
-| ------------------- | ------------------------------------ |
-| `gaId`              | `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID`    |
-| `gtmId`             | `NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID`  |
-| `facebookPixelId`   | `NEXT_PUBLIC_FACEBOOK_PIXEL_ID`      |
-| `clarityId`         | `NEXT_PUBLIC_MS_CLARITY_ID`          |
-| `linkedInPartnerId` | `NEXT_PUBLIC_LINKEDIN_PARTNER_ID`    |
+| Prop                | Env var                             |
+| ------------------- | ----------------------------------- |
+| `gaId`              | `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID`   |
+| `gtmId`             | `NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID` |
+| `facebookPixelId`   | `NEXT_PUBLIC_FACEBOOK_PIXEL_ID`     |
+| `clarityId`         | `NEXT_PUBLIC_MS_CLARITY_ID`         |
+| `linkedInPartnerId` | `NEXT_PUBLIC_LINKEDIN_PARTNER_ID`   |
 
 ```tsx
 <Analytics gaId="G-XXXX" linkedInPartnerId="1234567" />
@@ -91,8 +91,7 @@ import {
   GoogleAnalytics,
   GtagBootstrap,
 } from '@whatworks/analytics'
-
-<CookieBannerProvider
+;<CookieBannerProvider
   consentApiPath="/api/consent"
   consentStrategy="require-consent-before-loading-scripts"
 >
@@ -102,12 +101,12 @@ import {
 </CookieBannerProvider>
 ```
 
-| Strategy | Scripts load | Default consent | Banner shown |
-| --- | --- | --- | --- |
-| `load-scripts-always-grant-consent` | immediately | granted | never |
-| `load-scripts-revoke-consent-immediately` | immediately | denied | if geolocation requires it |
-| `load-scripts-then-revoke-consent-after-geolocation-check` | immediately | granted until geo check | if geolocation requires it |
-| `require-consent-before-loading-scripts` | only after consent | denied | if geolocation requires it |
+| Strategy                                                   | Scripts load       | Default consent         | Banner shown               |
+| ---------------------------------------------------------- | ------------------ | ----------------------- | -------------------------- |
+| `load-scripts-always-grant-consent`                        | immediately        | granted                 | never                      |
+| `load-scripts-revoke-consent-immediately`                  | immediately        | denied                  | if geolocation requires it |
+| `load-scripts-then-revoke-consent-after-geolocation-check` | immediately        | granted until geo check | if geolocation requires it |
+| `require-consent-before-loading-scripts`                   | only after consent | denied                  | if geolocation requires it |
 
 ## Components
 
@@ -122,6 +121,7 @@ import {
 - **`<LinkedInInsightTag partnerId>`** — LinkedIn Insight Tag, consent-gated. Loads only once consent is granted (LinkedIn has no native consent API).
 
 ## Notes
+
 - If your GTM container includes a GA4 Configuration tag for the same property as `gaId`, `page_view` events will be double-counted. Pick one side.
 - The default `CookieBanner` renders into a portal and links to `/privacy-policy` — pass a custom `description` to override.
 - All script components are `'use client'`; `<Analytics>` itself is a server component.

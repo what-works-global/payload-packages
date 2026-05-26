@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint / Typecheck / Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm check:publish-config
+      - run: pnpm check:exports
+      - run: pnpm test:peer
+
+  resolve-matrix:
+    name: Resolve Payload version matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: resolve
+        run: node scripts/resolve-payload-matrix.mjs
+
+  peer-matrix:
+    name: ${{ matrix.package }} @ payload ${{ matrix.payloadVersion }} (${{ matrix.label }})
+    needs: [check, resolve-matrix]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Pin Payload to ${{ matrix.payloadVersion }}
+        run: node scripts/apply-payload-version.mjs ${{ matrix.payloadVersion }}
+      - run: pnpm install --no-frozen-lockfile
+      - name: Build ${{ matrix.package }}
+        run: pnpm --filter ${{ matrix.package }} build
+      - name: Peer smoke test (if defined)
+        run: pnpm --filter ${{ matrix.package }} --if-present test:peer
+
+  ci-gate:
+    name: CI Gate
+    needs: [check, peer-matrix]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all required jobs passed
+        run: |
+          if [[ "${{ needs.check.result }}" != "success" || "${{ needs.peer-matrix.result }}" != "success" ]]; then
+            exit 1
+          fi

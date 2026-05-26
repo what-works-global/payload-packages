@@ -3,5 +3,17 @@
   "compilerOptions": {
     "emitDeclarationOnly": false,
     "noEmit": true
-  }
+  },
+  "include": [
+    "${configDir}/**/*.ts",
+    "${configDir}/**/*.tsx",
+    "${configDir}/**/*.js",
+    "${configDir}/**/*.jsx",
+    "${configDir}/**/*.mjs",
+    "${configDir}/**/*.cjs",
+    "${configDir}/../src/**/*.ts",
+    "${configDir}/../src/**/*.tsx",
+    "${configDir}/.next/types/**/*.ts",
+    "${configDir}/.next/dev/types/**/*.ts"
+  ]
 }

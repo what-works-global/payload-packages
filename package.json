@@ -5,18 +5,35 @@
   "license": "MIT",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.21.0",
   "scripts": {
-    "build": "pnpm -r build",
-    "dev": "pnpm --filter payload-utilities dev",
-    "lint": "pnpm -r lint",
-    "test": "pnpm -r test",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "build": "pnpm -r --filter './packages/*' build",
+    "changeset": "changeset",
+    "check:exports": "pnpm -r --filter './packages/*' check:exports",
+    "check:publish-config": "node scripts/sync-publish-config.mjs --check",
     "clean": "pnpm -r clean",
     "create-db": "docker volume create payload-databases",
-    "start-db": "docker compose -p payload-databases up -d"
+    "dev": "pnpm --filter @whatworks/payload-utilities dev",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md}\"",
+    "lint": "pnpm -r lint",
+    "release": "pnpm build && changeset publish",
+    "start-db": "docker compose -p payload-databases up -d",
+    "sync:publish-config": "node scripts/sync-publish-config.mjs",
+    "test": "pnpm -r --if-present test",
+    "test:peer": "pnpm -r --if-present test:peer",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "version": "changeset version && pnpm install --lockfile-only"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
+    "@changesets/cli": "catalog:",
+    "@payloadcms/eslint-config": "catalog:",
+    "prettier": "catalog:",
+    "publint": "catalog:"
   },
   "engines": {
-    "node": "^18.20.2 || >=20.9.0",
+    "node": ">=20.9.0",
     "pnpm": "^9 || ^10"
   },
   "pnpm": {

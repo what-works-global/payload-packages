@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 
+// eslint-disable-next-line @eslint-react/no-use-context
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 export type ConsentStrategy =
@@ -23,6 +24,7 @@ interface CookieBannerContextType {
 const CookieBannerContext = createContext<CookieBannerContextType | undefined>(undefined)
 
 export function useCookieBanner() {
+  // eslint-disable-next-line @eslint-react/no-use-context
   const context = useContext(CookieBannerContext)
   if (!context) {
     throw new Error('useCookieBanner must be used within a CookieBannerProvider')
@@ -241,5 +243,5 @@ export function CookieBannerProvider({
     }
   }, [consentStrategy, requiresConsent, userDecision])
 
-  return <CookieBannerContext.Provider value={value}>{children}</CookieBannerContext.Provider>
+  return <CookieBannerContext value={value}>{children}</CookieBannerContext>
 }

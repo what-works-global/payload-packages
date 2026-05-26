@@ -1,14 +1,3 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  webpack: (webpackConfig) => {
-    webpackConfig.resolve.extensionAlias = {
-      '.cjs': ['.cts', '.cjs'],
-      '.js': ['.ts', '.tsx', '.js', '.jsx'],
-      '.mjs': ['.mts', '.mjs'],
-    }
+import { defineDevNextConfig } from '@whatworks/dev-fixture/next-config'
 
-    return webpackConfig
-  },
-}
-
-export default nextConfig
+export default defineDevNextConfig({ payload: false })

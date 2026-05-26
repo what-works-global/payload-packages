@@ -1,5 +1,6 @@
 packages:
   - 'packages/*'
+  - 'tools/*'
 
 catalog:
   '@types/node': 22.19.9
@@ -7,23 +8,21 @@ catalog:
   '@types/react-dom': 19.2.3
   '@eslint/eslintrc': 3.2.0
   '@floating-ui/react': 0.27.17
-  '@swc-node/register': 1.10.9
-  '@swc/cli': 0.6.0
-  '@payloadcms/db-mongodb': 3.30.0
-  '@payloadcms/db-postgres': 3.30.0
-  '@payloadcms/db-sqlite': 3.30.0
-  '@payloadcms/eslint-config': 3.0.0
-  '@payloadcms/next': 3.30.0
-  '@payloadcms/richtext-lexical': 3.30.0
-  '@payloadcms/translations': 3.30.0
-  '@payloadcms/ui': 3.30.0
+  '@payloadcms/db-mongodb': 3.84.1
+  '@payloadcms/db-postgres': 3.84.1
+  '@payloadcms/db-sqlite': 3.84.1
+  '@payloadcms/eslint-config': 3.28.0
+  '@payloadcms/next': 3.84.1
+  '@payloadcms/richtext-lexical': 3.84.1
+  '@payloadcms/translations': 3.84.1
+  '@payloadcms/ui': 3.84.1
   'autoprefixer': 10.4.20
   'copyfiles': 2.4.1
   'cross-env': 7.0.3
   'eslint': 9.23.0
-  'eslint-config-next': 15.4.11
-  'next': 15.4.11
-  'payload': 3.30.0
+  'eslint-config-next': 16.2.6
+  'next': 16.2.6
+  'payload': 3.84.1
   'prettier': 3.4.2
   'postcss': 8.4.49
   'react': 19.2.1
@@ -32,6 +31,10 @@ catalog:
   'sharp': 0.34.2
   'sort-package-json': 2.10.0
   'typescript': 5.7.3
+  'tsdown': 0.18.0
+  'publint': 0.3.12
+  '@arethetypeswrong/cli': 0.18.2
+  '@changesets/cli': 2.29.5
   'vitest': 3.1.2
   'vite-tsconfig-paths': 5.1.4
   'tailwindcss': 3.4.17

@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.dev.base.json",
+  "compilerOptions": {
+    "noUncheckedSideEffectImports": false,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "plugins": [{ "name": "next" }]
+  }
+}

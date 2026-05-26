@@ -1,17 +1,17 @@
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
+import { devUser } from '@whatworks/dev-fixture/credentials'
+import { startMemoryMongo } from '@whatworks/dev-fixture/memory-db'
+import { testEmailAdapter } from '@whatworks/dev-fixture/test-email'
 import {
   relationshipTitleResolver,
   transformDocument,
 } from '@whatworks/payload-utilities/traverseDocument'
-import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import path from 'path'
 import { buildConfig } from 'payload'
 import sharp from 'sharp'
 import { fileURLToPath } from 'url'
 
-import { devUser } from './helpers/credentials.js'
-import { testEmailAdapter } from './helpers/testEmailAdapter.js'
 import { seed } from './seed.js'
 
 const filename = fileURLToPath(import.meta.url)
@@ -23,14 +23,7 @@ if (!process.env.ROOT_DIR) {
 
 const buildConfigWithMemoryDB = async () => {
   if (process.env.NODE_ENV === 'test') {
-    const memoryDB = await MongoMemoryReplSet.create({
-      replSet: {
-        count: 3,
-        dbName: 'payloadmemory',
-      },
-    })
-
-    process.env.DATABASE_URI = `${memoryDB.getUri()}&retryWrites=true`
+    await startMemoryMongo({ dbName: 'payloadmemory' })
   }
 
   return buildConfig({

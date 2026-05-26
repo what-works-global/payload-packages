@@ -6,13 +6,13 @@
   "type": "module",
   "exports": {
     ".": {
-      "import": "./src/index.ts",
       "types": "./src/index.ts",
+      "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./api/consent": {
-      "import": "./src/api/consent.ts",
       "types": "./src/api/consent.ts",
+      "import": "./src/api/consent.ts",
       "default": "./src/api/consent.ts"
     }
   },
@@ -23,59 +23,59 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "pnpm copyfiles && pnpm build:css && pnpm build:types && pnpm build:swc",
+    "build": "tsdown && pnpm build:css",
     "build:css": "tailwindcss -c tailwind.config.js -i ./src/styles.css -o ./dist/styles.css --minify",
-    "build:swc": "swc ./src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
-    "build:types": "tsc --outDir dist --rootDir ./src",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
     "clean": "rimraf {dist,*.tsbuildinfo}",
-    "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png,json,md}\" dist/",
     "dev": "next dev dev",
     "lint": "eslint",
-    "lint:fix": "eslint ./src --fix",
-    "prepublishOnly": "pnpm clean && pnpm build"
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
     "@eslint/eslintrc": "catalog:",
-    "@swc-node/register": "catalog:",
-    "@swc/cli": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "copyfiles": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "autoprefixer": "catalog:",
     "eslint": "catalog:",
     "eslint-config-next": "catalog:",
     "next": "catalog:",
-    "prettier": "catalog:",
     "postcss": "catalog:",
-    "autoprefixer": "catalog:",
+    "prettier": "catalog:",
+    "publint": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "rimraf": "catalog:",
     "sort-package-json": "catalog:",
     "tailwindcss": "catalog:",
-    "typescript": "catalog:",
-    "vite-tsconfig-paths": "catalog:"
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
   },
   "peerDependencies": {
-    "next": ">=13.4.0 <16",
+    "next": ">=13.4.0 <17",
     "react": ">=18.2.0 <20",
     "react-dom": ">=18.2.0 <20"
   },
   "engines": {
-    "node": "^18.20.2 || >=20.9.0",
+    "node": ">=20.9.0",
     "pnpm": "^9 || ^10"
   },
   "publishConfig": {
     "access": "public",
+    "registry": "https://registry.npmjs.org/",
     "exports": {
       ".": {
-        "import": "./dist/index.js",
         "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
         "default": "./dist/index.js"
       },
       "./api/consent": {
-        "import": "./dist/api/consent.js",
         "types": "./dist/api/consent.d.ts",
+        "import": "./dist/api/consent.js",
         "default": "./dist/api/consent.js"
       }
     },

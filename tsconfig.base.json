@@ -14,5 +14,14 @@
     "strict": true,
     "target": "ES2022",
     "emitDeclarationOnly": true
-  }
+  },
+  "include": [
+    "${configDir}/src/**/*.ts",
+    "${configDir}/src/**/*.tsx",
+    "${configDir}/test/**/*.ts",
+    "${configDir}/tsdown.config.ts",
+    "${configDir}/vitest.config.ts",
+    "${configDir}/vitest.config.js",
+    "${configDir}/playwright.config.js"
+  ]
 }

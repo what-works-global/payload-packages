@@ -30,10 +30,7 @@ const serializeRefetchValue = (value: unknown): string => {
 
 const isAbortError = (error: unknown): boolean => {
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    'name' in error &&
-    error.name === 'AbortError'
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
   )
 }
 
@@ -235,7 +232,13 @@ export const SelectSearchField: TextFieldClientComponent = (
     return () => {
       clearTimeout(timeout)
     }
-  }, [schemaPath, slug, watchFieldPaths.length, watchedFieldsDebounceMs, watchedFieldPathsRefetchToken])
+  }, [
+    schemaPath,
+    slug,
+    watchFieldPaths.length,
+    watchedFieldsDebounceMs,
+    watchedFieldPathsRefetchToken,
+  ])
 
   useEffect(() => {
     return () => {

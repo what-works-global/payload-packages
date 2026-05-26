@@ -16,7 +16,6 @@ and passes the current search query plus any currently selected values.
 
 https://github.com/user-attachments/assets/0f49d3f9-8473-4d77-8e20-ee07a1276a8e
 
-
 ## Installation
 
 ```bash
@@ -65,10 +64,12 @@ selectSearch({
 ```
 
 `debounce` controls request timing:
+
 - `query`: debounce in ms for search input typing.
 - `watchedFields`: debounce in ms for `watchFieldPaths`-driven refetches.
 
 `searchFunction` receives:
+
 - `query`: the current input text.
 - `selectedValues`: an array of currently selected values (empty array when nothing is selected).
 - `siblingData`: sibling field values for the current field path when `passSiblingDataToSearchFunction: true`.

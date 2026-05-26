@@ -1,8 +1,5 @@
 import type { EmailAdapter, SendEmailOptions } from 'payload'
 
-/**
- * Logs all emails to stdout
- */
 export const testEmailAdapter: EmailAdapter<void> = ({ payload }) => ({
   name: 'test-email-adapter',
   defaultFromAddress: 'dev@payloadcms.com',
@@ -16,23 +13,18 @@ export const testEmailAdapter: EmailAdapter<void> = ({ payload }) => ({
 })
 
 function getStringifiedToAddress(message: SendEmailOptions): string | undefined {
-  let stringifiedTo: string | undefined
-
   if (typeof message.to === 'string') {
-    stringifiedTo = message.to
-  } else if (Array.isArray(message.to)) {
-    stringifiedTo = message.to
+    return message.to
+  }
+  if (Array.isArray(message.to)) {
+    return message.to
       .map((to: { address: string } | string) => {
         if (typeof to === 'string') {
           return to
-        } else if (to.address) {
-          return to.address
         }
-        return ''
+        return to.address ?? ''
       })
       .join(', ')
-  } else if (message.to?.address) {
-    stringifiedTo = message.to.address
   }
-  return stringifiedTo
+  return message.to?.address
 }

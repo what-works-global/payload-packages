@@ -4,21 +4,22 @@ import { Pill, SectionTitle } from '@payloadcms/ui'
 import React from 'react'
 
 import type { BlockLabelActionComponent, BlockLabelActionProps } from './useBlockLabelState.js'
+
 import { useBlockLabelState } from './useBlockLabelState.js'
 import './BlockLabelWithActions.scss'
 
 const baseClass = 'blocks-field'
 
-export type BlockLabelWithActionsProps = BlockLabelActionProps & {
+export type BlockLabelWithActionsProps = {
   readonly actions?: BlockLabelActionComponent[]
-}
+} & BlockLabelActionProps
 
 export const BlockLabelWithActions: React.FC<BlockLabelWithActionsProps> = ({
   actions = [],
   ...props
 }) => {
   const { block, path, readOnly, resolvedRowNumber, rowLabel } = useBlockLabelState(props)
-  const showBlockName = !Boolean(block?.admin?.disableBlockName)
+  const showBlockName = !block?.admin?.disableBlockName
 
   const pillClassName = [`${baseClass}__block-pill`]
 

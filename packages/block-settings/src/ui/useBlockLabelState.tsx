@@ -4,18 +4,19 @@ import type { ClientBlock, ClientField, SanitizedFieldPermissions } from 'payloa
 
 import { getTranslation } from '@payloadcms/translations'
 import { useConfig, useRowLabel, useTranslation } from '@payloadcms/ui'
+
 import type { BlockSettingsLabelClientProps } from '../types.js'
 
-export type BlockLabelActionProps = BlockSettingsLabelClientProps & {
-  readonly field: ClientField & {
+export type BlockLabelActionProps = {
+  readonly field: {
     readonly blockReferences?: (ClientBlock | string)[]
     readonly blocks?: ClientBlock[]
     readonly name: string
-  }
+  } & ClientField
   readonly permissions?: SanitizedFieldPermissions
   readonly readOnly?: boolean
   readonly schemaPath?: string
-}
+} & BlockSettingsLabelClientProps
 
 export type BlockLabelActionComponent = React.ComponentType<BlockLabelActionProps>
 

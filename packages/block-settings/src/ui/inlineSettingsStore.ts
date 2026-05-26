@@ -50,5 +50,9 @@ export const toggleInlineSettings = (path: string): void => {
 }
 
 export const useInlineSettingsOpen = (path: string): boolean => {
-  return useSyncExternalStore(subscribe, () => isInlineSettingsOpen(path), () => false)
+  return useSyncExternalStore(
+    subscribe,
+    () => isInlineSettingsOpen(path),
+    () => false,
+  )
 }

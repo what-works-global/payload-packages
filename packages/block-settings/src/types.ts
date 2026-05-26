@@ -9,12 +9,12 @@ export interface BlockSettingsFieldSettingsOptions {
   readonly location?: 'drawer' | 'inline'
 }
 
-export type BlockSettingsFieldOptions = Omit<NamedGroupField, 'fields' | 'name' | 'type'> & {
+export type BlockSettingsFieldOptions = {
   readonly fields: Field[]
   readonly name?: string
   readonly settings?: BlockSettingsFieldSettingsOptions
-}
+} & Omit<NamedGroupField, 'fields' | 'name' | 'type'>
 
-export interface BlockSettingsLabelClientProps {}
+export type BlockSettingsLabelClientProps = Record<string, unknown>
 
 export type DefaultBlockSettingsFieldName = typeof DEFAULT_BLOCK_SETTINGS_FIELD_NAME

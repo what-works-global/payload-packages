@@ -1,6 +1,5 @@
 # Payload Block Settings Plugin
 
-
 <a href="https://whatworks.com.au/?utm_source=github.com">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
@@ -13,7 +12,7 @@
 Hide extra fields for blocks behind a visibility toggle button.
 
 ## Demo
-  
+
 [demo.mov](https://github.com/user-attachments/assets/f4671529-9455-454d-95b1-455040448783)
 
 ## Contents
@@ -37,10 +36,7 @@ pnpm add @whatworks/payload-block-settings
 
 ```ts
 import { buildConfig } from 'payload'
-import {
-  blockSettingsField,
-  blockSettingsPlugin,
-} from '@whatworks/payload-block-settings'
+import { blockSettingsField, blockSettingsPlugin } from '@whatworks/payload-block-settings'
 
 export default buildConfig({
   collections: [
@@ -104,10 +100,10 @@ export default buildConfig({
 
 ### `settings` object
 
-| Key | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `canonical` | `boolean` | `false` | Marks this settings group as the canonical source of truth when multiple `blockSettingsField()` calls exist on the same block. More than one canonical settings group throws an error. |
-| `location` | `'inline' \| 'drawer'` | `'inline'` | Controls whether the Settings button toggles the fields inline inside the block body or opens them in a drawer. |
+| Key         | Type                   | Default    | Notes                                                                                                                                                                                  |
+| ----------- | ---------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical` | `boolean`              | `false`    | Marks this settings group as the canonical source of truth when multiple `blockSettingsField()` calls exist on the same block. More than one canonical settings group throws an error. |
+| `location`  | `'inline' \| 'drawer'` | `'inline'` | Controls whether the Settings button toggles the fields inline inside the block body or opens them in a drawer.                                                                        |
 
 ## Using a custom Label
 
@@ -145,10 +141,7 @@ const MyCustomActionButton: BlockLabelActionComponent = (props) => {
 }
 
 export const MyBlockLabel: BlockLabelActionComponent = (props) => (
-  <BlockLabelWithActions
-    {...props}
-    actions={[BlockSettingsToggleButton, MyCustomActionButton]}
-  />
+  <BlockLabelWithActions {...props} actions={[BlockSettingsToggleButton, MyCustomActionButton]} />
 )
 ```
 
@@ -180,6 +173,7 @@ export const MyBlockLabel: BlockLabelActionComponent = (props) => {
 ```
 
 ## Notes
+
 - Multiple `blockSettingsField()` calls on the same block are merged into one real settings group during plugin initialization. If two merged top-level settings fields have the same `name`, the plugin throws an error. When groups are merged, the first tagged settings field becomes the canonical stored group unless one field is declared with `settings: { canonical: true }`, in which case that field becomes the source of truth. If more than one tagged settings field is marked `settings: { canonical: true }`, the plugin throws an error.
 - The default settings field name is `settings`.
 - The merged settings group field is always moved to the first position in the block's `fields` array.

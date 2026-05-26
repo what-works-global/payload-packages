@@ -1,9 +1,7 @@
-import { defaultESLintIgnores, sharedEslintConfig } from '../../eslint.shared.js'
+// @ts-check
 
-export default [
-  ...defaultESLintIgnores,
-  ...sharedEslintConfig,
-  {
-    ignores: ['dev/**/*.mjs', 'dev/**/*.cjs'],
-  },
-]
+import { defineEslintConfig } from '../../eslint.shared.js'
+
+export default defineEslintConfig({
+  ignores: ['dev/**/*.mjs', 'dev/**/*.cjs'],
+})

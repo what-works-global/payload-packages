@@ -1,21 +1,3 @@
-import { withPayload } from '@payloadcms/next/withPayload'
+import { defineDevNextConfig } from '@whatworks/dev-fixture/next-config'
 
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  turbopack: {
-    rules: {
-      '*.ts': [
-        {
-          loaders: ['./import-rewrite-loader.mjs'],
-        },
-      ],
-      '*.tsx': [
-        {
-          loaders: ['./import-rewrite-loader.mjs'],
-        },
-      ],
-    },
-  },
-}
-
-export default withPayload(nextConfig, { devBundleServerPackages: false })
+export default defineDevNextConfig()

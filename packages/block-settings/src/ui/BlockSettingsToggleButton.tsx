@@ -2,9 +2,10 @@
 
 import type { ClientField, SanitizedFieldPermissions } from 'payload'
 
-import { Drawer, GroupField } from '@payloadcms/ui'
-import { useModal } from '@payloadcms/ui'
+import { Drawer, GroupField, useModal } from '@payloadcms/ui'
 import React, { useMemo } from 'react'
+
+import type { BlockLabelActionProps } from './useBlockLabelState.js'
 
 import {
   blockSettingsFieldMatches,
@@ -12,7 +13,6 @@ import {
   getBlockSettingsToggleSlug,
 } from '../shared.js'
 import { toggleInlineSettings, useInlineSettingsOpen } from './inlineSettingsStore.js'
-import type { BlockLabelActionProps } from './useBlockLabelState.js'
 import { useBlockLabelState } from './useBlockLabelState.js'
 import './BlockSettingsToggleButton.scss'
 
@@ -86,15 +86,15 @@ const getSettingsGroupPermissions = ({
 
 const SettingsIcon: React.FC = () => (
   <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="16"
-    height="16"
-    viewBox="0 0 24 24"
     fill="none"
+    height="16"
     stroke="currentColor"
-    strokeWidth="2"
     strokeLinecap="round"
     strokeLinejoin="round"
+    strokeWidth="2"
+    viewBox="0 0 24 24"
+    width="16"
+    xmlns="http://www.w3.org/2000/svg"
   >
     <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
     <circle cx="12" cy="12" r="3" />
@@ -109,11 +109,11 @@ export const BlockSettingsToggleButton: React.FC<BlockLabelActionProps> = (props
   const settingsField = block?.fields.find((candidate: ClientField) =>
     blockSettingsFieldMatches(candidate),
   ) as
-    | (ClientField & {
+    | ({
         fields: ClientField[]
         name: string
         type: 'group'
-      })
+      } & ClientField)
     | undefined
   const settingsLocation = settingsField ? getBlockSettingsFieldLocation(settingsField) : 'drawer'
   const settingsFieldName = settingsField?.name

@@ -14,11 +14,7 @@ const getFieldName = (field: Field): string | undefined => {
   return field.name
 }
 
-const mergeBlockSettingsFields = ({
-  block,
-}: {
-  block: Block
-}): Field | undefined => {
+const mergeBlockSettingsFields = ({ block }: { block: Block }): Field | undefined => {
   const matchingFields = block.fields.filter((field) => blockSettingsFieldMatches(field))
 
   if (matchingFields.length === 0) {
@@ -45,7 +41,9 @@ const mergeBlockSettingsFields = ({
     }
   }
 
-  const canonicalSettingsFields = matchingFields.filter((field) => blockSettingsFieldIsCanonical(field))
+  const canonicalSettingsFields = matchingFields.filter((field) =>
+    blockSettingsFieldIsCanonical(field),
+  )
 
   if (canonicalSettingsFields.length > 1) {
     throw new Error(

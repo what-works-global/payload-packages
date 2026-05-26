@@ -12,21 +12,20 @@
     "README.md"
   ],
   "scripts": {
-    "build": "pnpm copyfiles && pnpm build:types && pnpm build:swc",
-    "build:swc": "swc ./src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
-    "build:types": "tsc --outDir dist --rootDir ./src",
+    "build": "tsdown",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
     "clean": "rimraf {dist,*.tsbuildinfo}",
-    "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png,json}\" dist/",
     "dev": "next dev dev --turbo",
     "dev:generate-importmap": "pnpm dev:payload generate:importmap",
     "dev:generate-types": "pnpm dev:payload generate:types",
-    "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
+    "dev:payload": "cd dev && cross-env PAYLOAD_CONFIG_PATH=./payload.config.ts payload",
     "generate:importmap": "pnpm dev:generate-importmap",
     "generate:types": "pnpm dev:generate-types",
-    "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
-    "prepublishOnly": "rimraf tsconfig.tsbuildinfo && pnpm clean && pnpm build",
-    "typecheck": "tsc --outDir dist --rootDir ./src"
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "pnpm build",
+    "test:peer": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
@@ -35,59 +34,69 @@
   },
   "publishConfig": {
     "access": "public",
+    "registry": "https://registry.npmjs.org/",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "exports": {
       ".": {
-        "import": "./dist/index.js",
         "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
         "default": "./dist/index.js"
       },
       "./client": {
-        "import": "./dist/exports/client.js",
         "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
         "default": "./dist/exports/client.js"
       }
-    },
-    "registry": "https://registry.npmjs.org/"
+    }
   },
   "exports": {
     ".": {
-      "import": "./src/index.ts",
       "types": "./src/index.ts",
+      "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./client": {
-      "import": "./src/exports/client.ts",
       "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
       "default": "./src/exports/client.ts"
     }
   },
   "peerDependencies": {
-    "@payloadcms/ui": "^3.30.0",
-    "payload": "^3.30.0",
+    "@payloadcms/ui": ">=3.30.0 <4",
+    "payload": ">=3.30.0 <4",
     "react": ">=18.2.0 <20",
     "react-dom": ">=18.2.0 <20"
   },
+  "whatworks": {
+    "peerMatrix": {
+      "payload": {
+        "min": "3.30.0"
+      }
+    }
+  },
   "devDependencies": {
-    "@payloadcms/db-mongodb": "3.30.0",
-    "@payloadcms/eslint-config": "3.28.0",
-    "@payloadcms/next": "3.30.0",
-    "@swc-node/register": "catalog:",
-    "@swc/cli": "catalog:",
+    "@arethetypeswrong/cli": "catalog:",
+    "@payloadcms/db-mongodb": "catalog:",
+    "@payloadcms/eslint-config": "catalog:",
+    "@payloadcms/next": "catalog:",
+    "@payloadcms/ui": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "cross-env": "catalog:",
     "eslint": "catalog:",
     "eslint-config-next": "catalog:",
-    "copyfiles": "catalog:",
-    "cross-env": "catalog:",
     "next": "catalog:",
-    "payload": "3.30.0",
+    "payload": "catalog:",
+    "publint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "rimraf": "catalog:",
     "sharp": "catalog:",
-    "typescript": "catalog:"
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

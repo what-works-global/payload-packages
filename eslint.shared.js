@@ -1,5 +1,6 @@
 // @ts-check
 
+// @ts-expect-error -- no published types
 import payloadEsLintConfig from '@payloadcms/eslint-config'
 
 export const defaultESLintIgnores = [
@@ -10,7 +11,7 @@ export const defaultESLintIgnores = [
   '**/.pnp.*',
   '**/.svn',
   '**/playwright.config.ts',
-  '**/vitest.config.js',
+  '**/vitest.config.*',
   '**/tsconfig.tsbuildinfo',
   '**/README.md',
   '**/eslint.config.js',
@@ -20,36 +21,38 @@ export const defaultESLintIgnores = [
   '**/build/',
   '**/node_modules/',
   '**/temp/',
+  '**/importMap.js',
+  '**/(payload)/layout.tsx',
 ]
 
+const baseLanguageOptions = {
+  languageOptions: {
+    parserOptions: {
+      sourceType: 'module',
+      ecmaVersion: 'latest',
+      projectService: true,
+      tsconfigRootDir: import.meta.dirname,
+    },
+  },
+}
+
+/**
+ * @param {{ ignores?: string[]; extra?: unknown[] }} [options]
+ */
+export function defineEslintConfig(options = {}) {
+  const { ignores = [], extra = [] } = options
+  return [
+    { ignores: [...defaultESLintIgnores, ...ignores] },
+    ...payloadEsLintConfig,
+    { rules: { 'no-restricted-exports': 'off' } },
+    baseLanguageOptions,
+    ...extra,
+  ]
+}
+
+/** @deprecated use defineEslintConfig() */
 export const sharedEslintConfig = [
   ...payloadEsLintConfig,
-  {
-    rules: {
-      'no-restricted-exports': 'off',
-    },
-  },
-  {
-    languageOptions: {
-      parserOptions: {
-        sourceType: 'module',
-        ecmaVersion: 'latest',
-        projectService: {
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 40,
-          allowDefaultProject: [
-            'scripts/*.ts',
-            '*.js',
-            '*.cjs',
-            '*.mjs',
-            'dev/*.js',
-            'dev/*.cjs',
-            'dev/*.mjs',
-            '*.spec.ts',
-            '*.d.ts',
-          ],
-        },
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
-  },
+  { rules: { 'no-restricted-exports': 'off' } },
+  baseLanguageOptions,
 ]

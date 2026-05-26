@@ -29,9 +29,9 @@ pnpm add @whatworks/payload-utilities
 
 ## Exports
 
-| Entry | Path |
-| --- | --- |
-| Root | `@whatworks/payload-utilities` |
+| Entry              | Path                                            |
+| ------------------ | ----------------------------------------------- |
+| Root               | `@whatworks/payload-utilities`                  |
 | Document traversal | `@whatworks/payload-utilities/traverseDocument` |
 
 ## `resolveJsonSchemaRelationships`
@@ -122,11 +122,11 @@ const transformed = await transformDocument({
 
 A `FieldResolver<T>` receives the field, its value, sibling data, and the current request, and returns a replacement value (or `undefined` to keep the original). Three are bundled:
 
-| Resolver | Field type | Behavior |
-| --- | --- | --- |
-| `relationshipTitleResolver` | `relationship` | Resolves to the referenced document's `admin.useAsTitle` value. Falls back to the populated value on the doc, then the ID, then the original value. Handles polymorphic and `hasMany` relationships. |
-| `richTextPlaintextResolver({ converters? })` | `richText` | Converts a Lexical value to plain text via `@payloadcms/richtext-lexical/plaintext`. Accepts optional custom `PlaintextConverters`. |
-| `uploadMetadataResolver` | `upload` | Resolves to `{ id, filename, filesize, mimeType, url }` from the referenced upload document. Uses inline metadata when complete, otherwise fetches it. |
+| Resolver                                     | Field type     | Behavior                                                                                                                                                                                             |
+| -------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `relationshipTitleResolver`                  | `relationship` | Resolves to the referenced document's `admin.useAsTitle` value. Falls back to the populated value on the doc, then the ID, then the original value. Handles polymorphic and `hasMany` relationships. |
+| `richTextPlaintextResolver({ converters? })` | `richText`     | Converts a Lexical value to plain text via `@payloadcms/richtext-lexical/plaintext`. Accepts optional custom `PlaintextConverters`.                                                                  |
+| `uploadMetadataResolver`                     | `upload`       | Resolves to `{ id, filename, filesize, mimeType, url }` from the referenced upload document. Uses inline metadata when complete, otherwise fetches it.                                               |
 
 Define your own by typing the field key:
 

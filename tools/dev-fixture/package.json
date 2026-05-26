@@ -1,0 +1,35 @@
+{
+  "name": "@whatworks/dev-fixture",
+  "version": "0.0.0",
+  "description": "Shared dev/test fixture helpers for whatworks Payload packages. Not published.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./next-config": "./src/next-config.ts",
+    "./tsdown-config": "./src/tsdown-config.ts",
+    "./memory-db": "./src/memoryDB.ts",
+    "./test-email": "./src/testEmailAdapter.ts",
+    "./credentials": "./src/credentials.ts",
+    "./tsconfig.dev.json": "./tsconfig.dev.json"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "mongodb-memory-server": "10.1.4"
+  },
+  "devDependencies": {
+    "@payloadcms/next": "catalog:",
+    "@types/node": "catalog:",
+    "next": "catalog:",
+    "payload": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@payloadcms/next": "*",
+    "next": "*",
+    "payload": "*"
+  }
+}

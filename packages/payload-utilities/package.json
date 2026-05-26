@@ -6,13 +6,13 @@
   "type": "module",
   "exports": {
     ".": {
-      "import": "./src/index.ts",
       "types": "./src/index.ts",
+      "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./traverseDocument": {
-      "import": "./src/traverseDocument/index.ts",
       "types": "./src/traverseDocument/index.ts",
+      "import": "./src/traverseDocument/index.ts",
       "default": "./src/traverseDocument/index.ts"
     }
   },
@@ -22,33 +22,35 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm copyfiles && pnpm build:types && pnpm build:swc",
-    "build:swc": "swc ./src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
-    "build:types": "tsc --outDir dist --rootDir ./src",
+    "build": "tsdown",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
     "clean": "rimraf {dist,*.tsbuildinfo}",
-    "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png,json}\" dist/",
     "dev": "next dev dev --turbo",
     "dev:generate-importmap": "pnpm dev:payload generate:importmap",
     "dev:generate-types": "pnpm dev:payload generate:types",
-    "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
+    "dev:payload": "cd dev && cross-env PAYLOAD_CONFIG_PATH=./payload.config.ts payload",
     "generate:importmap": "pnpm dev:generate-importmap",
     "generate:types": "pnpm dev:generate-types",
-    "lint": "eslint ./src ./dev --ext .ts,.tsx,.js,.mjs",
-    "lint:fix": "eslint ./src ./dev --ext .ts,.tsx,.js,.mjs --fix",
-    "prepublishOnly": "pnpm clean && pnpm build",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "pnpm build",
     "test": "pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
-    "test:int": "vitest"
+    "test:int": "vitest run dev/int.spec.ts",
+    "test:peer": "vitest run test/peer.smoke.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
     "@eslint/eslintrc": "catalog:",
+    "@payloadcms/db-mongodb": "catalog:",
+    "@payloadcms/richtext-lexical": "catalog:",
+    "@payloadcms/translations": "catalog:",
     "@playwright/test": "^1.52.0",
-    "@swc-node/register": "catalog:",
-    "@swc/cli": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "copyfiles": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
     "cross-env": "catalog:",
     "eslint": "catalog:",
     "eslint-config-next": "catalog:",
@@ -56,38 +58,51 @@
     "mongodb-memory-server": "10.1.4",
     "next": "catalog:",
     "open": "^10.1.0",
+    "payload": "catalog:",
     "prettier": "catalog:",
+    "publint": "catalog:",
     "qs-esm": "7.0.2",
     "react": "catalog:",
     "react-dom": "catalog:",
     "rimraf": "catalog:",
     "sharp": "catalog:",
     "sort-package-json": "catalog:",
+    "tsdown": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "payload": "^3.0.2"
+    "@payloadcms/richtext-lexical": ">=3.29.0 <4",
+    "@payloadcms/translations": ">=3.29.0 <4",
+    "payload": ">=3.29.0 <4"
+  },
+  "whatworks": {
+    "peerMatrix": {
+      "payload": {
+        "min": "3.29.0"
+      }
+    }
   },
   "dependencies": {
     "@payloadcms/ui": "catalog:"
   },
   "engines": {
-    "node": "^18.20.2 || >=20.9.0",
+    "node": ">=20.9.0",
     "pnpm": "^9 || ^10"
   },
   "publishConfig": {
     "access": "public",
+    "registry": "https://registry.npmjs.org/",
     "exports": {
       ".": {
-        "import": "./dist/index.js",
         "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
         "default": "./dist/index.js"
       },
       "./traverseDocument": {
-        "import": "./dist/traverseDocument/index.js",
         "types": "./dist/traverseDocument/index.d.ts",
+        "import": "./dist/traverseDocument/index.js",
         "default": "./dist/traverseDocument/index.js"
       }
     },
