@@ -22,13 +22,15 @@ export const SwitchDbConnectionView: FC<SwitchDbConnectionViewProps> = async ({
   searchParams,
 }) => {
   if (!searchParams || !searchParams.secret || searchParams.secret !== payload.config.secret) {
-    payload.logger.error(`Invalid secret '${searchParams?.secret}' in SwitchDbConnectionView`)
+    payload.logger.error(
+      `Invalid secret '${String(searchParams?.secret)}' in SwitchDbConnectionView`,
+    )
     // If not authorized, redirect to /admin (Payload's default behaviour if route does not exist)
     redirect(payload.config.routes.admin)
   }
   const env = searchParams.env
   if (!isEnv(env)) {
-    const errorMsg = `Query parameter 'env' has invalid value '${env}' in SwitchDbConnectionView`
+    const errorMsg = `Query parameter 'env' has invalid value '${String(env)}' in SwitchDbConnectionView`
     payload.logger.error(errorMsg)
     return <p>{errorMsg}</p>
   }

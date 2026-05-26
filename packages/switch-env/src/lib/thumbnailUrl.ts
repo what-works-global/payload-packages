@@ -15,6 +15,12 @@ import { getDevelopmentStorageMode } from './developmentFileStorage.js'
 
 type AdminThumbnail = UploadConfig['adminThumbnail']
 
+type DocWithSizes = {
+  filename?: string
+  prefix?: string
+  sizes?: Record<string, { filename?: string; width?: number } | undefined>
+}
+
 export const getModifiedAdminThumbnail = (
   originalAdminThumbnail: AdminThumbnail,
   config: Config | SanitizedConfig,
@@ -52,7 +58,7 @@ const getThumbnailResult = (
     const url = generateURL({
       collectionSlug: collection.slug,
       config,
-      filename: (args.doc as any).sizes?.[adminThumbnail].filename as string,
+      filename: (args.doc as DocWithSizes).sizes?.[adminThumbnail]?.filename,
     })
     if (typeof url === 'undefined') {
       return null
@@ -86,14 +92,17 @@ export interface AdminThumbnailArgs {
 export const adminThumbnail =
   ({ basePath, imageSize }: AdminThumbnailArgs): GetAdminThumbnail =>
   ({ doc }) => {
-    let filename = doc.filename as string
+    const typedDoc = doc as DocWithSizes
+    let filename = typedDoc.filename ?? ''
     if (imageSize) {
-      const sizeFilename = (doc as any).sizes?.[imageSize].filename as string
+      const sizeFilename = typedDoc.sizes?.[imageSize]?.filename
       if (sizeFilename) {
         filename = sizeFilename
       }
     }
-    return `${basePath}/${doc.prefix ? `${doc.prefix}/` : ''}${filename}`
+    const prefix =
+      typeof typedDoc.prefix === 'string' && typedDoc.prefix ? `${typedDoc.prefix}/` : ''
+    return `${basePath}/${prefix}${filename}`
   }
 
 const localFileExists = async (
@@ -134,12 +143,13 @@ export const getModifiedAfterReadHook = (afterReadHook: FieldHook): FieldHook =>
         size = adminThumbnail
       } else {
         // Resort to smallest size
-        size = Object.entries(data?.sizes || {})
+        const sizesObj = (data?.sizes ?? {}) as Record<string, { width?: number } | undefined>
+        size = Object.entries(sizesObj)
           .map(([size, value]) => ({
             size,
-            value,
+            width: value?.width ?? 0,
           }))
-          .sort((a, b) => (a as any).value.width - (b as any).value.width)[0].size
+          .sort((a, b) => a.width - b.width)[0].size
       }
     }
     const filename = size ? data?.sizes?.[size]?.filename : data?.filename

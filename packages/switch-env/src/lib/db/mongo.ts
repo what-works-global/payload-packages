@@ -1,14 +1,17 @@
-import { type Connection } from 'mongoose'
-import { type BasePayload } from 'payload'
+import type { Connection, mongo } from 'mongoose'
+import type { BasePayload } from 'payload'
 
 import type { CollectionCopyScope, VersionCollectionModes } from '../copyUtils.js'
+
+type MongoDoc = mongo.Document
+type MongoCollection = mongo.Collection<MongoDoc>
 
 const topNSupportByDbObjectKey = new WeakMap<object, boolean>()
 const topNSupportByDbStringKey = new Map<string, boolean>()
 
 export interface BackupData {
-  collections: { [collectionName: string]: any[] }
-  indexes: { [collectionName: string]: any[] }
+  collections: { [collectionName: string]: MongoDoc[] }
+  indexes: { [collectionName: string]: MongoDoc[] }
 }
 
 export interface BackupOptions {
@@ -40,10 +43,7 @@ export async function backup(
     ...Object.keys(versionCollectionModesByName),
   ])
 
-  const backupData: {
-    collections: { [collectionName: string]: any[] }
-    indexes: { [collectionName: string]: any[] }
-  } = {
+  const backupData: BackupData = {
     collections: {},
     indexes: {},
   }
@@ -79,14 +79,14 @@ export async function backup(
 }
 
 const getDocumentsByScopes = async (
-  collection: any,
+  collection: MongoCollection,
   scopes: CollectionCopyScope[],
-): Promise<any[]> => {
+): Promise<MongoDoc[]> => {
   if (scopes.length === 0) {
     return []
   }
 
-  const documents: any[] = []
+  const documents: MongoDoc[] = []
   for (const scope of scopes) {
     if (scope.mode.mode === 'none') {
       continue
@@ -104,10 +104,10 @@ const getDocumentsByScopes = async (
 }
 
 const getLatestXDocuments = (
-  collection: any,
+  collection: MongoCollection,
   count: number,
   filter: Record<string, unknown>,
-): Promise<any[]> => {
+): Promise<MongoDoc[]> => {
   const maxDocs = Math.max(0, Math.floor(count))
   if (maxDocs < 1) {
     return Promise.resolve([])
@@ -116,7 +116,10 @@ const getLatestXDocuments = (
   return collection.find(filter).sort({ updatedAt: -1 }).limit(maxDocs).toArray()
 }
 
-const getLatestXVersionsByParent = async (collection: any, count: number): Promise<any[]> => {
+const getLatestXVersionsByParent = async (
+  collection: MongoCollection,
+  count: number,
+): Promise<MongoDoc[]> => {
   const maxPerDocument = Math.max(0, Math.floor(count))
   if (maxPerDocument < 1) {
     return []
@@ -134,9 +137,10 @@ const getLatestXVersionsByParent = async (collection: any, count: number): Promi
 }
 
 const getTopNCacheKey = (
-  collection: any,
+  collection: MongoCollection,
 ): { key: object; kind: 'object' } | { key: string; kind: 'string' } => {
-  const db = collection?.db
+  const collectionRecord = collection as unknown as Record<string, unknown>
+  const db = collectionRecord.db
 
   if ((typeof db === 'object' || typeof db === 'function') && db !== null) {
     return {
@@ -146,14 +150,17 @@ const getTopNCacheKey = (
   }
 
   const dbName =
-    collection?.dbName ?? collection?.namespace ?? collection?.collectionName ?? 'unknown-db'
+    (collectionRecord.dbName as string | undefined) ??
+    (collectionRecord.namespace as string | undefined) ??
+    collection.collectionName ??
+    'unknown-db'
   return {
     key: String(dbName),
     kind: 'string',
   }
 }
 
-const detectTopNSupport = async (collection: any): Promise<boolean> => {
+const detectTopNSupport = async (collection: MongoCollection): Promise<boolean> => {
   const cacheKey = getTopNCacheKey(collection)
   const cached =
     cacheKey.kind === 'object'
@@ -199,7 +206,10 @@ const detectTopNSupport = async (collection: any): Promise<boolean> => {
   }
 }
 
-const getLatestXVersionsWithTopN = (collection: any, maxPerDocument: number): Promise<any[]> => {
+const getLatestXVersionsWithTopN = (
+  collection: MongoCollection,
+  maxPerDocument: number,
+): Promise<MongoDoc[]> => {
   return collection
     .aggregate(
       [
@@ -238,9 +248,9 @@ const getLatestXVersionsWithTopN = (collection: any, maxPerDocument: number): Pr
 }
 
 const getLatestXVersionsWithFallback = (
-  collection: any,
+  collection: MongoCollection,
   maxPerDocument: number,
-): Promise<any[]> => {
+): Promise<MongoDoc[]> => {
   return collection
     .aggregate(
       [
@@ -302,7 +312,7 @@ export async function restore(
 
   try {
     await connection.dropDatabase()
-  } catch (error) {
+  } catch {
     logger.debug('Failed to drop database, deleting all documents in every collection instead')
     const existingCollections = await db.listCollections().toArray()
     // Drop each existing collection in parallel
@@ -320,8 +330,8 @@ export async function restore(
 
   const allIndexResults: Array<{
     collectionName: string
-    error?: any
-    index: any
+    error?: unknown
+    index: MongoDoc
     success: boolean
   }> = []
 
@@ -345,7 +355,7 @@ export async function restore(
           logger.debug(`Creating index ${index.name} on ${collectionName}`)
 
           // Create options object with only essential properties
-          const indexOptions: Record<string, any> = {
+          const indexOptions: Record<string, unknown> = {
             name: index.name,
             background: true, // This is generally safe to always include
           }

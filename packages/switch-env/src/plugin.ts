@@ -1,5 +1,5 @@
 // This import is required for the connection object to be typed on the payload.db object
-import type { MongooseAdapter } from '@payloadcms/db-mongodb'
+import type { MongooseAdapter as _MongooseAdapter } from '@payloadcms/db-mongodb'
 
 import { type Plugin } from 'payload'
 
@@ -82,6 +82,7 @@ export function switchEnvPlugin<DBA>({
               'Development database url does not contain "localhost" or "127.0.0.1". To disable this check, set the `developmentSafetyMode` plugin argument to false.',
             )
           } else {
+            // eslint-disable-next-line no-console
             console.warn(
               '\x1b[31mWARNING: Your development database url does not contain "localhost" or "127.0.0.1". You may be in danger of overwriting your production database!\x1b[0m',
             )

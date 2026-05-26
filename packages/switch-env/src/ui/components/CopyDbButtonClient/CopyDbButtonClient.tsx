@@ -1,5 +1,5 @@
 'use client'
-import { Button, CheckboxInput, Modal, toast, Tooltip, useConfig, useModal } from '@payloadcms/ui'
+import { Button, Modal, toast, useConfig, useModal } from '@payloadcms/ui'
 import { useRouter } from 'next/navigation'
 import { type FC, useEffect, useRef, useState } from 'react'
 
@@ -13,7 +13,7 @@ import { CopyIcon } from './icons.js'
 
 const baseClass = 'copy-db'
 
-export interface CopyDbButtonClientProps {}
+export type CopyDbButtonClientProps = Record<string, never>
 
 export const CopyDbButtonClient: FC<CopyDbButtonClientProps> = () => {
   const {

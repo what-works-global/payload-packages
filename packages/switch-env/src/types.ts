@@ -1,4 +1,3 @@
-import type { CollectionOptions } from '@payloadcms/plugin-cloud-storage/types'
 import type {
   CollectionSlug,
   DatabaseAdapterObj,

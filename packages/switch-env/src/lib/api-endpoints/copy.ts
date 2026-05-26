@@ -14,9 +14,8 @@ import { backupSql, restoreSql } from '../db/sql.js'
 import { switchDbConnection } from '../db/switchDbConnection.js'
 import { formatFileSize } from '../utils.js'
 
-export interface CopyEndpointInput {
-  // No parameters needed - always copies from production to development
-}
+// No parameters needed - always copies from production to development
+export type CopyEndpointInput = Record<string, never>
 
 export interface CopyEndpointOutput {
   message: string

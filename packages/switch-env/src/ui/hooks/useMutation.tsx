@@ -13,7 +13,7 @@ type UseMutationOptions<O> = {
   onSuccess?: (data: O) => void
 }
 
-export function useMutation<I = any, O = any>(
+export function useMutation<I = unknown, O = unknown>(
   url: string,
   options?: UseMutationOptions<O>,
 ): UseMutationResult<I, O> {
@@ -21,7 +21,7 @@ export function useMutation<I = any, O = any>(
   const [error, setError] = useState<Error | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
 
-  const mutate = async (data: any) => {
+  const mutate = async (data: I) => {
     try {
       setLoading(true)
       const fetchFunction = options?.fetchFn || fetch

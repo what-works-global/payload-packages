@@ -1,7 +1,6 @@
 import path from 'path'
 import {
   APIError,
-  type BasePayload,
   type CollectionAfterChangeHook,
   type CollectionAfterDeleteHook,
   type CollectionBeforeChangeHook,
