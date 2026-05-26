@@ -1,0 +1,140 @@
+{
+  "name": "@whatworks/payload-switch-env",
+  "version": "0.0.1",
+  "description": "Payload plugin to switch environments and copy databases between dev and prod.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "sideEffects": [
+    "**/*.scss",
+    "**/*.css"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
+    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "dev": "next dev dev",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "dev:payload": "cd dev && cross-env PAYLOAD_CONFIG_PATH=./payload.config.ts payload",
+    "generate:importmap": "pnpm dev:generate-importmap",
+    "generate:types": "pnpm dev:generate-types",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "pnpm build",
+    "test": "vitest run",
+    "test:mongo": "vitest run test/mongo",
+    "test:peer": "vitest run test/peer.smoke.spec.ts",
+    "test:sqlite": "vitest run test/sqlite",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/what-works-global/payload-packages",
+    "directory": "packages/switch-env"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
+        "default": "./dist/exports/client.js"
+      }
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    }
+  },
+  "peerDependencies": {
+    "@payloadcms/db-mongodb": ">=3.54.0 <4",
+    "@payloadcms/db-postgres": ">=3.54.0 <4",
+    "@payloadcms/db-sqlite": ">=3.54.0 <4",
+    "@payloadcms/drizzle": ">=3.54.0 <4",
+    "@payloadcms/plugin-cloud-storage": ">=3.54.0 <4",
+    "@payloadcms/ui": ">=3.54.0 <4",
+    "mongoose": "^8.8.1",
+    "next": ">=15.0.3",
+    "payload": ">=3.54.0 <4",
+    "react": ">=18.2.0 <20",
+    "react-dom": ">=18.2.0 <20"
+  },
+  "peerDependenciesMeta": {
+    "@payloadcms/db-mongodb": {
+      "optional": true
+    },
+    "@payloadcms/db-postgres": {
+      "optional": true
+    },
+    "@payloadcms/db-sqlite": {
+      "optional": true
+    },
+    "@payloadcms/drizzle": {
+      "optional": true
+    },
+    "mongoose": {
+      "optional": true
+    }
+  },
+  "whatworks": {
+    "peerMatrix": {
+      "payload": {
+        "min": "3.54.0"
+      }
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
+    "@payloadcms/db-mongodb": "catalog:",
+    "@payloadcms/db-sqlite": "catalog:",
+    "@payloadcms/drizzle": "3.84.1",
+    "@payloadcms/eslint-config": "catalog:",
+    "@payloadcms/next": "catalog:",
+    "@payloadcms/plugin-cloud-storage": "3.84.1",
+    "@payloadcms/richtext-lexical": "catalog:",
+    "@payloadcms/storage-s3": "3.84.1",
+    "@payloadcms/ui": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "cross-env": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-next": "catalog:",
+    "mongodb-memory-server": "10.1.4",
+    "next": "catalog:",
+    "payload": "catalog:",
+    "publint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "rimraf": "catalog:",
+    "sharp": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

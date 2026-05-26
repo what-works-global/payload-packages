@@ -8,8 +8,11 @@ const SYNC_TRACKED = [
   '@payloadcms/db-mongodb',
   '@payloadcms/db-postgres',
   '@payloadcms/db-sqlite',
+  '@payloadcms/drizzle',
   '@payloadcms/next',
+  '@payloadcms/plugin-cloud-storage',
   '@payloadcms/richtext-lexical',
+  '@payloadcms/storage-s3',
   '@payloadcms/translations',
   '@payloadcms/ui',
 ]
