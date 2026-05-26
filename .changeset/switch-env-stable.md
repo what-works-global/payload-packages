@@ -5,6 +5,8 @@
 Migrated from https://github.com/elliott-w/payload-plugin-switch-env and https://npmjs.com/package/@elliott-w/payload-plugin-switch-env
 to https://github.com/what-works-global/payload-packages/tree/main/packages/switch-env and https://npmjs.com/package/@whatworks/payload-switch-env
 
+Bumped minimum payload version to 3.54.0
+
 Add SQL adapter support (SQLite/Postgres) for copy and switch operations.
 
 - Dispatch copy/switch endpoints by adapter, with a new `openAdapter` helper
