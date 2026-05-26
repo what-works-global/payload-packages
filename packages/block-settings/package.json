@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-block-settings",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "Utilities for configuring and composing Payload block settings.",
   "license": "MIT",
   "type": "module",
