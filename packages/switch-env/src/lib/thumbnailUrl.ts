@@ -4,7 +4,8 @@ import type {
   FieldHook,
   GetAdminThumbnail,
   SanitizedCollectionConfig,
-  SanitizedConfig, UploadConfig 
+  SanitizedConfig,
+  UploadConfig,
 } from 'payload'
 
 import fsPromises from 'fs/promises'

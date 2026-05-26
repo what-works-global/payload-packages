@@ -1,4 +1,4 @@
-import type { PayloadRequest, TypeWithID  } from 'payload'
+import type { PayloadRequest, TypeWithID } from 'payload'
 
 import fsPromises from 'fs/promises'
 import path from 'path'

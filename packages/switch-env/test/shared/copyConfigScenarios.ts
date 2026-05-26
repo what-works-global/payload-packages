@@ -16,9 +16,7 @@ interface CopyConfigContext {
  * default mode, per-collection overrides, and per-global overrides — across
  * both documents and versions.
  */
-export const registerCopyConfigScenarios = (
-  getContext: () => CopyConfigContext,
-): void => {
+export const registerCopyConfigScenarios = (getContext: () => CopyConfigContext): void => {
   // ------------------------------------------------------------------
   // versions matrix
   // ------------------------------------------------------------------
@@ -74,9 +72,7 @@ export const registerCopyConfigScenarios = (
     })
 
     expect(targetVersions.totalDocs).toBe(3)
-    const titles = targetVersions.docs
-      .map((v) => (v.version as { title?: string }).title)
-      .sort()
+    const titles = targetVersions.docs.map((v) => (v.version as { title?: string }).title).sort()
     expect(titles).toEqual(['v3', 'v4', 'v5'])
   })
 

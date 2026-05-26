@@ -36,15 +36,7 @@ export interface RestoreSqlArgs {
   targetAdapter: DatabaseAdapter
 }
 
-type LibSqlInValue =
-  | ArrayBuffer
-  | bigint
-  | boolean
-  | Date
-  | null
-  | number
-  | string
-  | Uint8Array
+type LibSqlInValue = ArrayBuffer | bigint | boolean | Date | null | number | string | Uint8Array
 
 type LibSqlStatement = { args: LibSqlInValue[]; sql: string } | string
 
@@ -67,11 +59,7 @@ const isSystemObject = (name: string) =>
 
 const getClient = (adapter: DatabaseAdapter): LibSqlClient => {
   const client = (adapter as unknown as { client?: LibSqlClient }).client
-  if (
-    !client ||
-    typeof client.execute !== 'function' ||
-    typeof client.migrate !== 'function'
-  ) {
+  if (!client || typeof client.execute !== 'function' || typeof client.migrate !== 'function') {
     throw new Error('[switch-env] expected SQLite adapter with a libSQL `client`')
   }
   return client
@@ -79,10 +67,7 @@ const getClient = (adapter: DatabaseAdapter): LibSqlClient => {
 
 const quoteIdent = (name: string) => `"${name.replace(/"/g, '""')}"`
 
-const rowToObject = (
-  row: Record<string, unknown>,
-  columns: string[],
-): Record<string, unknown> => {
+const rowToObject = (row: Record<string, unknown>, columns: string[]): Record<string, unknown> => {
   const obj: Record<string, unknown> = {}
   for (const column of columns) {
     obj[column] = row[column]
@@ -106,8 +91,12 @@ const resolveSqlBaseTableName = (config: {
   dbName?: ((args: Record<string, never>) => string) | string
   slug: string
 }): string => {
-  if (typeof config.dbName === 'function') {return config.dbName({})}
-  if (typeof config.dbName === 'string' && config.dbName.length > 0) {return config.dbName}
+  if (typeof config.dbName === 'function') {
+    return config.dbName({})
+  }
+  if (typeof config.dbName === 'string' && config.dbName.length > 0) {
+    return config.dbName
+  }
   // Payload converts kebab-case slugs to snake_case table names in its SQL adapters.
   return config.slug.replace(/-/g, '_')
 }
@@ -115,17 +104,25 @@ const resolveSqlBaseTableName = (config: {
 const coerceBaseMode = (
   mode: { mode: 'all' } | { mode: 'latest-x'; x: number } | { mode: 'none' } | undefined,
 ): BaseTableMode => {
-  if (!mode) {return { mode: 'all', x: 0 }}
-  if (mode.mode === 'latest-x') {return { mode: 'latest-x', x: mode.x }}
+  if (!mode) {
+    return { mode: 'all', x: 0 }
+  }
+  if (mode.mode === 'latest-x') {
+    return { mode: 'latest-x', x: mode.x }
+  }
   return { mode: mode.mode, x: 0 }
 }
 
 const coerceVersionMode = (
   mode: { mode: 'all' } | { mode: 'latest-x'; x: number } | { mode: 'none' } | undefined,
 ): VersionTableMode => {
-  if (!mode || mode.mode === 'all') {return { mode: 'all', x: 0 }}
+  if (!mode || mode.mode === 'all') {
+    return { mode: 'all', x: 0 }
+  }
   // 'none' means "only the latest version per parent" — mirrors the mongo coercion in copyUtils.
-  if (mode.mode === 'none') {return { mode: 'latest-x', x: 1 }}
+  if (mode.mode === 'none') {
+    return { mode: 'latest-x', x: 1 }
+  }
   return { mode: 'latest-x', x: mode.x }
 }
 
@@ -139,14 +136,12 @@ const resolveBaseTableModes = (
 
   for (const collection of payload.config.collections ?? []) {
     const tableName = resolveSqlBaseTableName(collection)
-    const override =
-      documentsConfig.collections?.[collection.slug]
+    const override = documentsConfig.collections?.[collection.slug]
     result[tableName] = override ? coerceBaseMode(override) : defaultMode
   }
   for (const global of payload.config.globals ?? []) {
     const tableName = resolveSqlBaseTableName(global)
-    const override =
-      documentsConfig.globals?.[global.slug]
+    const override = documentsConfig.globals?.[global.slug]
     result[tableName] = override ? coerceBaseMode(override) : defaultMode
   }
   return result
@@ -161,40 +156,62 @@ const resolveVersionTableModes = (
   const defaultMode = coerceVersionMode(versionsConfig.default)
 
   for (const collection of payload.config.collections ?? []) {
-    if (!collection.versions) {continue}
+    if (!collection.versions) {
+      continue
+    }
     const base = resolveSqlBaseTableName(collection)
-    const override =
-      versionsConfig.collections?.[collection.slug]
+    const override = versionsConfig.collections?.[collection.slug]
     result[`_${base}_v`] = override ? coerceVersionMode(override) : defaultMode
   }
   for (const global of payload.config.globals ?? []) {
-    if (!global.versions) {continue}
+    if (!global.versions) {
+      continue
+    }
     const base = resolveSqlBaseTableName(global)
-    const override =
-      versionsConfig.globals?.[global.slug]
+    const override = versionsConfig.globals?.[global.slug]
     result[`_${base}_v`] = override ? coerceVersionMode(override) : defaultMode
   }
   return result
 }
 
 const toNumeric = (v: unknown): number => {
-  if (typeof v === 'number') {return v}
-  if (typeof v === 'boolean') {return v ? 1 : 0}
-  if (typeof v === 'bigint') {return Number(v)}
+  if (typeof v === 'number') {
+    return v
+  }
+  if (typeof v === 'boolean') {
+    return v ? 1 : 0
+  }
+  if (typeof v === 'bigint') {
+    return Number(v)
+  }
   return 0
+}
+
+const toSortableString = (v: unknown): string => {
+  if (typeof v === 'string') {
+    return v
+  }
+  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') {
+    return String(v)
+  }
+  return ''
 }
 
 const filterLatestXRows = (
   rows: Record<string, unknown>[],
   x: number,
 ): Record<string, unknown>[] => {
-  if (rows.length === 0 || x < 1) {return []}
+  if (rows.length === 0 || x < 1) {
+    return []
+  }
   const sorted = [...rows].sort((a, b) => {
-    const aUpd = String(a.updated_at ?? '')
-    const bUpd = String(b.updated_at ?? '')
-    if (aUpd !== bUpd) {return aUpd < bUpd ? 1 : -1}
-    const aId = String(a.id ?? '')
-    const bId = String(b.id ?? '')
+    const aUpd = toSortableString(a.updated_at)
+    const bUpd = toSortableString(b.updated_at)
+    if (aUpd !== bUpd) {
+      return aUpd < bUpd ? 1 : -1
+    }
+    const aId = toSortableString(a.id)
+    const bId = toSortableString(b.id)
     return aId < bId ? 1 : -1
   })
   return sorted.slice(0, x)
@@ -204,17 +221,23 @@ const filterLatestXPerParent = (
   rows: Record<string, unknown>[],
   x: number,
 ): Record<string, unknown>[] => {
-  if (rows.length === 0 || x < 1) {return []}
+  if (rows.length === 0 || x < 1) {
+    return []
+  }
   // Sort descending by (latest, updated_at, id). Mirrors the mongo path which
   // prioritizes latest=true so list views in the target admin still find docs.
   const sorted = [...rows].sort((a, b) => {
     const latestDiff = toNumeric(b.latest) - toNumeric(a.latest)
-    if (latestDiff !== 0) {return latestDiff}
-    const aUpd = String(a.updated_at ?? '')
-    const bUpd = String(b.updated_at ?? '')
-    if (aUpd !== bUpd) {return aUpd < bUpd ? 1 : -1}
-    const aId = String(a.id ?? '')
-    const bId = String(b.id ?? '')
+    if (latestDiff !== 0) {
+      return latestDiff
+    }
+    const aUpd = toSortableString(a.updated_at)
+    const bUpd = toSortableString(b.updated_at)
+    if (aUpd !== bUpd) {
+      return aUpd < bUpd ? 1 : -1
+    }
+    const aId = toSortableString(a.id)
+    const bId = toSortableString(b.id)
     return aId < bId ? 1 : -1
   })
 
@@ -234,9 +257,13 @@ const buildInsertStatements = (
   tableName: string,
   rows: Record<string, unknown>[],
 ): LibSqlStatement[] => {
-  if (rows.length === 0) {return []}
+  if (rows.length === 0) {
+    return []
+  }
   const columns = Object.keys(rows[0])
-  if (columns.length === 0) {return []}
+  if (columns.length === 0) {
+    return []
+  }
 
   const columnList = columns.map(quoteIdent).join(', ')
   const placeholders = columns.map(() => '?').join(', ')
@@ -259,7 +286,7 @@ export const backupSql = async ({
 
   // Capture CREATE TABLE first, then CREATE INDEX, so replay order is safe.
   const schemaRs = await client.execute(
-    "SELECT type, name, sql FROM sqlite_master " +
+    'SELECT type, name, sql FROM sqlite_master ' +
       "WHERE type IN ('table', 'index') AND sql IS NOT NULL " +
       "ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name",
   )
@@ -268,9 +295,13 @@ export const backupSql = async ({
   const tableNames: string[] = []
   for (const row of schemaRs.rows) {
     const name = row.name as string
-    if (isSystemObject(name)) {continue}
+    if (isSystemObject(name)) {
+      continue
+    }
     schema.push(row.sql as string)
-    if ((row.type as string) === 'table') {tableNames.push(name)}
+    if ((row.type as string) === 'table') {
+      tableNames.push(name)
+    }
   }
 
   const tables: Record<string, Record<string, unknown>[]> = {}
@@ -304,14 +335,11 @@ export const backupSql = async ({
   return { migrations, schema, tables }
 }
 
-export const restoreSql = async ({
-  backupData,
-  targetAdapter,
-}: RestoreSqlArgs): Promise<void> => {
+export const restoreSql = async ({ backupData, targetAdapter }: RestoreSqlArgs): Promise<void> => {
   const client = getClient(targetAdapter)
 
   const existingRs = await client.execute(
-    "SELECT type, name FROM sqlite_master " +
+    'SELECT type, name FROM sqlite_master ' +
       "WHERE type IN ('table', 'index') AND sql IS NOT NULL",
   )
 
@@ -319,7 +347,9 @@ export const restoreSql = async ({
   const dropTables: LibSqlStatement[] = []
   for (const row of existingRs.rows) {
     const name = row.name as string
-    if (isSystemObject(name)) {continue}
+    if (isSystemObject(name)) {
+      continue
+    }
     if ((row.type as string) === 'index') {
       dropIndexes.push(`DROP INDEX IF EXISTS ${quoteIdent(name)}`)
     } else {
@@ -333,12 +363,7 @@ export const restoreSql = async ({
   }
   inserts.push(...buildInsertStatements(PAYLOAD_MIGRATIONS_TABLE, backupData.migrations))
 
-  await client.migrate([
-    ...dropIndexes,
-    ...dropTables,
-    ...backupData.schema,
-    ...inserts,
-  ])
+  await client.migrate([...dropIndexes, ...dropTables, ...backupData.schema, ...inserts])
 
   // payload.db.migrate prompts the user when it sees a batch=-1 ("dev") row —
   // unworkable in headless contexts. Strip it; pushDevSchema re-inserts it below.

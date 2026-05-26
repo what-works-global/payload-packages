@@ -13,6 +13,7 @@ pnpm i @whatworks/payload-switch-env
 ## Example Config
 
 ⚠️ Warning: The switchEnv plugin must come last in the plugins array. Your cloud storage plugin must be second last. <details>
+
 <summary>Why?</summary>
 The cloud storage plugin adds url fields to upload collections and the switchEnv plugin needs to modify the afterRead hooks on these fields.
 The cloud storage plugin also adds `beforeChange` and `afterDelete` hooks to upload collections (for uploading/deleting files from cloud storage) and the switchEnv plugin assumes they are the last hook in the array, thus you need to have the cloud storage plugin second last so that no other plugins break this assumption.

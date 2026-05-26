@@ -103,14 +103,14 @@ const getDocumentsByScopes = async (
   return documents
 }
 
-const getLatestXDocuments = async (
+const getLatestXDocuments = (
   collection: any,
   count: number,
   filter: Record<string, unknown>,
 ): Promise<any[]> => {
   const maxDocs = Math.max(0, Math.floor(count))
   if (maxDocs < 1) {
-    return []
+    return Promise.resolve([])
   }
 
   return collection.find(filter).sort({ updatedAt: -1 }).limit(maxDocs).toArray()
@@ -351,10 +351,15 @@ export async function restore(
           }
 
           // Only add optional properties if they are explicitly true
-          if (index.unique === true) {indexOptions.unique = true}
-          if (index.sparse === true) {indexOptions.sparse = true}
-          if (typeof index.expireAfterSeconds === 'number')
-            {indexOptions.expireAfterSeconds = index.expireAfterSeconds}
+          if (index.unique === true) {
+            indexOptions.unique = true
+          }
+          if (index.sparse === true) {
+            indexOptions.sparse = true
+          }
+          if (typeof index.expireAfterSeconds === 'number') {
+            indexOptions.expireAfterSeconds = index.expireAfterSeconds
+          }
           if (
             index.partialFilterExpression &&
             Object.keys(index.partialFilterExpression).length > 0

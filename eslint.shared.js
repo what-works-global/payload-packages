@@ -49,10 +49,3 @@ export function defineEslintConfig(options = {}) {
     ...extra,
   ]
 }
-
-/** @deprecated use defineEslintConfig() */
-export const sharedEslintConfig = [
-  ...payloadEsLintConfig,
-  { rules: { 'no-restricted-exports': 'off' } },
-  baseLanguageOptions,
-]

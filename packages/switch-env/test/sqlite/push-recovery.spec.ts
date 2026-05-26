@@ -78,16 +78,16 @@ describe('sqlite push-recovery', () => {
   afterAll(async () => {
     await sourcePayload?.db.destroy?.()
     await targetPayload?.db.destroy?.()
-    if (workDir) {await rm(workDir, { force: true, recursive: true })}
+    if (workDir) {
+      await rm(workDir, { force: true, recursive: true })
+    }
   })
 
   it("restores the target's extra column via post-restore push", async () => {
     // Sanity-check: source DB does not have `subtitle` (dev push only wrote it to target).
     const sourceCols = await sqliteClient(sourcePayload).execute("PRAGMA table_info('posts')")
     expect(sourceCols.rows.some((r) => r.name === 'subtitle')).toBe(false)
-    const targetColsBefore = await sqliteClient(targetPayload).execute(
-      "PRAGMA table_info('posts')",
-    )
+    const targetColsBefore = await sqliteClient(targetPayload).execute("PRAGMA table_info('posts')")
     expect(targetColsBefore.rows.some((r) => r.name === 'subtitle')).toBe(true)
 
     await sourcePayload.create({
@@ -116,9 +116,7 @@ describe('sqlite push-recovery', () => {
     })
 
     // After restore + push: target DB should have the subtitle column back.
-    const targetColsAfter = await sqliteClient(targetPayload).execute(
-      "PRAGMA table_info('posts')",
-    )
+    const targetColsAfter = await sqliteClient(targetPayload).execute("PRAGMA table_info('posts')")
     expect(targetColsAfter.rows.some((r) => r.name === 'subtitle')).toBe(true)
 
     // And it should be usable end-to-end via Payload's API.

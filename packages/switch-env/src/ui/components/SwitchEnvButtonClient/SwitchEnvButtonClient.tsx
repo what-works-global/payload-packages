@@ -5,7 +5,10 @@ import { type FC, useEffect, useRef, useState } from 'react'
 
 import './SwitchEnvButtonClient.scss'
 
-import type { SwitchEndpointInput, SwitchEndpointOutput } from '../../../lib/api-endpoints/switch.js'
+import type {
+  SwitchEndpointInput,
+  SwitchEndpointOutput,
+} from '../../../lib/api-endpoints/switch.js'
 import type { Env, QuickSwitchArgs } from '../../../types.js'
 
 import { useMutation } from '../../hooks/useMutation.js'
@@ -68,7 +71,7 @@ export const SwitchEnvButtonClient: FC<SwitchEnvButtonClientProps> = ({ env, qui
         className={`${baseClass}__btn-switch`}
         onClick={() => {
           if (quickSwitch) {
-            mutate({
+            void mutate({
               copyDatabase,
             })
             setButtonLoading(true)
@@ -76,6 +79,7 @@ export const SwitchEnvButtonClient: FC<SwitchEnvButtonClientProps> = ({ env, qui
             openModal('switch-env')
           }
         }}
+        type="button"
       >
         {buttonLoading && quickSwitch ? (
           <LoadingSpinnerIcon />
@@ -84,7 +88,12 @@ export const SwitchEnvButtonClient: FC<SwitchEnvButtonClientProps> = ({ env, qui
         )}
       </button>
       <Modal className={`${baseClass}__modal`} slug="switch-env">
-        <div className={`${baseClass}__modal-close`} onClick={() => closeModal('switch-env')}></div>
+        <button
+          aria-label="Close"
+          className={`${baseClass}__modal-close`}
+          onClick={() => closeModal('switch-env')}
+          type="button"
+        />
         <div className={`${baseClass}__modal-content`}>
           <h4>Switch to {targetEnv}</h4>
           {targetEnv == 'Development' && (
@@ -113,7 +122,7 @@ export const SwitchEnvButtonClient: FC<SwitchEnvButtonClientProps> = ({ env, qui
           )}
           <Button
             onClick={() => {
-              mutate({
+              void mutate({
                 copyDatabase,
               })
               setButtonLoading(true)

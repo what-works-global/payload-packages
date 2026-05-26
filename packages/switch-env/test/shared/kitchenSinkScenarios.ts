@@ -15,9 +15,7 @@ interface KitchenSinkContext {
  * the surrounding describe block. Called from runCopyScenarios so each adapter
  * runs the same suite.
  */
-export const registerKitchenSinkScenarios = (
-  getContext: () => KitchenSinkContext,
-): void => {
+export const registerKitchenSinkScenarios = (getContext: () => KitchenSinkContext): void => {
   it('copies a kitchen-sink doc exercising most field types', async () => {
     const { runCopy, sourcePayload, targetPayload } = getContext()
 
@@ -149,7 +147,7 @@ export const registerKitchenSinkScenarios = (
     // NULL, and empty containers that should still produce zero rows on the
     // target's side-tables (not "carry over from source").
     const trickyText =
-      "single ' double \" backtick ` backslash \\ semicolon ; newline\nand tab\there"
+      'single \' double " backtick ` backslash \\ semicolon ; newline\nand tab\there'
     const created = await sourcePayload.create({
       collection: 'kitchen-sink',
       data: {
@@ -164,7 +162,7 @@ export const registerKitchenSinkScenarios = (
           empty: { arr: [], obj: {} },
           falsy: false,
           nested: [{ a: 1 }, { a: 2 }],
-          tricky: "it's \"fine\" — really",
+          tricky: 'it\'s "fine" — really',
           zero: 0,
         },
         numberField: 0,

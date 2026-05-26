@@ -156,9 +156,7 @@ export const runCopyScenarios = (
       })
       expect(targetVersions.totalDocs).toBe(2)
 
-      const titles = targetVersions.docs
-        .map((v) => (v.version as { title?: string }).title)
-        .sort()
+      const titles = targetVersions.docs.map((v) => (v.version as { title?: string }).title).sort()
       expect(titles).toEqual(['v2', 'v3'])
     })
 

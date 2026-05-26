@@ -86,7 +86,9 @@ describe('sqlite migrate-recovery', () => {
   afterAll(async () => {
     await sourcePayload?.db.destroy?.()
     await targetPayload?.db.destroy?.()
-    if (workDir) {await rm(workDir, { force: true, recursive: true })}
+    if (workDir) {
+      await rm(workDir, { force: true, recursive: true })
+    }
   })
 
   it('applies pending migrations so renamed columns inherit source data', async () => {
@@ -94,9 +96,7 @@ describe('sqlite migrate-recovery', () => {
     const sourceCols = await sqliteClient(sourcePayload).execute("PRAGMA table_info('posts')")
     expect(sourceCols.rows.some((r) => r.name === 'title')).toBe(true)
     expect(sourceCols.rows.some((r) => r.name === 'heading')).toBe(false)
-    const targetColsBefore = await sqliteClient(targetPayload).execute(
-      "PRAGMA table_info('posts')",
-    )
+    const targetColsBefore = await sqliteClient(targetPayload).execute("PRAGMA table_info('posts')")
     expect(targetColsBefore.rows.some((r) => r.name === 'heading')).toBe(true)
     expect(targetColsBefore.rows.some((r) => r.name === 'title')).toBe(false)
 
@@ -119,9 +119,7 @@ describe('sqlite migrate-recovery', () => {
 
     // After restore + migrate + push: target column is `heading` again and the
     // source's `title` data has moved into it.
-    const targetColsAfter = await sqliteClient(targetPayload).execute(
-      "PRAGMA table_info('posts')",
-    )
+    const targetColsAfter = await sqliteClient(targetPayload).execute("PRAGMA table_info('posts')")
     expect(targetColsAfter.rows.some((r) => r.name === 'heading')).toBe(true)
     expect(targetColsAfter.rows.some((r) => r.name === 'title')).toBe(false)
 

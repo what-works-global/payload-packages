@@ -9,6 +9,7 @@ import { switchEnvGlobalSlug } from '../globals/switchEnvGlobal.js'
 const tmpFile = path.posix.join(os.tmpdir(), 'payload-env.txt')
 
 declare global {
+  // eslint-disable-next-line no-var
   var env: Env | undefined
 }
 

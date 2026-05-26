@@ -57,7 +57,11 @@ export const CopyDbButtonClient: FC<CopyDbButtonClientProps> = () => {
 
   return (
     <div className={`${baseClass}`}>
-      <button className={`${baseClass}__btn-copy`} onClick={() => openModal('copy-db')}>
+      <button
+        className={`${baseClass}__btn-copy`}
+        onClick={() => openModal('copy-db')}
+        type="button"
+      >
         {buttonLoading ? (
           <LoadingSpinnerIcon />
         ) : (
@@ -65,7 +69,12 @@ export const CopyDbButtonClient: FC<CopyDbButtonClientProps> = () => {
         )}
       </button>
       <Modal className={`${baseClass}__modal`} slug="copy-db">
-        <div className={`${baseClass}__modal-close`} onClick={() => closeModal('copy-db')}></div>
+        <button
+          aria-label="Close"
+          className={`${baseClass}__modal-close`}
+          onClick={() => closeModal('copy-db')}
+          type="button"
+        />
         <div className={`${baseClass}__modal-content`}>
           <h4>Overwrite local database with production?</h4>
           <p className={`${baseClass}__modal-content__description`}>
@@ -74,7 +83,7 @@ export const CopyDbButtonClient: FC<CopyDbButtonClientProps> = () => {
           </p>
           <Button
             onClick={() => {
-              mutate({})
+              void mutate({})
               setButtonLoading(true)
             }}
           >

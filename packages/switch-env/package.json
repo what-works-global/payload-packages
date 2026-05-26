@@ -30,6 +30,7 @@
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:mongo": "vitest run test/mongo",
+    "test:peer": "vitest run test/peer.smoke.spec.ts",
     "test:sqlite": "vitest run test/sqlite",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

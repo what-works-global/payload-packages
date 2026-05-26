@@ -8,7 +8,7 @@ import type {
   CopyVersionsMode,
 } from '../types.js'
 
-type CopyMode = CopyDocumentsMode  
+type CopyMode = CopyDocumentsMode
 type RuntimeCopyVersionsMode = Exclude<CopyVersionsMode, { mode: 'none' }>
 const DEFAULT_COPY_MODE: CopyMode = { mode: 'all' }
 const INTERNAL_MAX_LATEST_X = 100
@@ -224,7 +224,7 @@ const normalizeTargetConfig = (
 }
 
 const normalizeOverrides = (
-  overrides: CollectionModeOverrides<CopyMode>   | undefined,
+  overrides: CollectionModeOverrides<CopyMode> | undefined,
   contextPrefix: string,
   maxX: number,
   warn?: (message: string) => void,
@@ -301,7 +301,7 @@ const coerceVersionMode = (mode: CopyVersionsMode): RuntimeCopyVersionsMode => {
 }
 
 const coerceVersionOverrides = (
-  overrides: CollectionModeOverrides<CopyMode>   | undefined,
+  overrides: CollectionModeOverrides<CopyMode> | undefined,
 ): CollectionModeOverrides<RuntimeCopyVersionsMode> | undefined => {
   if (!overrides) {
     return undefined
@@ -330,7 +330,7 @@ const warnOnEntityOverrides = ({
 }: {
   enabledBySlug: Map<string, boolean>
   entityName: 'collection' | 'global'
-  overrides: CollectionModeOverrides<CopyMode>   | undefined
+  overrides: CollectionModeOverrides<CopyMode> | undefined
   pathPrefix: string
   requireVersionsEnabled: boolean
   warn?: (message: string) => void

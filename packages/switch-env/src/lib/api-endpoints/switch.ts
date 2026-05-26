@@ -1,10 +1,6 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
-import type {
-  DevelopmentFileStorageArgs,
-  GetEnv,
-  SetEnv,
-} from '../../types.js'
+import type { DevelopmentFileStorageArgs, GetEnv, SetEnv } from '../../types.js'
 import type { GetDatabaseAdapter } from '../db/getDbaFunction.js'
 
 import { switchEnvironments } from '../collectionConfig.js'

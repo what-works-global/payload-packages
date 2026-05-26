@@ -43,7 +43,7 @@ export function useQuery<T>(url: string, options?: UseQueryOptions<T>): UseQuery
   }, [url, options])
 
   useEffect(() => {
-    fetchData()
+    void fetchData()
   }, [fetchData])
 
   const refetch = useCallback(async () => {

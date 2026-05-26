@@ -16,7 +16,12 @@ import {
   traverseFields,
 } from 'payload'
 
-import type { DevelopmentFileStorageArgs, DevelopmentFileStorageMode, Env, GetEnv } from '../types.js'
+import type {
+  DevelopmentFileStorageArgs,
+  DevelopmentFileStorageMode,
+  Env,
+  GetEnv,
+} from '../types.js'
 
 import { developmentStorageModeFieldName } from './developmentFileStorage.js'
 import { getModifiedHandler } from './handlers.js'
@@ -236,8 +241,12 @@ const isPayloadAtLeast = (payloadVersion: string, minVersion: string): boolean =
   ]
 
   for (let i = 0; i < target.length; i++) {
-    if (current[i] > target[i]) {return true}
-    if (current[i] < target[i]) {return false}
+    if (current[i] > target[i]) {
+      return true
+    }
+    if (current[i] < target[i]) {
+      return false
+    }
   }
 
   return true
@@ -407,7 +416,7 @@ export const modifyThumbnailUrl = (config: Config | SanitizedConfig, getEnv: Get
 const getModifiedPrefixBeforeChangeHook = (
   developmentFileStorage: DevelopmentFileStorageArgs,
 ): CollectionBeforeChangeHook => {
-  return async (args) => {
+  return (args) => {
     const { data, originalDoc } = args
     const isDevelopmentDoc =
       data?.createdDuringDevelopment === true || originalDoc?.createdDuringDevelopment === true
