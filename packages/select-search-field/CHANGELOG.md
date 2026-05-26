@@ -1,5 +1,11 @@
 # @whatworks/payload-select-search-field
 
+## 3.0.1
+
+### Patch Changes
+
+- c67e83b: Compile JSX with the React automatic runtime
+
 ## 3.0.0
 
 ### Major Changes
