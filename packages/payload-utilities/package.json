@@ -91,6 +91,11 @@
     "node": ">=20.9.0",
     "pnpm": "^9 || ^10"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/what-works-global/payload-packages",
+    "directory": "packages/payload-utilities"
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/",
