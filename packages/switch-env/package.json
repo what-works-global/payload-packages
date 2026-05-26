@@ -70,15 +70,15 @@
     }
   },
   "peerDependencies": {
-    "@payloadcms/db-mongodb": ">=3.0.2 <4",
-    "@payloadcms/db-postgres": ">=3.0.2 <4",
-    "@payloadcms/db-sqlite": ">=3.0.2 <4",
-    "@payloadcms/drizzle": ">=3.0.2 <4",
-    "@payloadcms/plugin-cloud-storage": ">=3.0.2 <4",
-    "@payloadcms/ui": ">=3.0.2 <4",
+    "@payloadcms/db-mongodb": ">=3.54.0 <4",
+    "@payloadcms/db-postgres": ">=3.54.0 <4",
+    "@payloadcms/db-sqlite": ">=3.54.0 <4",
+    "@payloadcms/drizzle": ">=3.54.0 <4",
+    "@payloadcms/plugin-cloud-storage": ">=3.54.0 <4",
+    "@payloadcms/ui": ">=3.54.0 <4",
     "mongoose": "^8.8.1",
     "next": ">=15.0.3",
-    "payload": ">=3.0.2 <4",
+    "payload": ">=3.54.0 <4",
     "react": ">=18.2.0 <20",
     "react-dom": ">=18.2.0 <20"
   },
@@ -102,7 +102,7 @@
   "whatworks": {
     "peerMatrix": {
       "payload": {
-        "min": "3.0.2"
+        "min": "3.54.0"
       }
     }
   },
