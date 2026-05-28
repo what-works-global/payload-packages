@@ -1,6 +1,16 @@
-import type { Field, TextField } from 'payload'
+import type { Field, RelationshipField, TextField } from 'payload'
 
 import type { SelectSearchFunction } from './types.js'
+
+export type SelectSearchRelationConfig = {
+  /** Collection slug to store this field as a Payload relationship. When set,
+   *  the underlying field type becomes `relationship` (storing references —
+   *  ObjectId on Mongo, FK on SQL) and list-view cells render via Payload's
+   *  default relationship cell. Drop-in replacement for an existing
+   *  `relationship` field — existing data remains compatible.
+   */
+  to: string
+}
 
 export type SelectSearchConfig = {
   /** Debounce timings for client-side option refetching.
@@ -33,9 +43,13 @@ export type SelectSearchDebounceConfig = {
 }
 
 export type SelectSearchFieldArgs = {
-  admin?: TextField['admin']
+  admin?: RelationshipField['admin'] | TextField['admin']
   custom?: Record<string, unknown>
   hasMany?: boolean
+  /** When provided, the field is stored as a Payload relationship to this
+   *  collection instead of a plain text field. See [[SelectSearchRelationConfig]].
+   */
+  relation?: SelectSearchRelationConfig
   search: SelectSearchConfig
   type?: 'text'
 } & Omit<TextField, 'admin' | 'custom' | 'hasMany' | 'type'>
@@ -69,7 +83,7 @@ const normalizeDebounceMs = (
 }
 
 export const selectSearch = (args: SelectSearchFieldArgs): Field => {
-  const { search, ...rest } = args
+  const { type: _type, relation, search, ...rest } = args
 
   const resolvedPassDataToSearchFunction = search.passDataToSearchFunction === true
   const resolvedPassSiblingDataToSearchFunction = search.passSiblingDataToSearchFunction === true
@@ -81,9 +95,13 @@ export const selectSearch = (args: SelectSearchFieldArgs): Field => {
     'watchedFields',
   )
 
+  const fieldShape = relation
+    ? { type: 'relationship' as const, relationTo: relation.to }
+    : { type: 'text' as const }
+
   return {
     ...rest,
-    type: 'text',
+    ...fieldShape,
     admin: {
       ...args.admin,
       components: {

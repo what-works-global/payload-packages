@@ -47,11 +47,15 @@ type SelectSearchFieldClientProps = {
 export const SelectSearchField: TextFieldClientComponent = (
   props: SelectSearchFieldClientProps,
 ) => {
-  const { field, path, schemaPath: schemaPathProp } = props
+  const { field, path, readOnly: readOnlyProp, schemaPath: schemaPathProp } = props
 
-  const { setValue, showError, value } = useField<string | string[]>({
+  const { formInitializing, formProcessing, setValue, showError, value } = useField<
+    string | string[]
+  >({
     path,
   })
+
+  const readOnly = readOnlyProp || formInitializing || formProcessing
 
   const { collectionSlug, globalSlug } = useDocumentInfo()
   const { config } = useConfig()
@@ -293,6 +297,7 @@ export const SelectSearchField: TextFieldClientComponent = (
       onInputChange={setInputValue}
       options={options}
       path={path}
+      readOnly={readOnly}
       required={field.required}
       showError={showError}
       value={selectValue}

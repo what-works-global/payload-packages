@@ -14,6 +14,11 @@ import { selectSearchEndpoint } from './endpointName.js'
 
 const maxQueryLength = 200
 
+const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i
+
+const isObjectIdLike = (value: unknown): value is string =>
+  typeof value === 'string' && OBJECT_ID_PATTERN.test(value)
+
 const parseBody = async (req: PayloadRequest): Promise<Partial<SelectSearchRequest>> => {
   if (typeof req.json === 'function') {
     return (await req.json()) as Partial<SelectSearchRequest>
@@ -113,6 +118,19 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
 
     if (!Array.isArray(options)) {
       return Response.json({ error: 'Invalid searchFunction response' }, { status: 500 })
+    }
+
+    if (fieldResult.field.type === 'relationship') {
+      for (const option of options) {
+        if (!isObjectIdLike(option?.value)) {
+          return Response.json(
+            {
+              error: `Invalid searchFunction response: when 'relation' is set, each option's 'value' must be a 24-character hex BSON ObjectId string. Received: ${JSON.stringify(option?.value)}`,
+            },
+            { status: 500 },
+          )
+        }
+      }
     }
 
     const res: SelectSearchResponse = {
