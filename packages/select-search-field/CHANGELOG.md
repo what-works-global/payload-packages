@@ -1,5 +1,11 @@
 # @whatworks/payload-select-search-field
 
+## 3.0.2
+
+### Patch Changes
+
+- 2f27d35: Add 'use client' to client exports
+
 ## 3.0.1
 
 ### Patch Changes
