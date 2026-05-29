@@ -11,6 +11,7 @@
     "changeset": "changeset",
     "check:exports": "pnpm -r --filter './packages/*' check:exports",
     "check:publish-config": "node scripts/sync-publish-config.mjs --check",
+    "check:use-client": "node scripts/check-use-client.mjs",
     "clean": "pnpm -r clean",
     "create-db": "docker volume create payload-databases",
     "dev": "pnpm --filter @whatworks/payload-utilities dev",
