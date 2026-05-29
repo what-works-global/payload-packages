@@ -1,5 +1,11 @@
 # @whatworks/payload-switch-env
 
+## 1.0.2
+
+### Patch Changes
+
+- 8aa23ba: fix(switch-env): add 'use client' to client exports
+
 ## 1.0.1
 
 ### Patch Changes
