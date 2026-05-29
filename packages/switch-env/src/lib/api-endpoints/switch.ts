@@ -1,5 +1,7 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
+import { formatAdminURL } from 'payload/shared'
+
 import type { DevelopmentFileStorageArgs, GetEnv, SetEnv } from '../../types.js'
 import type { GetDatabaseAdapter } from '../db/getDbaFunction.js'
 
@@ -119,7 +121,13 @@ export const switchEndpoint = ({
       searchParams.set('env', newEnv)
       searchParams.set('secret', payload.config.secret)
       const queryString = searchParams.toString()
-      await fetch(`${serverUrl}${adminRoute}/switch-db-connection?${queryString}`)
+      // formatAdminURL prepends a Next.js `basePath` (process.env.NEXT_BASE_PATH) when set.
+      const switchDbConnectionUrl = formatAdminURL({
+        adminRoute,
+        path: '/switch-db-connection',
+        serverURL: serverUrl,
+      })
+      await fetch(`${switchDbConnectionUrl}?${queryString}`)
     }
 
     switchEnvironments(payload.config, newEnv, developmentFileStorage, payloadVersion)

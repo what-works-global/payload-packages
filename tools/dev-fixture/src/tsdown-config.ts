@@ -30,7 +30,13 @@ const stripStyleImportsFromDts: UserConfig['plugins'] = [
   },
 ]
 
-export function definePackageBuild({ entry, styles, unbundle, external, copy }: PackageBuildOptions) {
+export function definePackageBuild({
+  entry,
+  styles,
+  unbundle,
+  external,
+  copy,
+}: PackageBuildOptions) {
   const config: UserConfig = {
     entry,
     format: 'esm',

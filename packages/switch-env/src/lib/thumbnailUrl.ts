@@ -10,6 +10,7 @@ import type {
 
 import fsPromises from 'fs/promises'
 import nodePath from 'path'
+import { formatAdminURL } from 'payload/shared'
 
 import { getDevelopmentStorageMode } from './developmentFileStorage.js'
 
@@ -77,9 +78,13 @@ type GenerateURLArgs = {
 
 const generateURL = ({ collectionSlug, config, filename }: GenerateURLArgs) => {
   if (filename) {
-    return `${config.serverURL || ''}${
-      config.routes?.api || ''
-    }/${collectionSlug}/file/${encodeURIComponent(filename)}`
+    // formatAdminURL prepends a Next.js `basePath` (process.env.NEXT_BASE_PATH) when set,
+    // so admin thumbnails resolve correctly under a basePath instead of 404ing.
+    return formatAdminURL({
+      apiRoute: config.routes?.api || '',
+      path: `/${collectionSlug}/file/${encodeURIComponent(filename)}`,
+      serverURL: config.serverURL || '',
+    })
   }
   return undefined
 }

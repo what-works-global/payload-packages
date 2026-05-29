@@ -1,6 +1,7 @@
 'use client'
 import { Button, CheckboxInput, Modal, toast, Tooltip, useConfig, useModal } from '@payloadcms/ui'
 import { useRouter } from 'next/navigation'
+import { formatAdminURL } from 'payload/shared'
 import { type FC, useEffect, useRef, useState } from 'react'
 
 import './SwitchEnvButtonClient.scss'
@@ -43,7 +44,9 @@ export const SwitchEnvButtonClient: FC<SwitchEnvButtonClientProps> = ({ env, qui
     }
   })
 
-  const url = `${serverURL}${apiRoute}/switch-env`
+  // Use formatAdminURL so the request honours a Next.js `basePath` (it prepends
+  // `process.env.NEXT_BASE_PATH`); a hand-built `${serverURL}${apiRoute}` URL drops it.
+  const url = formatAdminURL({ apiRoute, path: '/switch-env', serverURL })
   const { mutate } = useMutation<SwitchEndpointInput, SwitchEndpointOutput>(url, {
     onError: (error) => {
       const message = error?.message || 'An unknown error occurred'

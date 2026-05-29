@@ -1,6 +1,7 @@
 'use client'
 import { Button, Modal, toast, useConfig, useModal } from '@payloadcms/ui'
 import { useRouter } from 'next/navigation'
+import { formatAdminURL } from 'payload/shared'
 import { type FC, useEffect, useRef, useState } from 'react'
 
 import './CopyDbButtonClient.scss'
@@ -38,7 +39,9 @@ export const CopyDbButtonClient: FC<CopyDbButtonClientProps> = () => {
     }
   })
 
-  const url = `${serverURL}${apiRoute}/copy-db`
+  // Use formatAdminURL so the request honours a Next.js `basePath` (it prepends
+  // `process.env.NEXT_BASE_PATH`); a hand-built `${serverURL}${apiRoute}` URL drops it.
+  const url = formatAdminURL({ apiRoute, path: '/copy-db', serverURL })
   const { mutate } = useMutation<CopyEndpointInput, CopyEndpointOutput>(url, {
     onError: (error) => {
       const message = error?.message || 'An unknown error occurred'
