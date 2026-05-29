@@ -8,6 +8,11 @@ export interface PackageBuildOptions {
    *  copies style files into dist preserving their src layout, and strips the
    *  side-effect imports from emitted .d.ts files. */
   styles?: boolean
+  /** Set `true` for packages that ship React Server Component boundaries (files with
+   *  `'use client'` / `'use server'` directives). Emits one output file per source
+   *  module instead of bundling, so each module keeps its own directive and the
+   *  server/client boundary survives the build. */
+  unbundle?: boolean
   external?: StringOrRegExp | StringOrRegExp[]
   copy?: CopyEntry | CopyEntry[]
 }
@@ -25,7 +30,7 @@ const stripStyleImportsFromDts: UserConfig['plugins'] = [
   },
 ]
 
-export function definePackageBuild({ entry, styles, external, copy }: PackageBuildOptions) {
+export function definePackageBuild({ entry, styles, unbundle, external, copy }: PackageBuildOptions) {
   const config: UserConfig = {
     entry,
     format: 'esm',
@@ -33,6 +38,7 @@ export function definePackageBuild({ entry, styles, external, copy }: PackageBui
     sourcemap: true,
     clean: true,
     fixedExtension: false,
+    unbundle,
     inputOptions: {
       transform: { jsx: { runtime: 'automatic' } },
     },
