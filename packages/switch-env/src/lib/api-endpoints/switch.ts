@@ -12,6 +12,8 @@ import {
   resolveVersionCollectionModes,
 } from '../copyUtils.js'
 import { backup, type BackupData, restore } from '../db/mongo.js'
+import { openAdapter } from '../db/openAdapter.js'
+import { getSqlSchemaDrift } from '../db/schemaDrift.js'
 import { backupSql, restoreSql, type SqlBackupData } from '../db/sql.js'
 import { switchDbConnection } from '../db/switchDbConnection.js'
 import { formatFileSize, getServerUrl } from '../utils.js'
@@ -87,6 +89,40 @@ export const switchEndpoint = ({
     }
 
     const newEnv = env === 'production' ? 'development' : 'production'
+
+    // Hard block: for SQL (Drizzle) adapters, only allow switching to production
+    // when the production schema already matches the local schema. Direct schema
+    // changes against production must go through a migration, not this button.
+    // Mongo is schemaless, so there is nothing to compare and this is skipped.
+    if (newEnv === 'production' && (adapterName === 'sqlite' || adapterName === 'postgres')) {
+      const productionAdapter = await openAdapter(payload, 'production', getDatabaseAdapter)
+      try {
+        const drift = await getSqlSchemaDrift({
+          schemaAdapter: payload.db,
+          targetAdapter: productionAdapter,
+        })
+        if (drift.statements.length > 0) {
+          logger.warn(
+            `Refusing to switch to production: ${drift.statements.length} schema change(s) would be required.`,
+          )
+          const res: SwitchEndpointOutput = {
+            message:
+              `Cannot switch to production: the production database schema does not match your ` +
+              `local schema. Deploy a migration to production first.\n\n` +
+              `Pending change(s) (${drift.statements.length}):\n${drift.statements.join('\n')}` +
+              (drift.hasDataLoss
+                ? `\n\nWARNING: some of these changes would cause data loss.`
+                : ''),
+            success: false,
+          }
+          return Response.json(res)
+        }
+      } finally {
+        if (typeof productionAdapter.destroy === 'function') {
+          await productionAdapter.destroy()
+        }
+      }
+    }
 
     if (env === 'development') {
       await setEnv(newEnv, payload)
