@@ -7,6 +7,7 @@ import {
   FacebookPixel,
   GoogleAnalytics,
   GoogleTagManager,
+  GtagBootstrap,
   MicrosoftClarity,
 } from '@whatworks/analytics'
 import { useMemo, useState } from 'react'
@@ -19,7 +20,7 @@ const STRATEGIES: ConsentStrategy[] = [
 ]
 
 export default function Page() {
-  const [consentStrategy, setConsentStrategy] = useState<ConsentStrategy>(STRATEGIES[0])
+  const [consentStrategy, setConsentStrategy] = useState<ConsentStrategy>(STRATEGIES[3])
 
   const exampleIds = useMemo(
     () => ({
@@ -62,6 +63,7 @@ export default function Page() {
         <code style={{ marginLeft: '0.5rem' }}>/api/consent</code>.
       </p>
       <CookieBannerProvider consentApiPath="/api/consent" consentStrategy={consentStrategy}>
+        <GtagBootstrap />
         <FacebookPixel pixelId={exampleIds.facebookPixelId} />
         <GoogleAnalytics gaId={exampleIds.gaId} />
         <GoogleTagManager gtmId={exampleIds.gtmId} />

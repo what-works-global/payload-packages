@@ -1,5 +1,6 @@
 {
   "extends": "../../../tsconfig.dev.base.json",
+  "files": ["../tailwind.config.js"],
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "bundler",
