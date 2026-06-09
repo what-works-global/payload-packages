@@ -5,6 +5,26 @@ import type { ReactNode } from 'react'
 // eslint-disable-next-line @eslint-react/no-use-context
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
+/**
+ * `load-scripts-revoke-consent-immediately`
+ * - Render scripts immediately.
+ * - Default consent is denied until a user grants.
+ * - Banner shown only if geolocation requires consent.
+ *
+ * `load-scripts-then-revoke-consent-after-geolocation-check`
+ * - Render scripts immediately.
+ * - Default consent is granted until geolocation requires consent.
+ * - If consent is required, revoke and show banner.
+ *
+ * `require-consent-before-loading-scripts`
+ * - Do not render scripts until consent is granted when required.
+ * - Banner shown only if geolocation requires consent.
+ *
+ * `load-scripts-always-grant-consent`
+ * - Render scripts immediately.
+ * - Consent is always granted, regardless of geolocation.
+ * - Banner is never shown.
+ */
 export type ConsentStrategy =
   | 'load-scripts-always-grant-consent'
   | 'load-scripts-revoke-consent-immediately'

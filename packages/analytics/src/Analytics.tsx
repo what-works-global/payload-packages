@@ -1,6 +1,6 @@
 // This is just an example file of how you would use this package in your own project
 
-import { CookieBannerProvider } from './CookieBannerProvider.js'
+import { type ConsentStrategy, CookieBannerProvider } from './CookieBannerProvider.js'
 import FacebookPixel from './FacebookPixel.js'
 import GoogleAnalytics from './GoogleAnalytics.js'
 import GoogleTagManager from './GoogleTagManager.js'
@@ -11,6 +11,31 @@ import MicrosoftClarity from './MicrosoftClarity.js'
 type AnalyticsProps = {
   /** Falls back to `process.env.NEXT_PUBLIC_MS_CLARITY_ID` */
   clarityId?: string
+  /** Path the CookieBannerProvider posts consent state to. Defaults to `/api/consent` */
+  consentApiPath?: string
+  /**
+   * `load-scripts-revoke-consent-immediately`
+   * - Render scripts immediately.
+   * - Default consent is denied until a user grants.
+   * - Banner shown only if geolocation requires consent.
+   *
+   * `load-scripts-then-revoke-consent-after-geolocation-check`
+   * - Render scripts immediately.
+   * - Default consent is granted until geolocation requires consent.
+   * - If consent is required, revoke and show banner.
+   *
+   * `require-consent-before-loading-scripts`
+   * - Do not render scripts until consent is granted when required.
+   * - Banner shown only if geolocation requires consent.
+   *
+   * `load-scripts-always-grant-consent`
+   * - Render scripts immediately.
+   * - Consent is always granted, regardless of geolocation.
+   * - Banner is never shown.
+   *
+   * Defaults to `load-scripts-then-revoke-consent-after-geolocation-check`
+   */
+  consentStrategy?: ConsentStrategy
   /** Falls back to `process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID` */
   facebookPixelId?: string
   /** Falls back to `process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` */
@@ -34,8 +59,10 @@ export default function Analytics(props: AnalyticsProps = {}) {
 
   return (
     <CookieBannerProvider
-      consentApiPath="/api/consent"
-      consentStrategy="load-scripts-then-revoke-consent-after-geolocation-check"
+      consentApiPath={props.consentApiPath ?? '/api/consent'}
+      consentStrategy={
+        props.consentStrategy ?? 'load-scripts-then-revoke-consent-after-geolocation-check'
+      }
     >
       {facebookPixelId && <FacebookPixel pixelId={facebookPixelId} />}
       {/*
