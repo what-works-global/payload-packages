@@ -17,23 +17,26 @@ export default function GoogleTagManager({ gtmId }: GoogleTagManagerProps) {
 
   return (
     <>
+      {/* Keep the SSR preload the previous `src` Script gave us. */}
+      <link
+        as="script"
+        href={`https://www.googletagmanager.com/gtm.js?id=${gtmId}`}
+        rel="preload"
+      />
       {/*
-        Push `gtm.start` before the container loads. `beforeInteractive` runs
-        ahead of any `afterInteractive` script, so the timing event is always
-        in `dataLayer` by the time `gtm.js` executes — without this guarantee
-        the preloaded container can run first and GTM reports the snippet as
-        "installed incorrectly".
+        Load GTM via its official IIFE snippet. It pushes `gtm.start` and
+        injects the container in one synchronous step, so the container can
+        never execute before the timing event — no dependence on
+        beforeInteractive/afterInteractive ordering or on whether the
+        preloaded container is already cached, and GTM sees the canonical
+        loader it self-checks for. `afterInteractive` keeps it behind
+        GtagBootstrap's `beforeInteractive` consent default.
       */}
       <Script
         dangerouslySetInnerHTML={{
-          __html: `window.dataLayer=window.dataLayer||[];window.dataLayer.push({'gtm.start':new Date().getTime(),event:'gtm.js'});`,
+          __html: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${gtmId}');`,
         }}
-        id="gtm-init"
-        strategy="beforeInteractive"
-      />
-      <Script
         id="gtm"
-        src={`https://www.googletagmanager.com/gtm.js?id=${gtmId}`}
         strategy="afterInteractive"
       />
       {/*
@@ -49,6 +52,7 @@ export default function GoogleTagManager({ gtmId }: GoogleTagManagerProps) {
         <noscript>
           <iframe
             height="0"
+            sandbox=""
             src={`https://www.googletagmanager.com/ns.html?id=${gtmId}`}
             style={{ display: 'none', visibility: 'hidden' }}
             title="Google Tag Manager"
