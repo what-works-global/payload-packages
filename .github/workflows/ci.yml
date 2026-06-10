@@ -3,8 +3,6 @@ name: CI
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,6 +14,7 @@ permissions:
 jobs:
   check:
     name: Lint / Typecheck / Build
+    if: github.head_ref == 'changeset-release/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +35,7 @@ jobs:
 
   resolve-matrix:
     name: Resolve Payload version matrix
+    if: github.head_ref == 'changeset-release/main'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
@@ -72,7 +72,7 @@ jobs:
   ci-gate:
     name: CI Gate
     needs: [check, peer-matrix]
-    if: always()
+    if: always() && github.head_ref == 'changeset-release/main'
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
