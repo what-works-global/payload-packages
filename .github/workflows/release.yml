@@ -32,10 +32,29 @@ jobs:
       - run: pnpm build
       - run: pnpm check:publish-config
       - run: pnpm check:exports
+      - name: Compute release PR title
+        id: pr-title
+        run: |
+          pnpm changeset status --output=changeset-status.json || true
+          title=$(node -e '
+            const fs = require("fs");
+            let title = "Version Packages";
+            try {
+              const { releases = [] } = JSON.parse(fs.readFileSync("changeset-status.json", "utf8"));
+              const parts = releases
+                .filter((release) => release.type !== "none")
+                .map((release) => `${release.name.replace(/^@[^/]+\//, "")}@${release.newVersion}`);
+              if (parts.length) title = `Release - ${parts.join(", ")}`;
+            } catch {}
+            console.log(title);
+          ')
+          rm -f changeset-status.json
+          echo "title=$title" >> "$GITHUB_OUTPUT"
       - uses: changesets/action@v1
         with:
           publish: pnpm run release
           version: pnpm run version
+          title: ${{ steps.pr-title.outputs.title }}
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
           NPM_CONFIG_PROVENANCE: true
