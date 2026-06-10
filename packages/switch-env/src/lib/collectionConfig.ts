@@ -400,6 +400,94 @@ export const toggleUploadProviders = (
   })
 }
 
+const wrappedClientUploadHandlers = new WeakSet<object>()
+
+/**
+ * Payload >= 3.83.0 (#16230) sends the doc `prefix` field value as `docPrefix` with
+ * client uploads, and a non-empty docPrefix replaces the collection prefix in the
+ * storage key computation. The default doc prefix is baked from the original
+ * collection prefix at config build time — before this plugin rewrites prefixes —
+ * so signed-URL uploads would land outside the development prefix while the stored
+ * doc (and thus the generated URL) carries it.
+ *
+ * Wrap the cloud-storage plugin's signed-URL endpoint(s) — located via the
+ * serverHandlerPath that initClientUploads stores on the admin providers — and pin
+ * the development prefix onto docPrefix at request time. This covers default,
+ * user-defined, and function-generated doc prefixes, and (because docPrefix
+ * overrides the collection prefix) makes the upload key independent of the storage
+ * plugin's own, possibly unrewritten, collection prefix. Payload < 3.83.0 ignores
+ * docPrefix entirely, so the rewrite is harmless there.
+ */
+export const wrapClientUploadEndpoints = (
+  config: Config | SanitizedConfig,
+  getEnv: GetEnv,
+  developmentFileStorage: DevelopmentFileStorageArgs,
+) => {
+  if (developmentFileStorage.mode !== 'cloud-storage') {
+    return
+  }
+  const providers = config.admin?.components?.providers
+  if (!Array.isArray(providers)) {
+    return
+  }
+  const serverHandlerPaths = new Set<string>()
+  providers.forEach((provider) => {
+    if (hasUploadProviderClientProps(provider)) {
+      const serverHandlerPath = provider.clientProps?.serverHandlerPath
+      if (typeof serverHandlerPath === 'string') {
+        serverHandlerPaths.add(serverHandlerPath)
+      }
+    }
+  })
+  if (serverHandlerPaths.size === 0) {
+    return
+  }
+  config.endpoints?.forEach((endpoint) => {
+    if (
+      !endpoint.path ||
+      !serverHandlerPaths.has(endpoint.path) ||
+      endpoint.method !== 'post' ||
+      wrappedClientUploadHandlers.has(endpoint.handler)
+    ) {
+      return
+    }
+    const originalHandler = endpoint.handler
+    const handler: typeof originalHandler = async (req) => {
+      const env = await getEnv(req.payload)
+      if (env === 'development' && typeof req.json === 'function') {
+        const body = (await req.json()) as {
+          collectionSlug?: string
+          docPrefix?: string
+        } | null
+        if (body && typeof body === 'object') {
+          if (typeof body.docPrefix === 'string' && body.docPrefix) {
+            body.docPrefix = prependPathPrefixIfMissing(
+              body.docPrefix,
+              developmentFileStorage.prefix,
+            )
+          } else if (typeof body.collectionSlug === 'string') {
+            // An empty docPrefix falls back to the storage plugin's own collection
+            // prefix, which may predate the development rewrite — pin it to this
+            // plugin's (rewritten) copy instead.
+            const collectionOptions = developmentFileStorage.collections[body.collectionSlug]
+            if (
+              typeof collectionOptions === 'object' &&
+              typeof collectionOptions.prefix === 'string' &&
+              collectionOptions.prefix
+            ) {
+              body.docPrefix = collectionOptions.prefix
+            }
+          }
+        }
+        req.json = () => Promise.resolve(body)
+      }
+      return originalHandler(req)
+    }
+    wrappedClientUploadHandlers.add(handler)
+    endpoint.handler = handler
+  })
+}
+
 export const modifyThumbnailUrl = (config: Config | SanitizedConfig, getEnv: GetEnv) => {
   const collections = (config.collections || []) as (CollectionConfig | SanitizedCollectionConfig)[]
   collections

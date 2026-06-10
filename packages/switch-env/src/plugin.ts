@@ -13,6 +13,7 @@ import {
   addDevelopmentSettingsToUploadCollection,
   modifyThumbnailUrl,
   switchEnvironments,
+  wrapClientUploadEndpoints,
 } from './lib/collectionConfig.js'
 import { normalizeCopyConfig, warnOnInvalidOverrideTargets } from './lib/copyUtils.js'
 import { getDbaFunction } from './lib/db/getDbaFunction.js'
@@ -193,6 +194,9 @@ export function switchEnvPlugin<DBA>({
     if (developmentFileStorageMode === 'file-system') {
       modifyThumbnailUrl(config, getEnv)
     }
+    // Requires the cloud storage plugin to be listed before this plugin, so its
+    // signed-URL endpoints and admin providers already exist on the config.
+    wrapClientUploadEndpoints(config, getEnv, developmentFileStorage)
     const env = await getEnv()
     switchEnvironments(config, env, developmentFileStorage, resolvedPayloadVersion)
 

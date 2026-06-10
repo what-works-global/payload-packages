@@ -11,6 +11,7 @@ import {
 } from '@whatworks/payload-switch-env'
 import { s3Storage, type S3StorageOptions } from '@payloadcms/storage-s3'
 import sharp from 'sharp'
+import { getS3SignedUrl } from './fileUtils'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -71,8 +72,7 @@ const s3StorageCollections: S3StorageOptions['collections'] = {
   privateMedia: {
     prefix: 'private',
     disablePayloadAccessControl: true,
-    generateFileURL: ({ filename, prefix }) =>
-      `https://${process.env.S3_BUCKET}.s3.${process.env.S3_REGION}.amazonaws.com/${prefix}/${filename}`,
+    generateFileURL: async ({ filename, prefix }) => await getS3SignedUrl(`${prefix}/${filename}`),
   },
   media: {
     prefix: 'public',

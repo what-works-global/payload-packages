@@ -29,8 +29,15 @@ export type QuickSwitchArgs =
 export type DevelopmentFileStorageArgs =
   | {
       /**
-       * This must be the same object passed to your cloud storage plugin. This is required so
-       * that this plugin can modify the prefix of the files uploaded to cloud storage.
+       * The upload collection options (slugs and prefixes) of your cloud storage plugin.
+       *
+       * On payload >= 3.83.0 this can be a separate object — this plugin rewrites the
+       * `docPrefix` of client uploads at request time, which overrides the collection
+       * prefix in the storage key computation. On older payload versions it must be
+       * the *same object* passed to your cloud storage plugin, so that this plugin's
+       * prefix mutations are visible to the storage plugin's request-time lookups.
+       * Sharing the object is harmless on newer versions, so it remains the safe
+       * default.
        */
       collections: Partial<
         Record<
