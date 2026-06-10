@@ -37,8 +37,13 @@ export default function GoogleTagManager({ gtmId }: GoogleTagManagerProps) {
         strategy="afterInteractive"
       />
       {/*
-        No-JS fallback. The iframe can't honor Consent Mode the way the script
-        path does, so only render it once consent is granted.
+        No-JS fallback. A client with JS disabled never hydrates, so this only
+        appears when the *server-rendered* consent posture is already granted —
+        i.e. the grant-by-default strategies. It cannot reflect the geolocation
+        check or a banner decision, since both require JS. Under the
+        geolocation-revoke strategy that means a no-JS visitor from a
+        consent-required region still gets this iframe; gating it server-side
+        would require seeding `requiresConsent` from request headers at SSR.
       */}
       {consentStatus === 'granted' && (
         <noscript>

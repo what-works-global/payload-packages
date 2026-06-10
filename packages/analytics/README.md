@@ -115,7 +115,7 @@ import {
 - **`<CookieBannerProvider>`** / **`useCookieBanner()`** — consent context. Exposes `consentStatus`, `shouldLoadScripts`, `shouldShowBanner`, `accept()`, `reject()`.
 - **`<GtagBootstrap>`** — shared `dataLayer` + `gtag` stub and Consent Mode state. Render once when using either GA or GTM.
 - **`<GoogleAnalytics gaId>`** — GA4 config script.
-- **`<GoogleTagManager gtmId>`** — GTM container script.
+- **`<GoogleTagManager gtmId>`** — GTM container script, plus the `<noscript>` `ns.html` fallback (see note below).
 - **`<FacebookPixel pixelId>`** — Meta Pixel with SPA route tracking and noscript fallback.
 - **`<MicrosoftClarity clarityId>`** — Clarity with consent v2 signalling. **You must disable cookies in the Clarity dashboard for GDPR compliance** — see [Clarity's docs](https://learn.microsoft.com/en-us/clarity/setup-and-installation/cookie-consent).
 - **`<LinkedInInsightTag partnerId>`** — LinkedIn Insight Tag, consent-gated. Loads only once consent is granted (LinkedIn has no native consent API).
@@ -125,3 +125,4 @@ import {
 - If your GTM container includes a GA4 Configuration tag for the same property as `gaId`, `page_view` events will be double-counted. Pick one side.
 - The default `CookieBanner` renders into a portal and links to `/privacy-policy` — pass a custom `description` to override.
 - All script components are `'use client'`; `<Analytics>` itself is a server component.
+- **`<noscript>` fallbacks reflect the _server-rendered_ consent posture only.** A client with JS disabled never runs the geolocation check or banner, so the GTM/Facebook/LinkedIn `<noscript>` tags appear only under grant-by-default strategies (`load-scripts-always-grant-consent`, `load-scripts-then-revoke-consent-after-geolocation-check`) and cannot honor a region-based revoke. To gate the no-JS path by region, seed `requiresConsent` from request headers at SSR rather than relying on the client `fetch`.
