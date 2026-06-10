@@ -1,6 +1,6 @@
+import type { pushDevSchema } from '@payloadcms/drizzle'
 import type { BasePayload, DatabaseAdapter } from 'payload'
 
-import { pushDevSchema } from '@payloadcms/drizzle'
 import { existsSync } from 'node:fs'
 
 import type { CopyConfig } from '../../types.js'
@@ -53,6 +53,24 @@ interface LibSqlClient {
 }
 
 const PAYLOAD_MIGRATIONS_TABLE = 'payload_migrations'
+
+/**
+ * `@payloadcms/drizzle` is an optional peer dependency — Mongo consumers don't
+ * install it, so it must never be imported at module load time. Resolve it
+ * lazily and only on the SQL restore path.
+ */
+const importPushDevSchema = async (): Promise<typeof pushDevSchema> => {
+  try {
+    const drizzle = await import('@payloadcms/drizzle')
+    return drizzle.pushDevSchema
+  } catch (cause) {
+    throw new Error(
+      '[switch-env] could not import @payloadcms/drizzle, which is required when using a SQL ' +
+        'database adapter. Install it alongside your @payloadcms/db-* adapter.',
+      { cause },
+    )
+  }
+}
 
 const isSystemObject = (name: string) =>
   name.startsWith('sqlite_') || name === 'libsql_wasm_func_table'
@@ -336,6 +354,9 @@ export const backupSql = async ({
 }
 
 export const restoreSql = async ({ backupData, targetAdapter }: RestoreSqlArgs): Promise<void> => {
+  // Resolve before touching the target: the restore below is destructive
+  // (drops every table), so a missing peer must abort the whole operation.
+  const pushDevSchemaFn = await importPushDevSchema()
   const client = getClient(targetAdapter)
 
   const existingRs = await client.execute(
@@ -388,7 +409,7 @@ export const restoreSql = async ({ backupData, targetAdapter }: RestoreSqlArgs):
   const previousForce = process.env.PAYLOAD_FORCE_DRIZZLE_PUSH
   process.env.PAYLOAD_FORCE_DRIZZLE_PUSH = 'true'
   try {
-    await pushDevSchema(targetAdapter as unknown as Parameters<typeof pushDevSchema>[0])
+    await pushDevSchemaFn(targetAdapter as unknown as Parameters<typeof pushDevSchema>[0])
   } finally {
     if (previousForce === undefined) {
       delete process.env.PAYLOAD_FORCE_DRIZZLE_PUSH
