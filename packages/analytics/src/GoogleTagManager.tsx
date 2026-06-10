@@ -9,7 +9,7 @@ interface GoogleTagManagerProps {
 }
 
 export default function GoogleTagManager({ gtmId }: GoogleTagManagerProps) {
-  const { shouldLoadScripts } = useCookieBanner()
+  const { consentStatus, shouldLoadScripts } = useCookieBanner()
 
   if (!gtmId || !shouldLoadScripts) {
     return null
@@ -36,6 +36,21 @@ export default function GoogleTagManager({ gtmId }: GoogleTagManagerProps) {
         src={`https://www.googletagmanager.com/gtm.js?id=${gtmId}`}
         strategy="afterInteractive"
       />
+      {/*
+        No-JS fallback. The iframe can't honor Consent Mode the way the script
+        path does, so only render it once consent is granted.
+      */}
+      {consentStatus === 'granted' && (
+        <noscript>
+          <iframe
+            height="0"
+            src={`https://www.googletagmanager.com/ns.html?id=${gtmId}`}
+            style={{ display: 'none', visibility: 'hidden' }}
+            title="Google Tag Manager"
+            width="0"
+          />
+        </noscript>
+      )}
     </>
   )
 }
