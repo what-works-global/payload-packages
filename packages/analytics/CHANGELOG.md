@@ -1,5 +1,11 @@
 # @whatworks/analytics
 
+## 2.1.2
+
+### Patch Changes
+
+- 6005107: `GoogleTagManager` now renders the GTM `<noscript>` `ns.html` iframe fallback (gated on granted consent) for clients with JavaScript disabled.
+
 ## 2.1.1
 
 ### Patch Changes
