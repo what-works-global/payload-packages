@@ -100,7 +100,6 @@ export default buildConfig({
       },
     }),
     switchEnvPlugin({
-      payloadVersion: '3.84.1',
       // sqlite dev URLs are `file:./...` which don't contain localhost
       developmentSafetyMode: dbBlock.adapter !== 'sqlite',
       db: dbBlock.plugin as SwitchEnvPluginArgs<MongoArgs | SqliteArgs>['db'],
