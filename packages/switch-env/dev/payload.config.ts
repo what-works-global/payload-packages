@@ -68,6 +68,12 @@ const dbBlock = buildDbBlock()
 const isDev = process.env.NODE_ENV === 'development'
 const adminEmail = process.env.ADMIN_EMAIL
 const s3StorageCollections: S3StorageOptions['collections'] = {
+  privateMedia: {
+    prefix: 'private',
+    disablePayloadAccessControl: true,
+    generateFileURL: ({ filename, prefix }) =>
+      `https://${process.env.S3_BUCKET}.s3.${process.env.S3_REGION}.amazonaws.com/${prefix}/${filename}`,
+  },
   media: {
     prefix: 'public',
     disablePayloadAccessControl: true,
@@ -94,7 +100,7 @@ export default buildConfig({
       },
     }),
     switchEnvPlugin({
-      payloadVersion: '3.78.0',
+      payloadVersion: '3.84.1',
       // sqlite dev URLs are `file:./...` which don't contain localhost
       developmentSafetyMode: dbBlock.adapter !== 'sqlite',
       db: dbBlock.plugin as SwitchEnvPluginArgs<MongoArgs | SqliteArgs>['db'],
@@ -144,6 +150,21 @@ export default buildConfig({
           type: 'text',
         },
       ],
+    },
+    {
+      // Mirrors a real consumer setup (zip-restricted upload collection with an S3
+      // prefix) — `mimeTypes` is required to exercise checkFileRestrictions' buffer
+      // sniffing, which is where the cloud-storage prefix desync surfaces.
+      slug: 'privateMedia',
+      fields: [],
+      upload: {
+        mimeTypes: [
+          'text/csv',
+          'application/zip',
+          'application/x-zip-compressed',
+          'application/gzip',
+        ],
+      },
     },
     {
       slug: 'media',

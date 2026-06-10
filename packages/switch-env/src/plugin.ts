@@ -170,7 +170,12 @@ export function switchEnvPlugin<DBA>({
     config.collections = (config.collections || [])
       .map((collection) => addAccessSettingsToUploadCollection(collection, getEnv))
       .map((collection) =>
-        addDevelopmentSettingsToUploadCollection(collection, getEnv, developmentFileStorage),
+        addDevelopmentSettingsToUploadCollection(
+          collection,
+          getEnv,
+          developmentFileStorage,
+          payloadVersion,
+        ),
       )
 
     if (developmentFileStorageMode === 'file-system') {

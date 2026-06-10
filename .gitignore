@@ -49,3 +49,6 @@ yarn-error.log*
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# switch-env dev sqlite databases
+.dbs/

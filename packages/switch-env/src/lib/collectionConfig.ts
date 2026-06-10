@@ -96,6 +96,7 @@ export const addDevelopmentSettingsToUploadCollection = <
   collection: T,
   getEnv: GetEnv,
   developmentFileStorage: DevelopmentFileStorageArgs,
+  payloadVersion: string,
 ): T => {
   if (collection.upload === true) {
     collection.upload = {}
@@ -104,7 +105,21 @@ export const addDevelopmentSettingsToUploadCollection = <
     if (!collection.upload.handlers) {
       collection.upload.handlers = []
     }
-    // See
+    // Payload validates client uploads by reading the file back from cloud storage
+    // (addDataAndFileToRequest). The signed-URL upload key is computed from the live
+    // collection options — which switchEnvironments has already rewritten to include the
+    // development prefix — but the storage adapter's staticHandler captured the original
+    // collection prefix in a closure before this plugin ran. Without intervention the
+    // read-back resolves a stale key, gets no file, and mimeTypes validation fails.
+    //
+    // What clientUploadContext.prefix carries changed in payload 3.83.0 (#16230):
+    // - < 3.83.0: the collection prefix (captured at build time, missing the development
+    //   prefix), so joining the development prefix onto it yields the uploaded key.
+    // - >= 3.83.0: the doc prefix (normally empty). A non-empty doc prefix replaces the
+    //   collection prefix entirely in the key computation (non-composite mode), so mirror
+    //   the signed-URL logic instead: leave a non-empty doc prefix untouched, otherwise
+    //   pin it to the rewritten collection prefix.
+    const contextCarriesDocPrefix = isPayloadAtLeast(payloadVersion, '3.83.0')
     collection.upload.handlers.unshift(async (req, args) => {
       if ('clientUploadContext' in args.params) {
         const env = await getEnv(req.payload)
@@ -112,10 +127,21 @@ export const addDevelopmentSettingsToUploadCollection = <
           const clientUploadContext = args.params.clientUploadContext as {
             prefix?: string
           }
-          clientUploadContext.prefix = path.posix.join(
-            developmentFileStorage.prefix,
-            clientUploadContext.prefix || '',
-          )
+          if (!contextCarriesDocPrefix) {
+            clientUploadContext.prefix = path.posix.join(
+              developmentFileStorage.prefix,
+              clientUploadContext.prefix || '',
+            )
+          } else if (!clientUploadContext.prefix) {
+            const collectionOptions = developmentFileStorage.collections[collection.slug]
+            if (
+              typeof collectionOptions === 'object' &&
+              typeof collectionOptions.prefix === 'string' &&
+              collectionOptions.prefix
+            ) {
+              clientUploadContext.prefix = collectionOptions.prefix
+            }
+          }
         }
       }
     })
