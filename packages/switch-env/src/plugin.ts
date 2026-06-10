@@ -17,6 +17,7 @@ import {
 import { normalizeCopyConfig, warnOnInvalidOverrideTargets } from './lib/copyUtils.js'
 import { getDbaFunction } from './lib/db/getDbaFunction.js'
 import { switchDbConnection } from './lib/db/switchDbConnection.js'
+import { detectPayloadVersion } from './lib/detectPayloadVersion.js'
 import { getEnv, setEnv } from './lib/env.js'
 
 const basePath = '@whatworks/payload-switch-env/client'
@@ -61,6 +62,14 @@ export function switchEnvPlugin<DBA>({
 
     if (!enable) {
       return config
+    }
+
+    const resolvedPayloadVersion = payloadVersion ?? detectPayloadVersion()
+    if (!resolvedPayloadVersion) {
+      throw new Error(
+        '[payload-plugin-switch-env] Could not auto-detect the installed payload version. ' +
+          'Pass the `payloadVersion` plugin argument explicitly (it must match the installed payload package).',
+      )
     }
 
     if (process.env.NODE_ENV === 'development') {
@@ -156,7 +165,7 @@ export function switchEnvPlugin<DBA>({
         getDatabaseAdapter,
         getEnv,
         logDatabaseSize,
-        payloadVersion,
+        payloadVersion: resolvedPayloadVersion,
         setEnv,
       }),
       copyEndpoint({
@@ -174,7 +183,7 @@ export function switchEnvPlugin<DBA>({
           collection,
           getEnv,
           developmentFileStorage,
-          payloadVersion,
+          resolvedPayloadVersion,
         ),
       )
 
@@ -182,7 +191,7 @@ export function switchEnvPlugin<DBA>({
       modifyThumbnailUrl(config, getEnv)
     }
     const env = await getEnv()
-    switchEnvironments(config, env, developmentFileStorage, payloadVersion)
+    switchEnvironments(config, env, developmentFileStorage, resolvedPayloadVersion)
 
     const oldInit = config.onInit
     config.onInit = async (payload) => {
@@ -197,7 +206,7 @@ export function switchEnvPlugin<DBA>({
       const env = await getEnv(payload)
       if (env === 'production') {
         if (buttonMode === 'switch') {
-          switchEnvironments(config, 'production', developmentFileStorage, payloadVersion)
+          switchEnvironments(config, 'production', developmentFileStorage, resolvedPayloadVersion)
           await switchDbConnection(payload, 'production', getDatabaseAdapter)
         } else {
           // We never want to be in production env when using the 'copy' buttonMode

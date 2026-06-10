@@ -142,10 +142,14 @@ export interface SwitchEnvPluginArgs<DBA> {
    */
   logDatabaseSize?: boolean
   /**
-   * Installed Payload version, used for compatibility logic across hook timing changes.
-   * Example: `3.70.0`
+   * Installed Payload version, used for compatibility logic across upstream behavior
+   * changes (e.g. hook timing at 3.70.0, client upload context at 3.83.0).
+   *
+   * Auto-detected from the installed `payload` package by default. Only pass this to
+   * override detection, e.g. when a bundler setup prevents resolving payload's
+   * package.json at runtime. Example: `3.70.0`
    */
-  payloadVersion: string
+  payloadVersion?: string
   /**
    * This will prevent the modal from appearing when clicking the switch button.
    * Instead the environment will be switched immediately. Only applies to `switch` mode.
