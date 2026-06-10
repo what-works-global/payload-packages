@@ -33,7 +33,7 @@ export interface SwitchEndpointArgs {
   getDatabaseAdapter: GetDatabaseAdapter
   getEnv: GetEnv
   logDatabaseSize: boolean
-  payloadVersion: string
+  payloadVersion: string | undefined
   setEnv: SetEnv
 }
 

@@ -96,7 +96,7 @@ export const addDevelopmentSettingsToUploadCollection = <
   collection: T,
   getEnv: GetEnv,
   developmentFileStorage: DevelopmentFileStorageArgs,
-  payloadVersion: string,
+  payloadVersion: string | undefined,
 ): T => {
   if (collection.upload === true) {
     collection.upload = {}
@@ -251,7 +251,12 @@ const parseVersionPart = (part: string): number => {
   return match ? Number(match[0]) : 0
 }
 
-const isPayloadAtLeast = (payloadVersion: string, minVersion: string): boolean => {
+const isPayloadAtLeast = (payloadVersion: string | undefined, minVersion: string): boolean => {
+  // An unknown version means neither an explicit `payloadVersion` was passed nor
+  // could one be detected — assume a current payload release.
+  if (payloadVersion === undefined) {
+    return true
+  }
   const [currentMajor = '0', currentMinor = '0', currentPatch = '0'] = payloadVersion.split('.')
   const [minMajor = '0', minMinor = '0', minPatch = '0'] = minVersion.split('.')
   const current = [
@@ -277,7 +282,9 @@ const isPayloadAtLeast = (payloadVersion: string, minVersion: string): boolean =
   return true
 }
 
-const getCloudStorageUploadHookPhase = (payloadVersion: string): CloudStorageUploadHookPhase =>
+const getCloudStorageUploadHookPhase = (
+  payloadVersion: string | undefined,
+): CloudStorageUploadHookPhase =>
   isPayloadAtLeast(payloadVersion, '3.70.0') ? 'afterChange' : 'beforeChange'
 
 const getChangeHooks = <T extends CollectionConfig | SanitizedCollectionConfig>(
@@ -475,7 +482,7 @@ export const switchEnvironments = (
   config: Config | SanitizedConfig,
   env: Env,
   developmentFileStorage: DevelopmentFileStorageArgs,
-  payloadVersion: string,
+  payloadVersion: string | undefined,
 ) => {
   if (developmentFileStorage.mode === 'cloud-storage') {
     Object.values(developmentFileStorage.collections).forEach((collectionOptions) => {
@@ -500,7 +507,7 @@ export const modifyUploadCollections = (
   collections: (CollectionConfig | SanitizedCollectionConfig)[],
   env: Env,
   developmentFileStorage: DevelopmentFileStorageArgs,
-  payloadVersion: string,
+  payloadVersion: string | undefined,
 ) => {
   const production = env === 'production'
   const cloudStorageUploadHookPhase = getCloudStorageUploadHookPhase(payloadVersion)
