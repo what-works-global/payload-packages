@@ -4,6 +4,7 @@ import {
   type CollectionAfterChangeHook,
   type CollectionAfterDeleteHook,
   type CollectionBeforeChangeHook,
+  type CollectionBeforeOperationHook,
   type CollectionConfig,
   type CollectionSlug,
   type Config,
@@ -183,22 +184,59 @@ export const addDevelopmentSettingsToUploadCollection = <
       fields,
       hooks: {
         ...(collection.hooks || {}),
-        beforeChange: [
-          async ({ data, operation, req: { payload } }) => {
-            const env = await getEnv(payload)
-            if (operation === 'create' && env === 'development' && data) {
-              data.createdDuringDevelopment = true
-              data[developmentStorageModeFieldName] = developmentFileStorage.mode
-            }
-            return data
-          },
-          getModifiedPrefixBeforeChangeHook(developmentFileStorage),
-          ...(collection.hooks?.beforeChange || []),
+        beforeOperation: [
+          getDevelopmentBeforeOperationHook(collection.slug, getEnv, developmentFileStorage),
+          ...(collection.hooks?.beforeOperation || []),
         ],
       },
     }
   }
   return collection
+}
+
+/**
+ * Marks documents created in development and applies the development storage
+ * prefix to incoming data.
+ *
+ * This must be a beforeOperation hook, not beforeChange: payload's duplicate
+ * filename check (generateFileData -> getSafeFileName) runs before any
+ * beforeChange hook and filters its lookup by the incoming data.prefix. With
+ * the development prefix already applied here, that check sees the same prefix
+ * new documents are stored under, so duplicate filenames get deduplicated
+ * (-1, -2, ...) instead of tripping the collection-wide unique filename index.
+ */
+const getDevelopmentBeforeOperationHook = (
+  collectionSlug: string,
+  getEnv: GetEnv,
+  developmentFileStorage: DevelopmentFileStorageArgs,
+): CollectionBeforeOperationHook => {
+  return async ({ args, operation, req }) => {
+    if (operation !== 'create' || !args.data) {
+      return args
+    }
+    const env = await getEnv(req.payload)
+    if (env !== 'development') {
+      return args
+    }
+    const data = args.data as Record<string, unknown>
+    data.createdDuringDevelopment = true
+    data[developmentStorageModeFieldName] = developmentFileStorage.mode
+    if (developmentFileStorage.mode === 'cloud-storage' && developmentFileStorage.prefix) {
+      if (typeof data.prefix === 'string' && data.prefix) {
+        data.prefix = prependPathPrefixIfMissing(data.prefix, developmentFileStorage.prefix)
+      } else {
+        // No prefix in the incoming data (the field's baked defaultValue only
+        // applies later, during beforeValidate) — pin it to this plugin's
+        // already-rewritten copy of the collection prefix, like the client
+        // upload endpoints do.
+        const collectionOptions = developmentFileStorage.collections[collectionSlug]
+        data.prefix =
+          (typeof collectionOptions === 'object' && collectionOptions.prefix) ||
+          developmentFileStorage.prefix
+      }
+    }
+    return args
+  }
 }
 
 /**
@@ -530,39 +568,6 @@ export const modifyThumbnailUrl = (config: Config | SanitizedConfig, getEnv: Get
         }
       }
     })
-}
-
-const getModifiedPrefixBeforeChangeHook = (
-  developmentFileStorage: DevelopmentFileStorageArgs,
-): CollectionBeforeChangeHook => {
-  return (args) => {
-    const { data, originalDoc } = args
-    const isDevelopmentDoc =
-      data?.createdDuringDevelopment === true || originalDoc?.createdDuringDevelopment === true
-
-    if (isDevelopmentDoc) {
-      if (developmentFileStorage.mode === 'cloud-storage' && developmentFileStorage.prefix) {
-        data.prefix = prependPathPrefixIfMissing(data.prefix || '', developmentFileStorage.prefix)
-      }
-    }
-    return data
-  }
-}
-
-export const modifyPrefix = <T extends CollectionConfig | SanitizedCollectionConfig>(
-  collection: T,
-  developmentFileStorage: DevelopmentFileStorageArgs,
-): T => {
-  if (collection.upload) {
-    collection.hooks = {
-      ...(collection.hooks || {}),
-      beforeChange: [
-        getModifiedPrefixBeforeChangeHook(developmentFileStorage),
-        ...(collection.hooks?.beforeChange || []),
-      ],
-    }
-  }
-  return collection
 }
 
 export const switchEnvironments = (

@@ -19,7 +19,7 @@ pnpm i @whatworks/payload-switch-env
 
 ## Requirements & limitations
 
-- Payload `3.0.2`+.
+- Payload `3.0.2`+. On Payload < `3.6.0`, the development flags are not applied when using **Duplicate** on upload collections (the duplicated document is treated as a production document).
 - Databases: MongoDB, or a Drizzle SQL adapter — Postgres (`@payloadcms/db-postgres`) or SQLite (`@payloadcms/db-sqlite`). See [SQL adapters](#sql-adapters-postgres--sqlite) for the extra schema rules that apply.
 - Production uploads must use a cloud storage adapter (e.g. `@payloadcms/storage-s3`). Production setups relying solely on local file storage are not supported.
 - In development, uploads can use either the local file system or cloud storage (see `developmentFileStorage`).
@@ -132,6 +132,22 @@ copy: {
   },
 }
 ```
+
+### Duplicate filenames in `cloud-storage` mode
+
+In `cloud-storage` mode, development uploads are stored under the development `prefix` (e.g. `staging/private/file.zip`) while documents copied from production keep their original prefix (e.g. `private/file.zip`). Payload's duplicate-filename check only looks within the incoming document's prefix, but the unique index on `filename` spans the whole collection — so uploading a filename that collides with a production-prefixed document fails with `The following field is invalid: filename` instead of deduplicating to `file-1.zip`.
+
+If your development database contains documents copied from production, scope filename uniqueness to the prefix on your upload collections:
+
+```ts
+upload: {
+  filenameCompoundIndex: ['filename', 'prefix'],
+}
+```
+
+This makes the database constraint match the storage layout (the same filename can exist under both prefixes because they are different storage keys). Note this changes the collection's index, which is a schema migration on SQL adapters and a new index on MongoDB.
+
+Duplicates _within_ the same environment (e.g. uploading the same filename twice in development) are handled by the plugin and deduplicate normally.
 
 ## SQL adapters (Postgres / SQLite)
 
