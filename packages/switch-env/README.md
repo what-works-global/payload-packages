@@ -135,9 +135,9 @@ copy: {
 
 ### Duplicate filenames in `cloud-storage` mode
 
-In `cloud-storage` mode, development uploads are stored under the development `prefix` (e.g. `staging/private/file.zip`) while documents copied from production keep their original prefix (e.g. `private/file.zip`). Payload's duplicate-filename check only looks within the incoming document's prefix, but the unique index on `filename` spans the whole collection — so uploading a filename that collides with a production-prefixed document fails with `The following field is invalid: filename` instead of deduplicating to `file-1.zip`.
+In `cloud-storage` mode a single database holds documents under different storage prefixes: development uploads under the development prefix (e.g. `staging/private/file.zip`) and documents copied from production under their original prefix (e.g. `private/file.zip`). Payload's duplicate-filename check is scoped to the incoming document's prefix, but by default the unique index on `filename` spans the whole collection — so uploading a filename that exists under _another_ prefix would fail with `The following field is invalid: filename` even though the storage keys don't collide.
 
-If your development database contains documents copied from production, scope filename uniqueness to the prefix on your upload collections:
+The plugin therefore sets
 
 ```ts
 upload: {
@@ -145,9 +145,12 @@ upload: {
 }
 ```
 
-This makes the database constraint match the storage layout (the same filename can exist under both prefixes because they are different storage keys). Note this changes the collection's index, which is a schema migration on SQL adapters and a new index on MongoDB.
+on every upload collection it manages (those listed in `developmentFileStorage.collections` with a `prefix`), unless you set `filenameCompoundIndex` yourself. Uniqueness is then scoped to `(filename, prefix)`: the same filename can exist under different prefixes (they are different storage keys), while uploading a duplicate filename _within_ a prefix still deduplicates normally (`file-1.zip`, `file-2.zip`, ...).
 
-Duplicates _within_ the same environment (e.g. uploading the same filename twice in development) are handled by the plugin and deduplicate normally.
+Because this changes the collection's indexes, two things to note for existing setups:
+
+- If the plugin is disabled in some environments (e.g. `enable: process.env.NODE_ENV === 'development'`), set `filenameCompoundIndex` explicitly in the collection config instead, so the schema is identical with and without the plugin — otherwise uploads in those environments still hit the collection-wide unique index.
+- Existing databases keep their old unique index on `filename` until migrated: on SQL adapters this is a schema migration through your normal pipeline (the plugin refuses to switch to production until production's schema matches), and on MongoDB the new compound index is created automatically but the old unique index must be dropped manually (e.g. `db.media.dropIndex('filename_1')`).
 
 ## SQL adapters (Postgres / SQLite)
 

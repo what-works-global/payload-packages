@@ -103,6 +103,20 @@ export const addDevelopmentSettingsToUploadCollection = <
     collection.upload = {}
   }
   if (collection.upload) {
+    if (
+      developmentFileStorage.mode === 'cloud-storage' &&
+      !collection.upload.filenameCompoundIndex
+    ) {
+      const collectionOptions = developmentFileStorage.collections[collection.slug]
+      if (typeof collectionOptions === 'object' && collectionOptions.prefix) {
+        // Development and copied-production documents share a database under
+        // different storage prefixes, and payload's duplicate-filename check is
+        // scoped to the incoming prefix. Scope the unique index the same way:
+        // the same filename under different prefixes is two distinct storage
+        // keys, while duplicates within a prefix still deduplicate (-1, -2, ...).
+        collection.upload.filenameCompoundIndex = ['filename', 'prefix']
+      }
+    }
     if (!collection.upload.handlers) {
       collection.upload.handlers = []
     }

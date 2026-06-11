@@ -6,6 +6,7 @@ import { type BasePayload, buildConfig, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { switchEnvPlugin } from '../../src/index.js'
+import { setEnvCache } from '../../src/lib/env.js'
 import { sharedConfigDefaults } from '../shared/configDefaults.js'
 
 const makeFile = (name: string) => {
@@ -121,5 +122,32 @@ describe('development cloud-storage uploads', () => {
     const doc = await createUpload('no-prefix.zip')
     expect(doc.prefix).toBe('staging/private')
     expect(doc.createdDuringDevelopment).toBe(true)
+  })
+
+  // Filename uniqueness is scoped to (filename, prefix) via the
+  // filenameCompoundIndex the plugin sets, so a production upload may reuse a
+  // filename that development docs hold under the development prefix — they are
+  // different storage keys — while duplicates within a prefix still deduplicate.
+  describe('in the production environment', () => {
+    beforeAll(() => {
+      setEnvCache('production')
+    })
+
+    afterAll(() => {
+      setEnvCache('development')
+    })
+
+    it('allows a filename held by development docs under another prefix', async () => {
+      const doc = await createUpload('dup.zip', { prefix: 'private' })
+      expect(doc.filename).toBe('dup.zip')
+      expect(doc.prefix).toBe('private')
+      expect(doc.createdDuringDevelopment).toBeFalsy()
+    })
+
+    it('dedupes duplicate filenames within the production prefix', async () => {
+      const doc = await createUpload('dup.zip', { prefix: 'private' })
+      expect(doc.filename).toBe('dup-1.zip')
+      expect(doc.prefix).toBe('private')
+    })
   })
 })
