@@ -509,11 +509,10 @@ export const modifyThumbnailUrl = (config: Config | SanitizedConfig, getEnv: Get
         collection.upload = {}
       }
       if (collection.upload) {
-        const handlers = [
-          ...(typeof collection.upload === 'object' && Array.isArray(collection.upload.handlers)
+        const handlers =
+          typeof collection.upload === 'object' && Array.isArray(collection.upload.handlers)
             ? collection.upload.handlers
-            : []),
-        ]
+            : []
         if (handlers.length > 0) {
           const handler = handlers.pop()
           if (handler) {
