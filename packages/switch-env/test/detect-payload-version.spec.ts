@@ -3,7 +3,7 @@ import os from 'os'
 import path from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { findPayloadVersion } from '../src/lib/detectPayloadVersion.js'
+import { detectPayloadVersion, findPayloadVersion } from '../src/lib/detectPayloadVersion.js'
 
 const tmpDirs: string[] = []
 
@@ -24,6 +24,14 @@ afterEach(() => {
   for (const dir of tmpDirs.splice(0)) {
     fs.rmSync(dir, { force: true, recursive: true })
   }
+})
+
+describe('detectPayloadVersion', () => {
+  it("resolves the installed payload version via payload's own resolver", async () => {
+    // the workspace has payload installed, so the primary strategy
+    // (payload's exported getDependencies) must find a real version
+    await expect(detectPayloadVersion()).resolves.toMatch(/^\d+\.\d+\.\d+/)
+  })
 })
 
 describe('findPayloadVersion', () => {

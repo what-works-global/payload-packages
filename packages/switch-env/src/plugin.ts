@@ -68,7 +68,7 @@ export function switchEnvPlugin<DBA>({
     // An undefined resolved version means "assume a current payload release" —
     // version gates treat unknown as at-least. Throwing here would take the
     // whole deployment down, so users on older payloads pin explicitly instead.
-    const resolvedPayloadVersion = payloadVersion ?? detectPayloadVersion()
+    const resolvedPayloadVersion = payloadVersion ?? (await detectPayloadVersion())
     if (resolvedPayloadVersion === undefined) {
       console.warn(
         '[payload-plugin-switch-env] Could not auto-detect the installed payload version — assuming a current release. ' +

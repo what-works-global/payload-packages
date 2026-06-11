@@ -128,10 +128,43 @@ export const findPayloadVersion = (startDirs: string[]): string | undefined => {
 }
 
 /**
- * Detects the installed payload version by walking up the directory tree
- * looking for payload's package.json.
+ * Asks payload itself where it is installed. `getDependencies` (exported from
+ * `payload` since 3.0.0) resolves a package with Node's own resolver and reads
+ * its package.json version. Because that helper executes *inside* the payload
+ * package — which Next.js keeps in `serverExternalPackages` and never bundles —
+ * its `import.meta.url` is the real runtime path even in traced serverless
+ * bundles (e.g. Vercel lambdas), so resolution works wherever payload itself
+ * loads. This makes it the most reliable strategy available.
  *
- * Module-resolution APIs are deliberately avoided:
+ * The import is dynamic so a payload build that unexpectedly lacks the export
+ * (or a bundler that mangles the module) degrades to the filesystem fallback
+ * instead of crashing config evaluation.
+ */
+const detectViaPayloadResolver = async (): Promise<string | undefined> => {
+  try {
+    const { getDependencies } = (await import('payload')) as {
+      getDependencies?: (
+        baseDir: string,
+        requiredPackages: string[],
+      ) => Promise<{ resolved: Map<string, { path: string; version: string }> }>
+    }
+    if (typeof getDependencies !== 'function') {
+      return undefined
+    }
+    const { resolved } = await getDependencies(process.cwd(), ['payload'])
+    const version = resolved.get('payload')?.version
+    return typeof version === 'string' ? version : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Detects the installed payload version.
+ *
+ * Primary strategy: payload's own `getDependencies` helper — see
+ * {@link detectViaPayloadResolver}. Note that resolution-by-*our*-code is
+ * deliberately avoided:
  * - `require('payload/package.json')` throws ERR_PACKAGE_PATH_NOT_EXPORTED —
  *   payload's `exports` map does not expose `./package.json`.
  * - `createRequire(import.meta.url).resolve('payload')` makes bundlers treat
@@ -139,9 +172,13 @@ export const findPayloadVersion = (startDirs: string[]): string | undefined => {
  *   Next.js' default `serverExternalPackages`, so Turbopack warns
  *   ("Package payload can't be external ... require() resolves to a
  *   EcmaScript module") and the rewritten call can break at runtime.
+ * Payload's helper has neither problem: a plain `import('payload')` is the
+ * one specifier bundlers always externalize, and the resolver runs inside the
+ * unbundled payload package.
  *
- * A plain filesystem walk triggers no bundler analysis ('payload' is only a
- * path segment, never a module specifier). Start dirs, in order:
+ * Fallback: a plain filesystem walk for payload's package.json, which triggers
+ * no bundler analysis ('payload' is only a path segment, never a module
+ * specifier). Start dirs, in order:
  * - this module's location — correct when the plugin runs unbundled from
  *   node_modules (the peer-resolved payload sits alongside it in pnpm's store)
  * - the executing file per the stack trace — correct in bundled server output
@@ -153,7 +190,12 @@ export const findPayloadVersion = (startDirs: string[]): string | undefined => {
  * Returns undefined when nothing is found; callers should fall back to an
  * explicit `payloadVersion`.
  */
-export const detectPayloadVersion = (): string | undefined => {
+export const detectPayloadVersion = async (): Promise<string | undefined> => {
+  const resolverVersion = await detectViaPayloadResolver()
+  if (resolverVersion) {
+    return resolverVersion
+  }
+
   const startDirs: string[] = []
   try {
     startDirs.push(path.dirname(fileURLToPath(import.meta.url)))
