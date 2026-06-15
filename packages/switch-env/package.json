@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-switch-env",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "Payload plugin to switch environments and copy databases between dev and prod.",
   "license": "MIT",
   "type": "module",
