@@ -11,13 +11,16 @@ interface MongoIndexDescriptor {
 }
 
 interface NativeCollectionLike {
+  createIndex: (
+    keys: Record<string, number>,
+    options?: { name?: string; unique?: boolean },
+  ) => Promise<unknown>
   dropIndex: (indexName: string) => Promise<unknown>
   indexes: () => Promise<MongoIndexDescriptor[]>
 }
 
 interface MongooseModelLike {
   collection?: NativeCollectionLike
-  init: () => Promise<unknown>
 }
 
 interface MongooseDbLike {
@@ -34,6 +37,20 @@ const isSingleFieldFilenameUniqueIndex = (index: MongoIndexDescriptor): boolean 
 const isCompoundFilenameUniqueIndex = (index: MongoIndexDescriptor): boolean => {
   const keys = Object.keys(index.key || {})
   return index.unique === true && keys.length > 1 && keys.includes(FILENAME_FIELD)
+}
+
+// Mongo reports a not-yet-created collection as NamespaceNotFound (code 26). On a
+// fresh database the upload collection is created lazily on first write, so this
+// just means there is nothing to heal — not an error worth warning about.
+const isNamespaceNotFoundError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+  if ((error as { code?: unknown }).code === 26) {
+    return true
+  }
+  const message = (error as { message?: unknown }).message
+  return typeof message === 'string' && message.includes('ns does not exist')
 }
 
 /**
@@ -54,8 +71,14 @@ const isCompoundFilenameUniqueIndex = (index: MongoIndexDescriptor): boolean => 
  *   unique index is legitimate (and where this plugin is typically disabled);
  * - cloud-storage mode only — the only mode that sets `filenameCompoundIndex`;
  * - mongoose only — drizzle adapters reconcile indexes when their schema is pushed;
- * - the compound replacement must already exist before the old index is dropped, so the
- *   collection is never left without any filename uniqueness.
+ * - the compound replacement is ensured (created if missing) before the old index is
+ *   dropped, so the collection is never left without any filename uniqueness.
+ *
+ * Deliberately does NOT go through `model.init()`/`ensureIndexes()`: while the stale
+ * index exists, autoIndex can't build the schema's *non-unique* `filename` index (same
+ * name as the stale unique one), so `init()` rejects before we could act. We work the
+ * native collection directly instead. After the drop the name is free, and the next
+ * connect's autoIndex recreates the non-unique perf index cleanly.
  *
  * Best-effort: any failure is logged and swallowed so it can never take down boot or a
  * runtime environment switch.
@@ -90,23 +113,42 @@ export const dropSupersededFilenameIndexes = async ({
       continue
     }
 
-    const model = db.collections[collection.slug]
-    const nativeCollection = model?.collection
-    if (!model || !nativeCollection) {
+    const nativeCollection = db.collections[collection.slug]?.collection
+    if (!nativeCollection) {
       continue
     }
 
     try {
-      // Wait for autoIndex to finish building the schema's indexes (including the
-      // compound replacement) before deciding what can be safely dropped.
-      await model.init()
+      let indexes: MongoIndexDescriptor[]
+      try {
+        indexes = await nativeCollection.indexes()
+      } catch (error) {
+        if (isNamespaceNotFoundError(error)) {
+          // Collection not created yet (fresh database) — nothing to heal.
+          continue
+        }
+        throw error
+      }
 
-      const indexes = await nativeCollection.indexes()
-      const compoundIndex = indexes.find(isCompoundFilenameUniqueIndex)
       const singleFieldIndex = indexes.find(isSingleFieldFilenameUniqueIndex)
-
-      if (!compoundIndex || !singleFieldIndex?.name) {
+      if (!singleFieldIndex?.name) {
+        // No orphaned single-field unique index — nothing to heal.
         continue
+      }
+
+      // Ensure the compound replacement exists before removing the old uniqueness,
+      // so the collection is never left without a unique constraint. autoIndex
+      // builds it from the same config on connect, but it isn't awaited — and we
+      // can't wait on it (see the note above) — so (re)create it idempotently from
+      // the configured fields. An identical spec is a no-op if it already exists.
+      if (!indexes.some(isCompoundFilenameUniqueIndex)) {
+        const compoundKey: Record<string, number> = {}
+        for (const field of filenameCompoundIndex) {
+          if (typeof field === 'string') {
+            compoundKey[field] = 1
+          }
+        }
+        await nativeCollection.createIndex(compoundKey, { unique: true })
       }
 
       await nativeCollection.dropIndex(singleFieldIndex.name)

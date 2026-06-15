@@ -139,6 +139,45 @@ describe('mongo: superseded filename index cleanup', () => {
     ).toBe(true)
   })
 
+  it('ensures the compound replacement when it is missing, then drops the stale index', async () => {
+    // Reproduces the real boot path: while the stale unique `filename_1` exists,
+    // autoIndex can't build the schema indexes, so the compound replacement may
+    // not be present when the heal runs. The function must (re)create it itself
+    // rather than wait on autoIndex / model.init().
+    const { collection } = getModel()
+    await collection.deleteMany({})
+    try {
+      await collection.dropIndex('filename_1_prefix_1')
+    } catch {
+      // No compound index present.
+    }
+    await seedOrphanedGlobalIndex(collection)
+
+    const before = await collection.indexes()
+    expect(
+      before.some(
+        (index) =>
+          index.unique === true && Object.keys(index.key).length > 1 && 'filename' in index.key,
+      ),
+    ).toBe(false)
+
+    await dropSupersededFilenameIndexes({ developmentFileStorage, env: 'development', payload })
+
+    const after = await collection.indexes()
+    // Stale single-field unique index is gone...
+    expect(after.some((index) => index.name === 'filename_1' && index.unique === true)).toBe(false)
+    // ...and the compound replacement was created before it was dropped.
+    expect(
+      after.some(
+        (index) =>
+          index.unique === true &&
+          Object.keys(index.key).length > 1 &&
+          'filename' in index.key &&
+          'prefix' in index.key,
+      ),
+    ).toBe(true)
+  })
+
   it('the orphaned global index blocks cross-prefix duplicates; dropping it unblocks them', async () => {
     const { collection } = getModel()
     await seedOrphanedGlobalIndex(collection)
