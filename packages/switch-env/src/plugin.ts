@@ -16,6 +16,7 @@ import {
   wrapClientUploadEndpoints,
 } from './lib/collectionConfig.js'
 import { normalizeCopyConfig, warnOnInvalidOverrideTargets } from './lib/copyUtils.js'
+import { dropSupersededFilenameIndexes } from './lib/db/dropSupersededFilenameIndexes.js'
 import { getDbaFunction } from './lib/db/getDbaFunction.js'
 import { switchDbConnection } from './lib/db/switchDbConnection.js'
 import { detectPayloadVersion } from './lib/detectPayloadVersion.js'
@@ -220,6 +221,20 @@ export function switchEnvPlugin<DBA>({
           await setEnv('development', payload)
         }
       }
+      // Heal databases first indexed before this plugin scoped upload filename
+      // uniqueness to the storage prefix: drop the now-superseded global
+      // `filename` unique index that mongoose's autoIndex leaves behind. Guarded
+      // to the development cloud-storage database; a no-op elsewhere. Run before
+      // the consumer's onInit so any upload writes it makes (seeding, fixtures)
+      // hit the corrected index rather than the stale one. The DB connection and
+      // compiled models already exist by now — this is the earliest plugin hook
+      // where an index can be dropped, and it depends on nothing oldInit does.
+      await dropSupersededFilenameIndexes({
+        developmentFileStorage,
+        env: await getEnv(payload),
+        payload,
+      })
+
       if (oldInit) {
         await oldInit(payload)
       }

@@ -150,7 +150,7 @@ on every upload collection it manages (those listed in `developmentFileStorage.c
 Because this changes the collection's indexes, two things to note for existing setups:
 
 - If the plugin is disabled in some environments (e.g. `enable: process.env.NODE_ENV === 'development'`), set `filenameCompoundIndex` explicitly in the collection config instead, so the schema is identical with and without the plugin — otherwise uploads in those environments still hit the collection-wide unique index.
-- Existing databases keep their old unique index on `filename` until migrated: on SQL adapters this is a schema migration through your normal pipeline (the plugin refuses to switch to production until production's schema matches), and on MongoDB the new compound index is created automatically but the old unique index must be dropped manually (e.g. `db.media.dropIndex('filename_1')`).
+- Existing databases keep their old unique index on `filename` until migrated. On MongoDB the plugin handles this for you: in the development `cloud-storage` environment it creates the new compound index and drops the superseded single-field `filename` unique index automatically (on init and after a runtime switch). On SQL adapters it is a schema migration through your normal pipeline (the plugin refuses to switch to production until production's schema matches).
 
 ## SQL adapters (Postgres / SQLite)
 

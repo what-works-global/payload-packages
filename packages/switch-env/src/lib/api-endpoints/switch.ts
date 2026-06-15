@@ -11,6 +11,7 @@ import {
   resolvePayloadCollectionScopes,
   resolveVersionCollectionModes,
 } from '../copyUtils.js'
+import { dropSupersededFilenameIndexes } from '../db/dropSupersededFilenameIndexes.js'
 import { backup, type BackupData, restore } from '../db/mongo.js'
 import { openAdapter } from '../db/openAdapter.js'
 import { getSqlSchemaDrift } from '../db/schemaDrift.js'
@@ -167,6 +168,16 @@ export const switchEndpoint = ({
     }
 
     switchEnvironments(payload.config, newEnv, developmentFileStorage, payloadVersion)
+
+    // After landing on the development cloud-storage database, drop any
+    // superseded global `filename` unique index left behind from before upload
+    // uniqueness was scoped to the storage prefix. Guarded to development; a
+    // no-op when switching to production.
+    await dropSupersededFilenameIndexes({
+      developmentFileStorage,
+      env: newEnv,
+      payload,
+    })
 
     logger.info('Switched to ' + newEnv + ' environment')
 
