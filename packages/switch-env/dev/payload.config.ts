@@ -38,11 +38,14 @@ const buildDbBlock = (): DbBlock => {
     const productionArgs: SqliteArgs = {
       client: {
         url: process.env.PRODUCTION_SQLITE_URL || `file:${path.join(sqliteDir, 'production.db')}`,
+        authToken: process.env.PRODUCTION_SQLITE_AUTH_TOKEN,
       },
+      push: true,
     }
     const developmentArgs: SqliteArgs = {
       client: {
         url: process.env.DEVELOPMENT_SQLITE_URL || `file:${path.join(sqliteDir, 'development.db')}`,
+        authToken: process.env.DEVELOPMENT_SQLITE_AUTH_TOKEN,
       },
     }
     return {

@@ -168,6 +168,13 @@ If you edit a field while connected to production, queries touching the new colu
 
 > These rules are SQL-only; nothing here changes MongoDB behavior. The `copy` flow (replicating production into development) is unaffected — it only ever writes to your development database.
 
+### How `copy` works on SQL adapters
+
+Both Drizzle adapters are supported. The flow reads from production and rewrites your development database in place — it never mutates production:
+
+- **SQLite (`@payloadcms/db-sqlite`)** replays production's captured `CREATE TABLE`/`CREATE INDEX` statements, then reloads the data.
+- **Postgres (`@payloadcms/db-postgres`)** materializes your development schema with Drizzle's push, truncates it, then bulk-loads production's rows. Foreign-key enforcement is suspended for the load with `SET LOCAL session_replication_role = 'replica'`, and identity sequences are advanced past the restored rows so later inserts don't collide. Disabling `session_replication_role` requires a sufficiently privileged role on the **development** connection (the local superuser you normally develop against is fine).
+
 ## Caution
 
 In `'switch'` mode the admin panel writes directly to your production database. Make sure everyone on the project understands when they are in "production" mode.

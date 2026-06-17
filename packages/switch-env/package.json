@@ -31,6 +31,7 @@
     "test": "vitest run",
     "test:mongo": "vitest run test/mongo",
     "test:peer": "vitest run test/peer.smoke.spec.ts",
+    "test:postgres": "vitest run test/postgres",
     "test:sqlite": "vitest run test/sqlite",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -112,6 +113,7 @@
     "@aws-sdk/client-s3": "^3.1065.0",
     "@aws-sdk/s3-request-presigner": "^3.1065.0",
     "@payloadcms/db-mongodb": "catalog:",
+    "@payloadcms/db-postgres": "catalog:",
     "@payloadcms/db-sqlite": "catalog:",
     "@payloadcms/drizzle": "3.84.1",
     "@payloadcms/eslint-config": "catalog:",
@@ -125,6 +127,7 @@
     "@types/react-dom": "catalog:",
     "@whatworks/dev-fixture": "workspace:*",
     "cross-env": "catalog:",
+    "embedded-postgres": "17.10.0-beta.17",
     "eslint": "catalog:",
     "eslint-config-next": "catalog:",
     "mongodb-memory-server": "10.1.4",
