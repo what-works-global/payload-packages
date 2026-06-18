@@ -205,6 +205,7 @@ export const backupPostgres = async ({
 
 export const restorePostgres = async ({
   backupData,
+  logger,
   targetAdapter,
 }: RestoreSqlArgs): Promise<void> => {
   // Resolve before touching the target: the restore below is destructive, so a
@@ -261,8 +262,8 @@ export const restorePostgres = async ({
   await resetSequences(pool, schema, [...Object.keys(backupData.tables), PAYLOAD_MIGRATIONS_TABLE])
 
   // Apply any pending migration files (e.g. renames the dev wrote but prod
-  // hasn't run yet).
-  await runPendingMigrations(targetAdapter, existsSync)
+  // hasn't run yet). Best-effort — see runPendingMigrations.
+  await runPendingMigrations(targetAdapter, existsSync, logger)
 
   // Reconcile any unmigrated dev-only schema changes against the live DB.
   await forcePushDevSchema(pushDevSchemaFn, targetAdapter)

@@ -85,15 +85,37 @@ export const forcePushDevSchema = async (
  * `payload migrate`; it reads from `db.migrationDir`. Skipped when there's no
  * `migrationDir` on disk — `readMigrationFiles` logs an ERROR in that case even
  * though it gracefully returns `[]`.
+ *
+ * Best-effort by design: `db.migrate` dynamically `import()`s each on-disk
+ * migration file, and Payload's generated migrations import types as values
+ * (`import { MigrateUpArgs, MigrateDownArgs, sql } from '@payloadcms/db-*'`).
+ * Outside Payload's own CLI (which transpiles first) the Node ESM loader can't
+ * resolve those type-only names — they aren't real runtime exports — so the
+ * import throws with e.g. `does not provide an export named 'MigrateDownArgs'`.
+ * The copy doesn't need migrations to succeed: the caller reconciles the dev
+ * schema with `forcePushDevSchema` immediately afterwards, so a load failure is
+ * logged and swallowed rather than aborting a copy whose data is already loaded.
  */
 export const runPendingMigrations = async (
   targetAdapter: DatabaseAdapter,
   migrationDirExists: (dir: string) => boolean,
+  logger?: BasePayload['logger'],
 ): Promise<void> => {
   const migrationDir = (targetAdapter as unknown as { migrationDir?: string }).migrationDir
   const migrate = (targetAdapter as unknown as { migrate?: () => Promise<void> }).migrate
-  if (typeof migrate === 'function' && migrationDir && migrationDirExists(migrationDir)) {
+  if (typeof migrate !== 'function' || !migrationDir || !migrationDirExists(migrationDir)) {
+    return
+  }
+  try {
     await migrate.call(targetAdapter)
+  } catch (error) {
+    logger?.warn(
+      { err: error },
+      '[switch-env] could not apply on-disk migration files during copy; continuing with a ' +
+        'dev schema push instead. This is expected when migration files import types from the ' +
+        'database adapter (the runtime ESM loader cannot resolve type-only imports) and is safe ' +
+        'for a development copy — the schema is reconciled by the push that follows.',
+    )
   }
 }
 

@@ -128,6 +128,7 @@ export const backupSqlite = async ({
 
 export const restoreSqlite = async ({
   backupData,
+  logger,
   targetAdapter,
 }: RestoreSqlArgs): Promise<void> => {
   // Resolve before touching the target: the restore below is destructive
@@ -167,8 +168,8 @@ export const restoreSqlite = async ({
   await client.execute(`DELETE FROM ${quoteIdent(PAYLOAD_MIGRATIONS_TABLE)} WHERE batch = -1`)
 
   // Apply any pending migration files (e.g. renames the dev wrote but prod
-  // hasn't run yet).
-  await runPendingMigrations(targetAdapter, existsSync)
+  // hasn't run yet). Best-effort — see runPendingMigrations.
+  await runPendingMigrations(targetAdapter, existsSync, logger)
 
   // Source schema is now on the target, but the dev's Drizzle schema may know
   // about columns/tables that don't exist yet (i.e. unmigrated dev changes).
