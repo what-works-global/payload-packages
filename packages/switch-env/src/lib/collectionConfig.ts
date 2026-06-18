@@ -91,6 +91,34 @@ export const addAccessSettingsToUploadCollection = (
   return collection
 }
 
+/**
+ * True when payload's CLI is generating or running a migration
+ * (`payload migrate`, `payload migrate:create`, `migrate:down`, …).
+ *
+ * The compound `(filename, prefix)` index is a development cloud-storage
+ * *runtime* reshape, not part of the canonical schema migrations describe.
+ * Migrations represent the production / file-system baseline, where filename
+ * uniqueness is the single-field `filename` unique index payload builds by
+ * default; the compound index is applied to the development database at runtime
+ * by the schema push `restore` runs after a copy. If `filenameCompoundIndex`
+ * were left set while `payload migrate:create` diffs the schema, the generated
+ * migration would drop that unique index and add the compound one — and that
+ * migration runs against production. Suppressing it during migration commands
+ * keeps generated migrations clean no matter which environment they are authored
+ * in (e.g. with `APP_ENV=staging` active), while the runtime config — which has
+ * no migrate command in argv — still declares it so the push picks it up.
+ *
+ * Detected the way payload's own bin resolves the command (bin/index.js): the
+ * first positional CLI argument, lowercased, starting with "migrate". Payload
+ * exposes no first-class "is migrating" signal, and the config is built
+ * synchronously inside that CLI process, so `process.argv` is the available,
+ * stable indicator.
+ */
+const isGeneratingMigration = (): boolean => {
+  const command = process.argv.slice(2).find((arg) => !arg.startsWith('-'))
+  return command?.toLowerCase().startsWith('migrate') ?? false
+}
+
 export const addDevelopmentSettingsToUploadCollection = <
   T extends CollectionConfig | SanitizedCollectionConfig,
 >(
@@ -105,7 +133,8 @@ export const addDevelopmentSettingsToUploadCollection = <
   if (collection.upload) {
     if (
       developmentFileStorage.mode === 'cloud-storage' &&
-      !collection.upload.filenameCompoundIndex
+      !collection.upload.filenameCompoundIndex &&
+      !isGeneratingMigration()
     ) {
       const collectionOptions = developmentFileStorage.collections[collection.slug]
       if (typeof collectionOptions === 'object' && collectionOptions.prefix) {
@@ -114,6 +143,7 @@ export const addDevelopmentSettingsToUploadCollection = <
         // scoped to the incoming prefix. Scope the unique index the same way:
         // the same filename under different prefixes is two distinct storage
         // keys, while duplicates within a prefix still deduplicate (-1, -2, ...).
+        // Skipped during migration generation — see isGeneratingMigration.
         collection.upload.filenameCompoundIndex = ['filename', 'prefix']
       }
     }
