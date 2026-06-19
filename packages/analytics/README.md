@@ -9,17 +9,21 @@
 
 &nbsp;
 
-Analytics components for Next.js (App Router) with built-in cookie consent. Most vendor snippets assume a full page reload on every navigation, so when you drop them straight into `layout.tsx` the initial page view fires but client-side route changes are never tracked — you end up with a single hit per session. This package wraps the tracking scripts most projects need — Google Analytics, Google Tag Manager, Facebook Pixel, Microsoft Clarity, and LinkedIn Insight Tag — in components that load via `next/script` and re-fire page views off `usePathname` as the user navigates, all gated through a shared consent provider that can optionally require consent by geolocation (EEA / UK / CH).
+Analytics components for Next.js (App Router) with built-in cookie consent. Most vendor snippets assume a full page reload on every navigation, so when you drop them straight into `layout.tsx` the initial page view fires but client-side route changes are never tracked — you end up with a single hit per session. This package wraps the tracking scripts most projects need — Google Analytics, Google Tag Manager, Facebook Pixel, Microsoft Clarity, LinkedIn Insight Tag, and PostHog — in components that load via `next/script` and re-fire page views off `usePathname` as the user navigates, all gated through a shared consent provider that can optionally require consent by geolocation (EEA / UK / CH).
+
+Each vendor lives in its own subpath import, so you only ever bundle the tags you actually use.
 
 ## Contents
 
 - [Installation](#installation)
 - [Usage](#usage)
   - [1. Add the consent API route](#1-add-the-consent-api-route)
-  - [2. Render `<Analytics>` in your root layout](#2-render-analytics-in-your-root-layout)
-  - [3. Configure IDs](#3-configure-ids)
+  - [2. Compose `<Analytics>` in your root layout](#2-compose-analytics-in-your-root-layout)
+  - [3. Enabling and disabling tags](#3-enabling-and-disabling-tags)
+- [PostHog](#posthog)
+- [Custom analytics scripts](#custom-analytics-scripts)
 - [Consent strategies](#consent-strategies)
-- [Components](#components)
+- [Subpaths and components](#subpaths-and-components)
 - [Notes](#notes)
 
 ## Installation
@@ -43,68 +47,87 @@ export { GET } from '@whatworks/analytics/api/consent'
 
 If you aren't on Vercel, write your own handler that returns `{ requiresConsent: boolean }`.
 
-### 2. Render `<Analytics>` in your root layout
+> **basePath:** under a Next `basePath`, pass the prefixed path to `<Analytics consentApiPath>` (e.g. `consentApiPath="/my-app/api/consent"`) — a browser `fetch` is not auto-prefixed.
+
+### 2. Compose `<Analytics>` in your root layout
+
+`<Analytics>` is a provider shell: it wires up cookie consent and renders whatever tags you pass as children. Import each tag from its vendor subpath and give it the IDs it needs.
 
 ```tsx
 // app/layout.tsx
 import { Analytics, CookieBanner } from '@whatworks/analytics'
+import { GoogleAnalytics, GoogleTagManager } from '@whatworks/analytics/google'
+import { MicrosoftClarity } from '@whatworks/analytics/clarity'
+import { FacebookPixel } from '@whatworks/analytics/facebook'
+import { LinkedInInsightTag } from '@whatworks/analytics/linkedin'
+import { PostHog } from '@whatworks/analytics/posthog'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <Analytics />
+        <Analytics>
+          <GoogleAnalytics gaId="G-XXXX" />
+          <GoogleTagManager gtmId="GTM-XXXX" />
+          <FacebookPixel pixelId="0000000000" />
+          <MicrosoftClarity clarityId="xxxxxxxx" />
+          <LinkedInInsightTag partnerId="1234567" />
+          <PostHog apiKey="phc_XXXX" />
+          <CookieBanner />
+        </Analytics>
         {children}
-        <CookieBanner />
       </body>
     </html>
   )
 }
 ```
 
-`<Analytics>` is a no-op outside of `NODE_ENV === 'production'`.
+Render only the tags you need — each is independent. Pass IDs explicitly as props; there are no environment-variable fallbacks (read your own `process.env.NEXT_PUBLIC_*` at the call site if you want them). `<CookieBanner>` must live **inside** `<Analytics>` so it can read the consent context (it portals to the bottom of the page regardless of where it sits in the tree).
 
-### 3. Configure IDs
+### 3. Enabling and disabling tags
 
-Each script is only rendered when its ID is present. Pass IDs as props, or set the matching env var:
-
-| Prop                | Env var                             |
-| ------------------- | ----------------------------------- |
-| `gaId`              | `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID`   |
-| `gtmId`             | `NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID` |
-| `facebookPixelId`   | `NEXT_PUBLIC_FACEBOOK_PIXEL_ID`     |
-| `clarityId`         | `NEXT_PUBLIC_MS_CLARITY_ID`         |
-| `linkedInPartnerId` | `NEXT_PUBLIC_LINKEDIN_PARTNER_ID`   |
-| `posthogKey`        | `NEXT_PUBLIC_POSTHOG_KEY`           |
-| `posthogApiHost`    | `NEXT_PUBLIC_POSTHOG_HOST`          |
+Every tag accepts an `enabled` prop. It defaults to `process.env.NODE_ENV === 'production'`, so tags stay inert in `next dev` and run on production and preview builds. Set it explicitly to override:
 
 ```tsx
-<Analytics gaId="G-XXXX" linkedInPartnerId="1234567" />
+<PostHog apiKey="phc_XXXX" enabled />              {/* force on — e.g. to test in dev */}
+<GoogleAnalytics gaId="G-XXXX" enabled={false} />  {/* force off */}
 ```
+
+`<Analytics enabled>` sets the default for every child tag; a tag's own prop still wins:
+
+```tsx
+<Analytics enabled={flags.analytics}>
+  <GoogleAnalytics gaId="G-XXXX" /> {/* inherits flags.analytics */}
+  <PostHog apiKey="phc_XXXX" enabled /> {/* overrides → always on */}
+</Analytics>
+```
+
+This replaces the old top-level `NODE_ENV` gate: the provider itself always mounts (so consent context is available), and the production-only default is now resolved per tag.
 
 ## PostHog
 
-PostHog ships as a `posthog-js` npm module rather than an inline snippet. It is **not** a dependency (or peer dependency) of this package — it is loaded via a runtime dynamic `import()` and its types are kept out of the public API, so consumers that don't use PostHog never pull it (or its types) in. If you do use `<PostHog>`, install it yourself:
+PostHog ships as a `posthog-js` npm module rather than an inline snippet. It is **not** a dependency (or peer dependency) of this package — it is loaded via a runtime dynamic `import()` and its types are kept out of the public API, so nothing is pulled in unless you import `@whatworks/analytics/posthog`. If you use `<PostHog>`, install posthog-js yourself:
 
 ```bash
 pnpm add posthog-js
 ```
 
-Pass `posthogKey` (or set `NEXT_PUBLIC_POSTHOG_KEY`) and it loads lazily, consent-gated, behind the same provider as every other tag. Sensible defaults are applied — PostHog EU Cloud host, session replay off, `identified_only` profiles, opt-out until consent is granted — and can be overridden via `posthogOptions`:
+Pass `apiKey` and it loads lazily, consent-gated, behind the same provider as every other tag — so the SDK only downloads once consent is granted. Sensible defaults are applied — PostHog EU Cloud host, session replay off, `identified_only` profiles, opt-out until consent is granted — and can be overridden via `apiHost` / `options`:
 
 ```tsx
-<Analytics posthogKey="phc_XXXX" posthogApiHost="https://eu.i.posthog.com" />
+import { PostHog } from '@whatworks/analytics/posthog'
+;<PostHog apiKey="phc_XXXX" apiHost="https://eu.i.posthog.com" />
 ```
 
 Send custom events from anywhere in the app with `capture()`. It routes to the same instance the provider manages and no-ops until PostHog has loaded and consent is granted, so it is always safe to call:
 
 ```tsx
-import { capture } from '@whatworks/analytics'
+import { capture } from '@whatworks/analytics/posthog'
 
 capture('table_company_opened', { companyId, companyName })
 ```
 
-`getPostHog()` returns the underlying instance (or `null`) if you need the full SDK — e.g. `identify()`, feature flags, or group analytics.
+For anything beyond `capture()` — `identify()`, feature flags, group analytics — import `posthog-js` directly (you already have it installed).
 
 ## Custom analytics scripts
 
@@ -121,28 +144,32 @@ function MyTag() {
 }
 
 // in layout.tsx
-;<Analytics gaId="G-XXXX">
+;<Analytics>
   <MyTag />
 </Analytics>
 ```
 
 ## Consent strategies
 
-`CookieBannerProvider` accepts a `consentStrategy` prop. `<Analytics>` defaults to `load-scripts-then-revoke-consent-after-geolocation-check` — good for most marketing sites. If you want finer control, compose the pieces yourself:
+`<Analytics>` accepts a `consentStrategy` prop, defaulting to `load-scripts-then-revoke-consent-after-geolocation-check` — good for most marketing sites:
 
 ```tsx
-import {
-  CookieBannerProvider,
-  CookieBanner,
-  GoogleAnalytics,
-  GtagBootstrap,
-} from '@whatworks/analytics'
+<Analytics consentStrategy="require-consent-before-loading-scripts">
+  <GoogleAnalytics gaId="G-XXXX" />
+</Analytics>
+```
+
+`<Analytics>` is a server component. To compose tags from a `'use client'` file, render `CookieBannerProvider` directly instead — it is the same provider `<Analytics>` wraps, minus the inherited `enabled` default (so pass `enabled` to each tag yourself):
+
+```tsx
+'use client'
+import { CookieBannerProvider, CookieBanner } from '@whatworks/analytics'
+import { GoogleAnalytics } from '@whatworks/analytics/google'
 ;<CookieBannerProvider
   consentApiPath="/api/consent"
   consentStrategy="require-consent-before-loading-scripts"
 >
-  <GtagBootstrap />
-  <GoogleAnalytics gaId="G-XXXX" />
+  <GoogleAnalytics gaId="G-XXXX" enabled />
   <CookieBanner />
 </CookieBannerProvider>
 ```
@@ -154,22 +181,35 @@ import {
 | `load-scripts-then-revoke-consent-after-geolocation-check` | immediately        | granted until geo check | if geolocation requires it |
 | `require-consent-before-loading-scripts`                   | only after consent | denied                  | if geolocation requires it |
 
-## Components
+## Subpaths and components
 
-- **`<Analytics>`** — top-level composition. Renders the provider and every tag whose ID is present.
+| Import                             | Exports                                                                                                         |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `@whatworks/analytics`             | `Analytics`, `CookieBanner`, `CookieBannerProvider`, `CookieBannerPortal`, `useCookieBanner`, `ConsentStrategy` |
+| `@whatworks/analytics/google`      | `GoogleAnalytics`, `GoogleTagManager`                                                                           |
+| `@whatworks/analytics/linkedin`    | `LinkedInInsightTag`                                                                                            |
+| `@whatworks/analytics/clarity`     | `MicrosoftClarity`                                                                                              |
+| `@whatworks/analytics/facebook`    | `FacebookPixel`                                                                                                 |
+| `@whatworks/analytics/posthog`     | `PostHog`, `capture`                                                                                            |
+| `@whatworks/analytics/api/consent` | `GET` (consent route handler)                                                                                   |
+
+All exports are named, and every tag's `Props` type is exported alongside it (e.g. `GoogleAnalyticsProps`).
+
+- **`<Analytics>`** — provider shell. Sets up consent and the inherited `enabled` default, then renders the tags you pass as children. Props: `enabled?`, `consentStrategy?`, `consentApiPath?`.
 - **`<CookieBanner>`** — default banner UI with `title`, `description`, `acceptText`, `rejectText` props. Only visible when the provider decides it should be.
 - **`<CookieBannerProvider>`** / **`useCookieBanner()`** — consent context. Exposes `consentStatus`, `shouldLoadScripts`, `shouldShowBanner`, `accept()`, `reject()`.
-- **`<GtagBootstrap>`** — shared `dataLayer` + `gtag` stub and Consent Mode state. Render once when using either GA or GTM.
-- **`<GoogleAnalytics gaId>`** — GA4 config script.
-- **`<GoogleTagManager gtmId>`** — GTM container script, plus the `<noscript>` `ns.html` fallback (see note below).
-- **`<FacebookPixel pixelId>`** — Meta Pixel with SPA route tracking and noscript fallback.
-- **`<MicrosoftClarity clarityId>`** — Clarity with consent v2 signalling. **You must disable cookies in the Clarity dashboard for GDPR compliance** — see [Clarity's docs](https://learn.microsoft.com/en-us/clarity/setup-and-installation/cookie-consent).
-- **`<LinkedInInsightTag partnerId>`** — LinkedIn Insight Tag, consent-gated. Loads only once consent is granted (LinkedIn has no native consent API).
-- **`<PostHog apiKey>`** — PostHog product analytics, consent-gated. Lazy-loads `posthog-js` (which you install yourself; not a dependency of this package), opts out until consent is granted. Pair with `capture()` / `getPostHog()` for events.
+- **`<GoogleAnalytics gaId>`** (`/google`) — GA4 config script. Renders the shared `gtag` / Consent Mode bootstrap internally.
+- **`<GoogleTagManager gtmId>`** (`/google`) — GTM container script plus the `<noscript>` `ns.html` fallback (see note below). Renders the shared bootstrap internally; deduped automatically when GA is also present.
+- **`<FacebookPixel pixelId>`** (`/facebook`) — Meta Pixel with SPA route tracking and noscript fallback.
+- **`<MicrosoftClarity clarityId>`** (`/clarity`) — Clarity with consent v2 signalling. **You must disable cookies in the Clarity dashboard for GDPR compliance** — see [Clarity's docs](https://learn.microsoft.com/en-us/clarity/setup-and-installation/cookie-consent).
+- **`<LinkedInInsightTag partnerId>`** (`/linkedin`) — LinkedIn Insight Tag, consent-gated. Loads only once consent is granted (LinkedIn has no native consent API).
+- **`<PostHog apiKey>`** (`/posthog`) — PostHog product analytics, consent-gated. Lazy-loads `posthog-js` (which you install yourself; not a dependency of this package), opts out until consent is granted. Pair with `capture()` for events.
+
+Every tag also accepts an `enabled` prop — see [Enabling and disabling tags](#3-enabling-and-disabling-tags). The shared `gtag` bootstrap is an internal detail of the Google tags and is no longer exported.
 
 ## Notes
 
 - If your GTM container includes a GA4 Configuration tag for the same property as `gaId`, `page_view` events will be double-counted. Pick one side.
 - The default `CookieBanner` renders into a portal and links to `/privacy-policy` — pass a custom `description` to override.
-- All script components are `'use client'`; `<Analytics>` itself is a server component.
+- All tag components are `'use client'`; `<Analytics>` itself is a server component, so compose it from a server layout. To use the tags from a `'use client'` file, render `CookieBannerProvider` directly (see [Consent strategies](#consent-strategies)).
 - **`<noscript>` fallbacks reflect the _server-rendered_ consent posture only.** A client with JS disabled never runs the geolocation check or banner, so the GTM/Facebook/LinkedIn `<noscript>` tags appear only under grant-by-default strategies (`load-scripts-always-grant-consent`, `load-scripts-then-revoke-consent-after-geolocation-check`) and cannot honor a region-based revoke. To gate the no-JS path by region, seed `requiresConsent` from request headers at SSR rather than relying on the client `fetch`.
