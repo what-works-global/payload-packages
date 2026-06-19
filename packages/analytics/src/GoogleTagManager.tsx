@@ -3,20 +3,31 @@
 import Script from 'next/script'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
+import { useResolvedEnabled } from './enabledContext.js'
+import { GtagBootstrap } from './GtagBootstrap.js'
 
-interface GoogleTagManagerProps {
+export interface GoogleTagManagerProps {
+  /** Default-on in production; set explicitly to force on or off elsewhere. */
+  enabled?: boolean
   gtmId: string
 }
 
-export default function GoogleTagManager({ gtmId }: GoogleTagManagerProps) {
+export function GoogleTagManager({ enabled, gtmId }: GoogleTagManagerProps) {
   const { consentStatus, shouldLoadScripts } = useCookieBanner()
+  const isEnabled = useResolvedEnabled(enabled)
 
-  if (!gtmId || !shouldLoadScripts) {
+  if (!gtmId || !isEnabled || !shouldLoadScripts) {
     return null
   }
 
   return (
     <>
+      {/*
+        GtagBootstrap owns dataLayer, the gtag stub, and the shared Consent Mode
+        default/update path. GA and GTM each render it; next/script dedupes by id
+        so it runs once even when both Google tags are present.
+      */}
+      <GtagBootstrap />
       {/* Keep the SSR preload the previous `src` Script gave us. */}
       <link
         as="script"

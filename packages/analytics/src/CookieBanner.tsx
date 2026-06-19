@@ -8,7 +8,14 @@ import Link from 'next/link'
 import { CookieBannerPortal } from './CookieBannerPortal.js'
 import { useCookieBanner } from './CookieBannerProvider.js'
 
-export default function CookieBanner({
+export interface CookieBannerProps {
+  acceptText?: string
+  description?: ReactNode
+  rejectText?: string
+  title?: string
+}
+
+export function CookieBanner({
   acceptText = 'Accept',
   description = (
     <>
@@ -23,12 +30,7 @@ export default function CookieBanner({
   ),
   rejectText = 'Reject',
   title = 'Cookies',
-}: {
-  acceptText?: string
-  description?: ReactNode
-  rejectText?: string
-  title?: string
-}) {
+}: CookieBannerProps) {
   const { accept, reject, shouldShowBanner } = useCookieBanner()
 
   if (!shouldShowBanner) {

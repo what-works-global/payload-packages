@@ -5,14 +5,19 @@ import Script from 'next/script'
 import { useEffect, useRef, useState } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
+import { useResolvedEnabled } from './enabledContext.js'
+import { GtagBootstrap } from './GtagBootstrap.js'
 
-interface GoogleAnalyticsProps {
+export interface GoogleAnalyticsProps {
+  /** Default-on in production; set explicitly to force on or off elsewhere. */
+  enabled?: boolean
   gaId: string
 }
 
-export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
+export function GoogleAnalytics({ enabled, gaId }: GoogleAnalyticsProps) {
   const pathname = usePathname()
   const { consentStatus, shouldLoadScripts } = useCookieBanner()
+  const isEnabled = useResolvedEnabled(enabled)
   const hasSentInitialRef = useRef(false)
   const lastTrackedPathnameRef = useRef<null | string>(null)
   const [isGtagLoaded, setIsGtagLoaded] = useState(false)
@@ -38,18 +43,26 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
     }
   }, [pathname, consentStatus, gaId, isGtagLoaded])
 
-  if (!gaId || !shouldLoadScripts) {
+  if (!gaId || !isEnabled || !shouldLoadScripts) {
     return null
   }
 
   return (
-    <Script
-      id="gtag-base"
-      onLoad={() => {
-        setIsGtagLoaded(true)
-      }}
-      src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
-      strategy="afterInteractive"
-    />
+    <>
+      {/*
+        GtagBootstrap owns dataLayer, the gtag stub, and the shared Consent Mode
+        default/update path. GA and GTM each render it; next/script dedupes by id
+        so it runs once even when both Google tags are present.
+      */}
+      <GtagBootstrap />
+      <Script
+        id="gtag-base"
+        onLoad={() => {
+          setIsGtagLoaded(true)
+        }}
+        src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+        strategy="afterInteractive"
+      />
+    </>
   )
 }

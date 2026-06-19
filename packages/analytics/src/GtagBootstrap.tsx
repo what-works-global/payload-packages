@@ -30,7 +30,7 @@ const getConsentDefaults = (consentStatus: 'denied' | 'granted') => {
   }
 }
 
-export default function GtagBootstrap() {
+export function GtagBootstrap() {
   const { consentStatus, shouldLoadScripts } = useCookieBanner()
 
   useEffect(() => {

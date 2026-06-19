@@ -4,16 +4,20 @@ import Script from 'next/script'
 import { useCallback, useEffect } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
+import { useResolvedEnabled } from './enabledContext.js'
 
 // WARNING: Cookies must be disabled in Clarity dashboard for this to be GDPR compliant
 // See https://learn.microsoft.com/en-us/clarity/setup-and-installation/cookie-consent
 
-interface MicrosoftClarityProps {
+export interface MicrosoftClarityProps {
   clarityId: string
+  /** Default-on in production; set explicitly to force on or off elsewhere. */
+  enabled?: boolean
 }
 
-export default function MicrosoftClarity({ clarityId }: MicrosoftClarityProps) {
+export function MicrosoftClarity({ clarityId, enabled }: MicrosoftClarityProps) {
   const { consentStatus, shouldLoadScripts } = useCookieBanner()
+  const isEnabled = useResolvedEnabled(enabled)
 
   const applyConsent = useCallback((status: 'denied' | 'granted') => {
     if (typeof window.clarity !== 'function') {
@@ -38,7 +42,7 @@ export default function MicrosoftClarity({ clarityId }: MicrosoftClarityProps) {
     applyConsent(consentStatus)
   }, [applyConsent, consentStatus])
 
-  if (!clarityId || !shouldLoadScripts) {
+  if (!clarityId || !isEnabled || !shouldLoadScripts) {
     return null
   }
 
