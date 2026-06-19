@@ -73,9 +73,25 @@ export async function initPostHog({
   initStarted = true
 
   try {
-    const { default: posthog } = (await import('posthog-js')) as unknown as {
-      default: PostHogClient
+    // posthog-js ships no "exports" map, so the consuming bundler may pick its
+    // ESM (`module`) or CJS (`main`) build, and synthesises the dynamic-import
+    // namespace differently for each. The CJS build marks `__esModule` and sets
+    // both `exports.default` and `exports.posthog` to the singleton; some
+    // bundlers (e.g. Turbopack) then re-wrap it a level too deep, so `.default`
+    // is the namespace object rather than the instance — the cause of the
+    // `init is not a function` error. Probe the likely locations and use
+    // whichever candidate actually carries `init()`.
+    const mod = (await import('posthog-js')) as unknown as Record<string, unknown>
+    const nestedDefault = (mod.default as Record<string, unknown> | undefined)?.default
+    const posthog = [mod.default, nestedDefault, mod.posthog, mod].find(
+      (candidate): candidate is PostHogClient =>
+        !!candidate && typeof (candidate as { init?: unknown }).init === 'function',
+    )
+
+    if (!posthog) {
+      throw new Error('posthog-js resolved but no instance exposing init() was found')
     }
+
     posthog.init(apiKey, {
       ...DEFAULT_OPTIONS,
       api_host: apiHost,
