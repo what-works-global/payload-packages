@@ -1,5 +1,7 @@
 // This is just an example file of how you would use this package in your own project
 
+import type { ReactNode } from 'react'
+
 import { type ConsentStrategy, CookieBannerProvider } from './CookieBannerProvider.js'
 import FacebookPixel from './FacebookPixel.js'
 import GoogleAnalytics from './GoogleAnalytics.js'
@@ -7,8 +9,15 @@ import GoogleTagManager from './GoogleTagManager.js'
 import GtagBootstrap from './GtagBootstrap.js'
 import LinkedInInsightTag from './LinkedInInsightTag.js'
 import MicrosoftClarity from './MicrosoftClarity.js'
+import PostHog from './PostHog.js'
 
 type AnalyticsProps = {
+  /**
+   * Custom analytics scripts rendered inside the shared `CookieBannerProvider`.
+   * Any `'use client'` component here can call `useCookieBanner()` to read
+   * consent — no need to mount a second provider.
+   */
+  children?: ReactNode
   /** Falls back to `process.env.NEXT_PUBLIC_MS_CLARITY_ID` */
   clarityId?: string
   /** Path the CookieBannerProvider posts consent state to. Defaults to `/api/consent` */
@@ -44,6 +53,12 @@ type AnalyticsProps = {
   gtmId?: string
   /** Falls back to `process.env.NEXT_PUBLIC_LINKEDIN_PARTNER_ID` */
   linkedInPartnerId?: string
+  /** Ingestion host for PostHog. Falls back to `process.env.NEXT_PUBLIC_POSTHOG_HOST`, then PostHog EU Cloud. */
+  posthogApiHost?: string
+  /** PostHog project API key. Falls back to `process.env.NEXT_PUBLIC_POSTHOG_KEY` */
+  posthogKey?: string
+  /** Extra posthog-js init options (`PostHogConfig`), merged over the privacy-safe defaults. */
+  posthogOptions?: Record<string, unknown>
 }
 
 export default function Analytics(props: AnalyticsProps = {}) {
@@ -56,6 +71,8 @@ export default function Analytics(props: AnalyticsProps = {}) {
   const facebookPixelId = props.facebookPixelId ?? process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID
   const clarityId = props.clarityId ?? process.env.NEXT_PUBLIC_MS_CLARITY_ID
   const linkedInPartnerId = props.linkedInPartnerId ?? process.env.NEXT_PUBLIC_LINKEDIN_PARTNER_ID
+  const posthogKey = props.posthogKey ?? process.env.NEXT_PUBLIC_POSTHOG_KEY
+  const posthogApiHost = props.posthogApiHost ?? process.env.NEXT_PUBLIC_POSTHOG_HOST
 
   return (
     <CookieBannerProvider
@@ -78,6 +95,10 @@ export default function Analytics(props: AnalyticsProps = {}) {
       {gtmId && <GoogleTagManager gtmId={gtmId} />}
       {clarityId && <MicrosoftClarity clarityId={clarityId} />}
       {linkedInPartnerId && <LinkedInInsightTag partnerId={linkedInPartnerId} />}
+      {posthogKey && (
+        <PostHog apiHost={posthogApiHost} apiKey={posthogKey} options={props.posthogOptions} />
+      )}
+      {props.children}
     </CookieBannerProvider>
   )
 }

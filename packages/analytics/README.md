@@ -75,9 +75,55 @@ Each script is only rendered when its ID is present. Pass IDs as props, or set t
 | `facebookPixelId`   | `NEXT_PUBLIC_FACEBOOK_PIXEL_ID`     |
 | `clarityId`         | `NEXT_PUBLIC_MS_CLARITY_ID`         |
 | `linkedInPartnerId` | `NEXT_PUBLIC_LINKEDIN_PARTNER_ID`   |
+| `posthogKey`        | `NEXT_PUBLIC_POSTHOG_KEY`           |
+| `posthogApiHost`    | `NEXT_PUBLIC_POSTHOG_HOST`          |
 
 ```tsx
 <Analytics gaId="G-XXXX" linkedInPartnerId="1234567" />
+```
+
+## PostHog
+
+PostHog ships as a `posthog-js` npm module rather than an inline snippet. It is **not** a dependency (or peer dependency) of this package — it is loaded via a runtime dynamic `import()` and its types are kept out of the public API, so consumers that don't use PostHog never pull it (or its types) in. If you do use `<PostHog>`, install it yourself:
+
+```bash
+pnpm add posthog-js
+```
+
+Pass `posthogKey` (or set `NEXT_PUBLIC_POSTHOG_KEY`) and it loads lazily, consent-gated, behind the same provider as every other tag. Sensible defaults are applied — PostHog EU Cloud host, session replay off, `identified_only` profiles, opt-out until consent is granted — and can be overridden via `posthogOptions`:
+
+```tsx
+<Analytics posthogKey="phc_XXXX" posthogApiHost="https://eu.i.posthog.com" />
+```
+
+Send custom events from anywhere in the app with `capture()`. It routes to the same instance the provider manages and no-ops until PostHog has loaded and consent is granted, so it is always safe to call:
+
+```tsx
+import { capture } from '@whatworks/analytics'
+
+capture('table_company_opened', { companyId, companyName })
+```
+
+`getPostHog()` returns the underlying instance (or `null`) if you need the full SDK — e.g. `identify()`, feature flags, or group analytics.
+
+## Custom analytics scripts
+
+To add a script the package doesn't ship, render it as a child of `<Analytics>`. Children mount **inside** the shared `CookieBannerProvider`, so a `'use client'` component can call `useCookieBanner()` for consent without mounting its own provider:
+
+```tsx
+'use client'
+import { useCookieBanner } from '@whatworks/analytics'
+
+function MyTag() {
+  const { consentStatus, shouldLoadScripts } = useCookieBanner()
+  // load your script / apply consent...
+  return null
+}
+
+// in layout.tsx
+;<Analytics gaId="G-XXXX">
+  <MyTag />
+</Analytics>
 ```
 
 ## Consent strategies
@@ -119,6 +165,7 @@ import {
 - **`<FacebookPixel pixelId>`** — Meta Pixel with SPA route tracking and noscript fallback.
 - **`<MicrosoftClarity clarityId>`** — Clarity with consent v2 signalling. **You must disable cookies in the Clarity dashboard for GDPR compliance** — see [Clarity's docs](https://learn.microsoft.com/en-us/clarity/setup-and-installation/cookie-consent).
 - **`<LinkedInInsightTag partnerId>`** — LinkedIn Insight Tag, consent-gated. Loads only once consent is granted (LinkedIn has no native consent API).
+- **`<PostHog apiKey>`** — PostHog product analytics, consent-gated. Lazy-loads `posthog-js` (which you install yourself; not a dependency of this package), opts out until consent is granted. Pair with `capture()` / `getPostHog()` for events.
 
 ## Notes
 

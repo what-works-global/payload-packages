@@ -12,3 +12,11 @@ export { default as GoogleTagManager } from './GoogleTagManager.js'
 export { default as GtagBootstrap } from './GtagBootstrap.js'
 export { default as LinkedInInsightTag } from './LinkedInInsightTag.js'
 export { default as MicrosoftClarity } from './MicrosoftClarity.js'
+export { default as PostHog } from './PostHog.js'
+export {
+  capture,
+  getPostHog,
+  initPostHog,
+  type InitPostHogOptions,
+  setPostHogConsent,
+} from './posthogClient.js'

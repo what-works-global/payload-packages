@@ -45,6 +45,7 @@
     "eslint-config-next": "catalog:",
     "next": "catalog:",
     "postcss": "catalog:",
+    "posthog-js": "catalog:",
     "prettier": "catalog:",
     "publint": "catalog:",
     "react": "catalog:",
