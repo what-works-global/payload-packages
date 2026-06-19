@@ -5,14 +5,18 @@ import Script from 'next/script'
 import { useEffect, useRef } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
+import { useResolvedEnabled } from './enabledContext.js'
 
-interface LinkedInInsightTagProps {
+export interface LinkedInInsightTagProps {
+  /** Default-on in production; set explicitly to force on or off elsewhere. */
+  enabled?: boolean
   partnerId: string
 }
 
-export default function LinkedInInsightTag({ partnerId }: LinkedInInsightTagProps) {
+export function LinkedInInsightTag({ enabled, partnerId }: LinkedInInsightTagProps) {
   const pathname = usePathname()
   const { consentStatus, shouldLoadScripts } = useCookieBanner()
+  const isEnabled = useResolvedEnabled(enabled)
   const hasSentInitialRef = useRef(false)
   const lastTrackedPathnameRef = useRef<null | string>(null)
 
@@ -35,7 +39,7 @@ export default function LinkedInInsightTag({ partnerId }: LinkedInInsightTagProp
     }
   }, [pathname, consentStatus, partnerId])
 
-  if (!partnerId || !shouldLoadScripts || consentStatus !== 'granted') {
+  if (!partnerId || !isEnabled || !shouldLoadScripts || consentStatus !== 'granted') {
     return null
   }
 

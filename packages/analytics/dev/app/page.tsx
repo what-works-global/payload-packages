@@ -1,15 +1,9 @@
 'use client'
 
-import {
-  type ConsentStrategy,
-  CookieBanner,
-  CookieBannerProvider,
-  FacebookPixel,
-  GoogleAnalytics,
-  GoogleTagManager,
-  GtagBootstrap,
-  MicrosoftClarity,
-} from '@whatworks/analytics'
+import { type ConsentStrategy, CookieBanner, CookieBannerProvider } from '@whatworks/analytics'
+import { MicrosoftClarity } from '@whatworks/analytics/clarity'
+import { FacebookPixel } from '@whatworks/analytics/facebook'
+import { GoogleAnalytics, GoogleTagManager } from '@whatworks/analytics/google'
 import { useMemo, useState } from 'react'
 
 const STRATEGIES: ConsentStrategy[] = [
@@ -63,11 +57,15 @@ export default function Page() {
         <code style={{ marginLeft: '0.5rem' }}>/api/consent</code>.
       </p>
       <CookieBannerProvider consentApiPath="/api/consent" consentStrategy={consentStrategy}>
-        <GtagBootstrap />
-        <FacebookPixel pixelId={exampleIds.facebookPixelId} />
-        <GoogleAnalytics gaId={exampleIds.gaId} />
-        <GoogleTagManager gtmId={exampleIds.gtmId} />
-        <MicrosoftClarity clarityId={exampleIds.clarityId} />
+        {/*
+          `enabled` is passed explicitly so the tags run in `next dev`, where the
+          production-only default would otherwise keep them inert. GtagBootstrap is
+          no longer rendered here — GoogleAnalytics/GoogleTagManager self-render it.
+        */}
+        <FacebookPixel enabled pixelId={exampleIds.facebookPixelId} />
+        <GoogleAnalytics enabled gaId={exampleIds.gaId} />
+        <GoogleTagManager enabled gtmId={exampleIds.gtmId} />
+        <MicrosoftClarity clarityId={exampleIds.clarityId} enabled />
         <CookieBanner />
       </CookieBannerProvider>
 

@@ -4,14 +4,18 @@ import Script from 'next/script'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { useCookieBanner } from './CookieBannerProvider.js'
+import { useResolvedEnabled } from './enabledContext.js'
 
-interface FacebookPixelProps {
+export interface FacebookPixelProps {
+  /** Default-on in production; set explicitly to force on or off elsewhere. */
+  enabled?: boolean
   pixelId: string
 }
 
-export default function FacebookPixel({ pixelId }: FacebookPixelProps) {
+export function FacebookPixel({ enabled, pixelId }: FacebookPixelProps) {
   const pathname = usePathname()
   const { consentStatus, shouldLoadScripts } = useCookieBanner()
+  const isEnabled = useResolvedEnabled(enabled)
   const hasSentInitialRef = useRef(false)
   const lastTrackedPathnameRef = useRef<null | string>(null)
 
@@ -56,7 +60,7 @@ export default function FacebookPixel({ pixelId }: FacebookPixelProps) {
     }
   }, [pathname, consentStatus, pixelId, trackPageView])
 
-  if (!pixelId || !shouldLoadScripts) {
+  if (!pixelId || !isEnabled || !shouldLoadScripts) {
     return null
   }
 

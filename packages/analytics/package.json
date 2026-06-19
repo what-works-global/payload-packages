@@ -10,6 +10,31 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./google": {
+      "types": "./src/entries/google.ts",
+      "import": "./src/entries/google.ts",
+      "default": "./src/entries/google.ts"
+    },
+    "./linkedin": {
+      "types": "./src/entries/linkedin.ts",
+      "import": "./src/entries/linkedin.ts",
+      "default": "./src/entries/linkedin.ts"
+    },
+    "./clarity": {
+      "types": "./src/entries/clarity.ts",
+      "import": "./src/entries/clarity.ts",
+      "default": "./src/entries/clarity.ts"
+    },
+    "./facebook": {
+      "types": "./src/entries/facebook.ts",
+      "import": "./src/entries/facebook.ts",
+      "default": "./src/entries/facebook.ts"
+    },
+    "./posthog": {
+      "types": "./src/entries/posthog.ts",
+      "import": "./src/entries/posthog.ts",
+      "default": "./src/entries/posthog.ts"
+    },
     "./api/consent": {
       "types": "./src/api/consent.ts",
       "import": "./src/api/consent.ts",
@@ -78,6 +103,31 @@
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js",
         "default": "./dist/index.js"
+      },
+      "./google": {
+        "types": "./dist/entries/google.d.ts",
+        "import": "./dist/entries/google.js",
+        "default": "./dist/entries/google.js"
+      },
+      "./linkedin": {
+        "types": "./dist/entries/linkedin.d.ts",
+        "import": "./dist/entries/linkedin.js",
+        "default": "./dist/entries/linkedin.js"
+      },
+      "./clarity": {
+        "types": "./dist/entries/clarity.d.ts",
+        "import": "./dist/entries/clarity.js",
+        "default": "./dist/entries/clarity.js"
+      },
+      "./facebook": {
+        "types": "./dist/entries/facebook.d.ts",
+        "import": "./dist/entries/facebook.js",
+        "default": "./dist/entries/facebook.js"
+      },
+      "./posthog": {
+        "types": "./dist/entries/posthog.d.ts",
+        "import": "./dist/entries/posthog.js",
+        "default": "./dist/entries/posthog.js"
       },
       "./api/consent": {
         "types": "./dist/api/consent.d.ts",
