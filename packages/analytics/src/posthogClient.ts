@@ -1,42 +1,38 @@
 'use client'
 
-// Type-only — resolves against the devDependency during this package's own
-// build and is erased from the published declarations (it is referenced only by
-// the non-exported guard below), so it costs consumers nothing.
+// posthog-js is an OPTIONAL peer dependency — only consumers who use `<PostHog>`
+// install it (declared via `peerDependenciesMeta`). It is loaded purely through
+// a runtime dynamic `import()`, so consumers who never import
+// `@whatworks/analytics/posthog` pull in neither the SDK nor its types. This
+// type-only import resolves against the peer/dev install and appears only in the
+// `/posthog` entry's declarations — which already imply posthog-js is present —
+// so it is safe to lean on the real types here.
 import type { PostHog } from 'posthog-js'
 
-// PostHog's browser SDK is a single default-exported instance. We hold a
-// reference to it here so application code can `capture()` events without
-// importing posthog-js directly or knowing whether it has finished loading —
-// calls before init simply no-op, mirroring how the script components stay
-// inert until consent resolves. The module is shared across the client bundle,
-// so the `<PostHog>` component and the app that calls `capture()` see the same
-// instance.
-//
-// posthog-js is loaded purely via a runtime dynamic `import()` and is NOT a
-// dependency (or peer dependency) of this package — it is only declared as a
-// devDependency so this file type-checks. Consumers that use `<PostHog>` install
-// posthog-js themselves; consumers that don't never pull it (or its types) in.
-// To keep that promise, the posthog-js type is described locally below rather
-// than imported, so it never leaks into this package's published declarations.
-interface PostHogClient {
-  capture: (event: string, properties?: Record<string, unknown>) => void
-  init: (apiKey: string, options?: Record<string, unknown>) => void
-  opt_in_capturing: () => void
-  opt_out_capturing: () => void
+// The live instance must survive bundler module duplication. Under Next's RSC
+// model the `<PostHog>` component (rendered from a server layout, so reached via
+// a client-reference) and the `capture()` an app's client component imports can
+// resolve to SEPARATE copies of this module — a plain module-level `let` set by
+// one copy is then invisible to the other, so `capture()` silently no-ops. We
+// therefore park the instance on a process-global keyed by a registry Symbol,
+// shared across every module copy in the realm, so all copies see the one
+// instance `<PostHog>` initialised. (Next recommends this same globalThis
+// pattern for singletons such as the Prisma client.)
+interface PostHogRegistry {
+  client: null | PostHog
+  initStarted: boolean
 }
 
-// Compile-time guard against posthog-js API drift. If a future posthog-js
-// renames or drops a method we call, `keyof PostHogClient` stops being a subset
-// of `keyof PostHog`, the constraint below is violated, and this fails to
-// compile here — surfacing the break at build time instead of at runtime in a
-// consumer. (Method names only — we pass options through loosely on purpose, so
-// signature tweaks are intentionally not flagged.) Fully erased from output.
-type AssertSubset<Sub extends Super, Super> = Sub
-type _PostHogApiGuard = AssertSubset<keyof PostHogClient, keyof PostHog>
+// `Symbol.for` resolves against the global symbol registry, so every duplicated
+// copy of this module — and any other realm in the same process — resolves to
+// the same key and therefore the same backing object. A namespaced description
+// keeps it from colliding with anything else parked on `globalThis`.
+const REGISTRY_KEY = Symbol.for('@whatworks/analytics::posthog-client')
 
-let client: null | PostHogClient = null
-let initStarted = false
+function getRegistry(): PostHogRegistry {
+  const store = globalThis as unknown as Record<symbol, PostHogRegistry | undefined>
+  return (store[REGISTRY_KEY] ??= { client: null, initStarted: false })
+}
 
 const DEFAULT_OPTIONS: Record<string, unknown> = {
   // Billing is per-event and per-identified-person; tying profiles to
@@ -66,11 +62,12 @@ export async function initPostHog({
   apiHost,
   apiKey,
   options,
-}: InitPostHogOptions): Promise<null | PostHogClient> {
-  if (initStarted) {
-    return client
+}: InitPostHogOptions): Promise<null | PostHog> {
+  const registry = getRegistry()
+  if (registry.initStarted) {
+    return registry.client
   }
-  initStarted = true
+  registry.initStarted = true
 
   try {
     // posthog-js ships no "exports" map, so the consuming bundler may pick its
@@ -83,8 +80,9 @@ export async function initPostHog({
     // whichever candidate actually carries `init()`.
     const mod = (await import('posthog-js')) as unknown as Record<string, unknown>
     const nestedDefault = (mod.default as Record<string, unknown> | undefined)?.default
-    const posthog = [mod.default, nestedDefault, mod.posthog, mod].find(
-      (candidate): candidate is PostHogClient =>
+    const candidates: unknown[] = [mod.default, nestedDefault, mod.posthog, mod]
+    const posthog = candidates.find(
+      (candidate): candidate is PostHog =>
         !!candidate && typeof (candidate as { init?: unknown }).init === 'function',
     )
 
@@ -96,9 +94,12 @@ export async function initPostHog({
       ...DEFAULT_OPTIONS,
       api_host: apiHost,
       ...options,
-    })
-    client = posthog
+    } as Parameters<typeof posthog.init>[1])
+    registry.client = posthog
   } catch (error) {
+    // Allow a later mount to retry — the failure is usually a missing install
+    // rather than a permanent condition.
+    registry.initStarted = false
     // eslint-disable-next-line no-console
     console.error(
       '[@whatworks/analytics] Could not load posthog-js. Install it to use <PostHog>: `pnpm add posthog-js`',
@@ -106,11 +107,12 @@ export async function initPostHog({
     )
   }
 
-  return client
+  return registry.client
 }
 
 /** Honour a consent decision by opting the shared instance in or out. */
 export function setPostHogConsent(granted: boolean): void {
+  const { client } = getRegistry()
   if (!client) {
     return
   }
@@ -126,10 +128,10 @@ export function setPostHogConsent(granted: boolean): void {
  * consent is granted, so it is always safe to call from app code.
  */
 export function capture(event: string, properties?: Record<string, unknown>): void {
-  client?.capture(event, properties)
+  getRegistry().client?.capture(event, properties)
 }
 
 /** The underlying posthog-js instance once initialised, otherwise `null`. */
-export function getPostHog(): null | PostHogClient {
-  return client
+export function getPostHog(): null | PostHog {
+  return getRegistry().client
 }
