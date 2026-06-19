@@ -14,8 +14,9 @@ import {
 import { dropSupersededFilenameIndexes } from '../db/dropSupersededFilenameIndexes.js'
 import { backup, type BackupData, restore } from '../db/mongo.js'
 import { openAdapter } from '../db/openAdapter.js'
-import { getSqlSchemaDrift } from '../db/schemaDrift.js'
+import { excludeFilenameIndexReshape, getSqlSchemaDrift } from '../db/schemaDrift.js'
 import { backupSql, restoreSql, type SqlBackupData } from '../db/sql.js'
+import { resolveSqlBaseTableName } from '../db/sqlShared.js'
 import { switchDbConnection } from '../db/switchDbConnection.js'
 import { formatFileSize, getServerUrl } from '../utils.js'
 
@@ -98,10 +99,23 @@ export const switchEndpoint = ({
     if (newEnv === 'production' && (adapterName === 'sqlite' || adapterName === 'postgres')) {
       const productionAdapter = await openAdapter(payload, 'production', getDatabaseAdapter)
       try {
-        const drift = await getSqlSchemaDrift({
+        const rawDrift = await getSqlSchemaDrift({
           schemaAdapter: payload.db,
           targetAdapter: productionAdapter,
         })
+        // The live development schema scopes filename uniqueness to the storage
+        // prefix (compound index) where production only has the single-field
+        // index. That reshape is this plugin's own dev-only doing — and no
+        // migration can clear it — so it must not count as user schema drift that
+        // blocks the switch. Strip it for the upload collections we reshaped.
+        const reshapedTableNames = (payload.config.collections ?? [])
+          .filter((collection) => {
+            const compound = (collection.upload as { filenameCompoundIndex?: unknown })
+              ?.filenameCompoundIndex
+            return Array.isArray(compound) && compound.includes('filename')
+          })
+          .map((collection) => resolveSqlBaseTableName(collection))
+        const drift = excludeFilenameIndexReshape(rawDrift, reshapedTableNames)
         if (drift.statements.length > 0) {
           logger.warn(
             `Refusing to switch to production: ${drift.statements.length} schema change(s) would be required.`,
