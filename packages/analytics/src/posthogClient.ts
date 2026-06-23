@@ -9,6 +9,8 @@
 // so it is safe to lean on the real types here.
 import type { PostHog } from 'posthog-js'
 
+import { useSyncExternalStore } from 'react'
+
 // The live instance must survive bundler module duplication. Under Next's RSC
 // model the `<PostHog>` component (rendered from a server layout, so reached via
 // a client-reference) and the `capture()` an app's client component imports can
@@ -21,6 +23,10 @@ import type { PostHog } from 'posthog-js'
 interface PostHogRegistry {
   client: null | PostHog
   initStarted: boolean
+  // Notified once the client is first set, so `usePostHog`/`onPostHogReady` can
+  // react to readiness without polling. Lives on the shared registry so every
+  // duplicated module copy (see note above) observes the same subscriptions.
+  listeners: Set<() => void>
 }
 
 // `Symbol.for` resolves against the global symbol registry, so every duplicated
@@ -31,7 +37,14 @@ const REGISTRY_KEY = Symbol.for('@whatworks/analytics::posthog-client')
 
 function getRegistry(): PostHogRegistry {
   const store = globalThis as unknown as Record<symbol, PostHogRegistry | undefined>
-  return (store[REGISTRY_KEY] ??= { client: null, initStarted: false })
+  return (store[REGISTRY_KEY] ??= { client: null, initStarted: false, listeners: new Set() })
+}
+
+/** Notify readiness subscribers that the client has been set. */
+function notifyReady(): void {
+  for (const listener of getRegistry().listeners) {
+    listener()
+  }
 }
 
 const DEFAULT_OPTIONS: Record<string, unknown> = {
@@ -96,6 +109,7 @@ export async function initPostHog({
       ...options,
     } as Parameters<typeof posthog.init>[1])
     registry.client = posthog
+    notifyReady()
   } catch (error) {
     // Allow a later mount to retry — the failure is usually a missing install
     // rather than a permanent condition.
@@ -134,4 +148,67 @@ export function capture(event: string, properties?: Record<string, unknown>): vo
 /** The underlying posthog-js instance once initialised, otherwise `null`. */
 export function getPostHog(): null | PostHog {
   return getRegistry().client
+}
+
+/** Subscribe to readiness; returns an unsubscribe. Stable identity for `useSyncExternalStore`. */
+function subscribePostHog(callback: () => void): () => void {
+  const { listeners } = getRegistry()
+  listeners.add(callback)
+  return () => {
+    listeners.delete(callback)
+  }
+}
+
+/**
+ * Reactive accessor for the shared instance: `null` until posthog-js has
+ * finished its async init (which only happens once consent allows scripts),
+ * then the live instance — re-rendering the calling component when it flips.
+ *
+ * Composes with other reactive state without polling: key a `useEffect` on the
+ * returned instance alongside, say, the signed-in user, and it runs as soon as
+ * BOTH are available, and again whenever the user changes:
+ *
+ * ```tsx
+ * const posthog = usePostHog()
+ * const { user } = useAuth()
+ * useEffect(() => {
+ *   if (!posthog || !user) return
+ *   posthog.identify(user.id, { email: user.email })
+ * }, [posthog, user])
+ * ```
+ *
+ * SSR-safe — returns `null` on the server.
+ */
+export function usePostHog(): null | PostHog {
+  return useSyncExternalStore(
+    subscribePostHog,
+    () => getRegistry().client,
+    () => null,
+  )
+}
+
+/**
+ * Imperative counterpart to {@link usePostHog} for non-React callers: invokes
+ * `callback` with the instance once it is ready — synchronously if it already
+ * is, otherwise when init completes. Returns an unsubscribe that cancels a
+ * still-pending callback.
+ */
+export function onPostHogReady(callback: (posthog: PostHog) => void): () => void {
+  const registry = getRegistry()
+  if (registry.client) {
+    callback(registry.client)
+    return () => {}
+  }
+  const listener = () => {
+    const { client } = getRegistry()
+    if (!client) {
+      return
+    }
+    registry.listeners.delete(listener)
+    callback(client)
+  }
+  registry.listeners.add(listener)
+  return () => {
+    registry.listeners.delete(listener)
+  }
 }
