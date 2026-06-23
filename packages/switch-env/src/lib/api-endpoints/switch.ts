@@ -14,7 +14,11 @@ import {
 import { dropSupersededFilenameIndexes } from '../db/dropSupersededFilenameIndexes.js'
 import { backup, type BackupData, restore } from '../db/mongo.js'
 import { openAdapter } from '../db/openAdapter.js'
-import { excludeFilenameIndexReshape, getSqlSchemaDrift } from '../db/schemaDrift.js'
+import {
+  excludeFilenameIndexReshape,
+  getSqlSchemaDrift,
+  subtractBaselineDrift,
+} from '../db/schemaDrift.js'
 import { backupSql, restoreSql, type SqlBackupData } from '../db/sql.js'
 import { resolveSqlBaseTableName } from '../db/sqlShared.js'
 import { switchDbConnection } from '../db/switchDbConnection.js'
@@ -103,6 +107,18 @@ export const switchEndpoint = ({
           schemaAdapter: payload.db,
           targetAdapter: productionAdapter,
         })
+        // Baseline: diff the SAME code schema against the live *development*
+        // database (payload.db, which `push` keeps in sync with the code). Any
+        // statement that surfaces here is drizzle-kit's own non-idempotent noise
+        // — most commonly a no-op `ALTER COLUMN ... SET DEFAULT` re-emitted for
+        // numeric-default columns — not real drift, and no migration can clear
+        // it. Subtract those exact statements so only genuine code-vs-production
+        // differences remain. A real prod difference is absent from this baseline
+        // (development has it), so it is preserved and still blocks the switch.
+        const baselineDrift = await getSqlSchemaDrift({
+          schemaAdapter: payload.db,
+          targetAdapter: payload.db,
+        })
         // The live development schema scopes filename uniqueness to the storage
         // prefix (compound index) where production only has the single-field
         // index. That reshape is this plugin's own dev-only doing — and no
@@ -115,7 +131,10 @@ export const switchEndpoint = ({
             return Array.isArray(compound) && compound.includes('filename')
           })
           .map((collection) => resolveSqlBaseTableName(collection))
-        const drift = excludeFilenameIndexReshape(rawDrift, reshapedTableNames)
+        const drift = excludeFilenameIndexReshape(
+          subtractBaselineDrift(rawDrift, baselineDrift.statements),
+          reshapedTableNames,
+        )
         if (drift.statements.length > 0) {
           logger.warn(
             `Refusing to switch to production: ${drift.statements.length} schema change(s) would be required.`,

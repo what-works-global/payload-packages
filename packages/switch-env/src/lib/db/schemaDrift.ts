@@ -76,6 +76,53 @@ export const getSqlSchemaDrift = async ({
   }
 }
 
+/**
+ * Subtract a baseline set of statements (the drift of the SAME code schema
+ * against the in-sync *development* database) from a production drift result,
+ * leaving only genuine code-vs-production differences.
+ *
+ * drizzle-kit's `pushSchema` diff is not perfectly idempotent: for some column
+ * shapes — most notably `numeric` columns with a numeric `DEFAULT` (e.g.
+ * Payload's auth `login_attempts`, or any `number` field with a default) — it
+ * re-emits a no-op `ALTER TABLE ... ALTER COLUMN ... SET DEFAULT <n>` on every
+ * run even when the live column already carries that exact default. The diff
+ * compares the schema's JS default against the value read back from
+ * introspection and treats them as different, so the statement reappears every
+ * time. No migration can ever clear it (applying it changes nothing, so the next
+ * diff reports it again), which would permanently block switching to production.
+ *
+ * Such artifacts are not specific to production: they appear identically when
+ * the code schema is diffed against ANY database whose schema already matches
+ * the code — including the local development database, which `push` keeps in
+ * lockstep with the code. So the development-vs-code drift is a reliable
+ * "known-good baseline" of drizzle-kit's own noise. Removing those exact
+ * statements from the production drift leaves only the differences that are
+ * genuinely unique to production.
+ *
+ * Safe because a real schema difference in production (a missing column/table/
+ * index, a changed type) does NOT appear in the development baseline — the
+ * development database, being in sync with the code, has it — so it is never
+ * subtracted and still blocks the switch. Matching is on the exact (trimmed)
+ * statement text, so only byte-for-byte-identical noise is removed.
+ */
+export const subtractBaselineDrift = (
+  prodDrift: SchemaDrift,
+  baselineStatements: string[],
+): SchemaDrift => {
+  if (baselineStatements.length === 0) {
+    return prodDrift
+  }
+  const baseline = new Set(baselineStatements.map((statement) => statement.trim()))
+  const statements = prodDrift.statements.filter((statement) => !baseline.has(statement.trim()))
+  return {
+    // Once only baseline-matched no-ops are removed and nothing genuine remains,
+    // there is no data-loss risk left to report.
+    hasDataLoss: statements.length === 0 ? false : prodDrift.hasDataLoss,
+    statements,
+    warnings: prodDrift.warnings,
+  }
+}
+
 // drizzle-kit emits one statement per index DDL: `CREATE [UNIQUE] INDEX ...` or
 // `DROP INDEX ...`. Anything else (ALTER TABLE, CREATE TABLE, ...) is genuine
 // schema drift we must never silence.

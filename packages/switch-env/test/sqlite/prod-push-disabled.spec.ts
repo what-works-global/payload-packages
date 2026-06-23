@@ -2,7 +2,13 @@ import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type BasePayload, buildConfig, type CollectionConfig, getPayload } from 'payload'
+import {
+  type BasePayload,
+  buildConfig,
+  type CollectionConfig,
+  type DatabaseAdapterObj,
+  getPayload,
+} from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { getDbaFunction } from '../../src/lib/db/getDbaFunction.js'
@@ -31,6 +37,63 @@ const postsColumns = async (payload: BasePayload): Promise<string[]> => {
   const result = await client.execute("PRAGMA table_info('posts')")
   return result.rows.map((r) => r.name)
 }
+
+// The whole "switching to production can never push schema" guarantee rests on
+// getDbaFunction forcing `push: false` onto the production adapter — NOT on the
+// consumer remembering to set it. These assert that invariant directly: a
+// consumer who passes `push: true` (or forgets the field entirely) still gets a
+// production adapter with push disabled, while the development adapter is passed
+// through untouched. If a refactor ever drops the override, this fails loudly.
+describe('getDbaFunction forces push:false on the production adapter', () => {
+  interface FakeArgs {
+    client: { url: string }
+    push?: boolean
+  }
+
+  // Capture the args the adapter factory is actually called with.
+  const buildWithCapture = (db: { developmentArgs: FakeArgs; productionArgs: FakeArgs }) => {
+    const calls: FakeArgs[] = []
+    const dba = getDbaFunction<FakeArgs>({
+      developmentArgs: db.developmentArgs,
+      function: (args: FakeArgs) => {
+        calls.push(args)
+        return { defaultIDType: 'number' } as unknown as DatabaseAdapterObj
+      },
+      productionArgs: db.productionArgs,
+    })
+    return { calls, dba }
+  }
+
+  it('overrides a consumer-supplied push:true on the production adapter', () => {
+    const { calls, dba } = buildWithCapture({
+      developmentArgs: { client: { url: 'dev' }, push: true },
+      productionArgs: { client: { url: 'prod' }, push: true },
+    })
+    dba('production')
+    expect(calls[0]?.push).toBe(false)
+  })
+
+  it('forces push:false even when the consumer omits the field', () => {
+    const { calls, dba } = buildWithCapture({
+      developmentArgs: { client: { url: 'dev' } },
+      productionArgs: { client: { url: 'prod' } },
+    })
+    dba('production')
+    expect(calls[0]?.push).toBe(false)
+  })
+
+  it('leaves the development adapter args untouched', () => {
+    const { calls, dba } = buildWithCapture({
+      developmentArgs: { client: { url: 'dev' }, push: true },
+      productionArgs: { client: { url: 'prod' } },
+    })
+    dba('development')
+    // Dev is allowed to push (it points at the dev database) — the override is
+    // production-only, so a truthy dev push must survive.
+    expect(calls[0]?.push).toBe(true)
+    expect(calls[0]?.client.url).toBe('dev')
+  })
+})
 
 // Reproduces the "edit a collection while connected to production" scenario:
 // the production database sits at a base schema, while the running code's schema

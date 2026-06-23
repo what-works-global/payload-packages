@@ -5,7 +5,12 @@ import { join } from 'node:path'
 import { type BasePayload, buildConfig, type CollectionConfig, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { excludeFilenameIndexReshape, getSqlSchemaDrift } from '../../src/lib/db/schemaDrift.js'
+import {
+  excludeFilenameIndexReshape,
+  getSqlSchemaDrift,
+  type SchemaDrift,
+  subtractBaselineDrift,
+} from '../../src/lib/db/schemaDrift.js'
 import { buildSharedGlobals } from '../shared/collections.js'
 import { sharedConfigDefaults } from '../shared/configDefaults.js'
 
@@ -101,6 +106,54 @@ describe('sqlite schema-drift gate', () => {
       }
     ).client.execute("PRAGMA table_info('posts')")
     expect(cols.rows.some((r) => r.name === 'subtitle')).toBe(false)
+  })
+})
+
+// drizzle-kit's pushSchema diff is not perfectly idempotent: for some column
+// shapes (notably numeric defaults) it re-emits a no-op `ALTER COLUMN ... SET
+// DEFAULT` even against a database already in sync with the code. Those
+// statements appear identically when diffing the code schema against the
+// development database (which push keeps in sync), so that dev baseline is a
+// reliable filter for drizzle-kit noise. subtractBaselineDrift removes exactly
+// those statements while preserving genuine production-only differences.
+describe('subtractBaselineDrift', () => {
+  const drift = (statements: string[], hasDataLoss = false): SchemaDrift => ({
+    hasDataLoss,
+    statements,
+    warnings: [],
+  })
+
+  const NOISE_A = 'ALTER TABLE "users" ALTER COLUMN "login_attempts" SET DEFAULT 0;'
+  const NOISE_B = 'ALTER TABLE "redirects" ALTER COLUMN "hits" SET DEFAULT 0;'
+  const GENUINE = 'ALTER TABLE "posts" ADD COLUMN "subtitle" text;'
+
+  it('removes statements that also appear in the dev baseline', () => {
+    const result = subtractBaselineDrift(drift([NOISE_A, NOISE_B]), [NOISE_A, NOISE_B])
+    expect(result.statements).toHaveLength(0)
+    expect(result.hasDataLoss).toBe(false)
+  })
+
+  it('keeps genuine drift that is not in the baseline', () => {
+    const result = subtractBaselineDrift(drift([NOISE_A, GENUINE]), [NOISE_A])
+    expect(result.statements).toEqual([GENUINE])
+  })
+
+  it('is a no-op when the baseline is empty', () => {
+    const input = drift([NOISE_A, GENUINE], true)
+    const result = subtractBaselineDrift(input, [])
+    expect(result).toBe(input)
+  })
+
+  it('ignores surrounding whitespace differences when matching', () => {
+    const result = subtractBaselineDrift(drift([`  ${NOISE_A}  `]), [`\t${NOISE_A}\n`])
+    expect(result.statements).toHaveLength(0)
+  })
+
+  it('clears the data-loss flag only once nothing genuine remains', () => {
+    const allNoise = subtractBaselineDrift(drift([NOISE_A], true), [NOISE_A])
+    expect(allNoise.hasDataLoss).toBe(false)
+    const someGenuine = subtractBaselineDrift(drift([NOISE_A, GENUINE], true), [NOISE_A])
+    expect(someGenuine.hasDataLoss).toBe(true)
   })
 })
 
