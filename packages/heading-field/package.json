@@ -1,0 +1,120 @@
+{
+  "name": "@whatworks/payload-heading-field",
+  "version": "1.0.0",
+  "description": "Payload field that lets content editors pick the rendered heading tag (h1–h6) for any text, textarea, or rich text heading.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "sideEffects": [
+    "**/*.scss",
+    "**/*.css"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
+    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "dev": "next dev dev",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "dev:payload": "cd dev && cross-env PAYLOAD_CONFIG_PATH=./payload.config.ts payload",
+    "generate:importmap": "pnpm dev:generate-importmap",
+    "generate:types": "pnpm dev:generate-types",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "pnpm build",
+    "test:peer": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typecheck:dev": "tsc -p dev/tsconfig.json --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/what-works-global/payload-packages",
+    "directory": "packages/heading-field"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
+        "default": "./dist/exports/client.js"
+      },
+      "./rsc": {
+        "types": "./dist/exports/rsc.d.ts",
+        "import": "./dist/exports/rsc.js",
+        "default": "./dist/exports/rsc.js"
+      }
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    },
+    "./rsc": {
+      "types": "./src/exports/rsc.ts",
+      "import": "./src/exports/rsc.ts",
+      "default": "./src/exports/rsc.ts"
+    }
+  },
+  "peerDependencies": {
+    "@payloadcms/translations": ">=3.30.0 <4",
+    "@payloadcms/ui": ">=3.30.0 <4",
+    "payload": ">=3.30.0 <4",
+    "react": ">=18.2.0 <20",
+    "react-dom": ">=18.2.0 <20"
+  },
+  "whatworks": {
+    "peerMatrix": {
+      "payload": {
+        "min": "3.30.0"
+      }
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
+    "@payloadcms/db-mongodb": "catalog:",
+    "@payloadcms/eslint-config": "catalog:",
+    "@payloadcms/next": "catalog:",
+    "@payloadcms/richtext-lexical": "catalog:",
+    "@payloadcms/translations": "catalog:",
+    "@payloadcms/ui": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "cross-env": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-next": "catalog:",
+    "next": "catalog:",
+    "payload": "catalog:",
+    "publint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "rimraf": "catalog:",
+    "sharp": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

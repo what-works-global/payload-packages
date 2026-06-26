@@ -1,0 +1,142 @@
+// `field-type` is added to the root so the field participates in Payload's
+// standard inter-field spacing (`.render-fields > .field-type { margin-bottom }`),
+// rather than sitting flush against the next field. Custom Field components are
+// rendered without the usual `.field-type` wrapper, so we opt in explicitly.
+.heading-field {
+  // The header lays the field label against the tag dropdown, pushed to the
+  // far end of the field width (inline-flex, space-between). It also owns the
+  // gap down to the value input — the tag `<select>` can be taller than the
+  // label, which would otherwise swallow the label's own padding-bottom.
+  &__header {
+    align-items: center;
+    display: inline-flex;
+    gap: calc(var(--base) * 0.5);
+    justify-content: flex-start;
+    margin-bottom: calc(var(--base) * 0.25);
+    width: 100%;
+
+    // The label carries a built-in `margin-right: auto` that would push the tag
+    // dropdown to the far edge. Neutralise it (along with its vertical spacing)
+    // so the dropdown sits just to the right of the label, separated by the gap.
+    .field-label {
+      margin-bottom: 0;
+      margin-inline: 0;
+      padding-bottom: 0;
+    }
+  }
+
+  // The "— HTML Tag (?)" indicator, styled like Payload's localized indicator:
+  // muted, sitting just after the field label. A flex row so the text and help
+  // icon align by their box centres (and, via the header, with the dropdown).
+  &__tag-info {
+    align-items: center;
+    color: var(--theme-elevation-500);
+    display: inline-flex;
+    flex-shrink: 0;
+    white-space: nowrap;
+
+    // On wide screens the tooltip sits just after the label. Below 1280px the
+    // field is narrower, so push the tooltip (and the dropdown that follows it)
+    // to the far end of the header — effectively space-between.
+    @media (width < 1280px) {
+      margin-inline-start: auto;
+    }
+  }
+
+  &__tag-sep {
+    margin-inline-end: calc(var(--base) * 0.15);
+
+    // Once the tooltip is pushed to the far end (below 1280px) it no longer sits
+    // beside the label, so the leading em-dash separator just reads as noise.
+    @media (width < 1280px) {
+      display: none;
+    }
+  }
+
+  // Simple CSS tooltip: the help icon reveals the content on hover / focus.
+  // The trigger is a real <button> for accessibility, reset to inherit text.
+  &__tooltip {
+    align-items: center;
+    appearance: none;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: help;
+    display: inline-flex;
+    font: inherit;
+    margin-inline-start: calc(var(--base) * 0.2);
+    padding: 0;
+    position: relative;
+  }
+
+  &__tooltip-icon {
+    height: 1.15em;
+    width: 1.15em;
+  }
+
+  &__tooltip-content {
+    background: var(--theme-elevation-800);
+    border-radius: var(--style-radius-s, 4px);
+    bottom: calc(100% + 6px);
+    color: var(--theme-elevation-0);
+    font-size: 0.75rem;
+    left: 50%;
+    line-height: 1.4;
+    max-width: 170px;
+    opacity: 0;
+    padding: calc(var(--base) * 0.3) calc(var(--base) * 0.4);
+    pointer-events: none;
+    position: absolute;
+    text-align: left;
+    transform: translateX(-50%);
+    transition: opacity 0.1s ease;
+    visibility: hidden;
+    white-space: normal;
+    width: max-content;
+    z-index: 10;
+  }
+
+  // Little caret pointing down at the trigger.
+  &__tooltip-content::after {
+    border: 5px solid transparent;
+    border-top-color: var(--theme-elevation-800);
+    content: '';
+    left: 50%;
+    position: absolute;
+    top: 100%;
+    transform: translateX(-50%);
+  }
+
+  &__tooltip:hover &__tooltip-content,
+  &__tooltip:focus-visible &__tooltip-content,
+  &__tooltip:focus-within &__tooltip-content {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  &__tag-select {
+    appearance: auto;
+    background: var(--theme-input-bg);
+    border: 1px solid var(--theme-elevation-150);
+    border-radius: var(--style-radius-s, 4px);
+    color: var(--theme-elevation-500);
+    cursor: pointer;
+    font-size: 0.8125rem;
+    line-height: 1.2;
+    padding: calc(var(--base) * 0.15) calc(var(--base) * 0.35);
+  }
+
+  &__tag-select:hover {
+    border-color: var(--theme-elevation-250);
+  }
+
+  &__tag-select:focus-visible {
+    border-color: var(--theme-success-500, var(--theme-elevation-400));
+    outline: none;
+  }
+
+  &__tag-select:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}

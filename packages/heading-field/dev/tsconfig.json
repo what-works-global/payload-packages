@@ -1,0 +1,11 @@
+{
+  "extends": "../../../tools/dev-fixture/tsconfig.dev.json",
+  "compilerOptions": {
+    "paths": {
+      "@payload-config": ["./payload.config.ts"],
+      "@whatworks/payload-heading-field": ["../src/index.ts"],
+      "@whatworks/payload-heading-field/client": ["../src/exports/client.ts"],
+      "@whatworks/payload-heading-field/rsc": ["../src/exports/rsc.ts"]
+    }
+  }
+}
