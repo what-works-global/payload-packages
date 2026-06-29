@@ -14,7 +14,6 @@ export {
   normalizeHeadingValue,
 } from './shared.js'
 export type {
-  HeadingFieldArgs,
   HeadingFieldClientProps,
   HeadingFieldConfig,
   HeadingTag,

@@ -1,6 +1,6 @@
 import type { FieldHook, GroupField, SelectField } from 'payload'
 
-import type { HeadingFieldArgs, HeadingTag } from '../types.js'
+import type { HeadingFieldConfig, HeadingTag, HeadingValueField } from '../types.js'
 
 import {
   ALL_HEADING_TAGS,
@@ -42,8 +42,15 @@ const normalizeTags = (tags: readonly HeadingTag[] | undefined): HeadingTag[] =>
  * never as a default Payload group.
  *
  * Stored shape: `{ tag: HeadingTag, value: <field value> }` under `field.name`.
+ *
+ * @param field - The text / textarea / rich text field to wrap. Pass your
+ *   existing field object here to adopt the heading tag with a one-line change.
+ * @param config - Optional tag/default/tooltip overrides. Omit for the defaults.
  */
-export const headingField = ({ config, field }: HeadingFieldArgs): NamedGroupField => {
+export const headingField = (
+  field: HeadingValueField,
+  config?: HeadingFieldConfig,
+): NamedGroupField => {
   if (!('name' in field) || typeof field.name !== 'string' || field.name.length === 0) {
     throw new Error('headingField: `field` must be a named field (it needs a `name`).')
   }

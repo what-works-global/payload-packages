@@ -35,38 +35,35 @@ export default buildConfig({
       fields: [
         // Default config: tags ['h1', 'h2', 'h3'], default 'h2'.
         headingField({
-          config: {},
-          field: {
-            name: 'heading',
-            type: 'text',
-            label: 'Page heading',
-            required: true,
-          },
+          name: 'heading',
+          type: 'text',
+          label: 'Page heading',
+          required: true,
         }),
         // Custom tags + default, textarea value.
-        headingField({
-          config: {
-            defaultTag: 'h3',
-            tags: ['h2', 'h3', 'h4'],
-          },
-          field: {
+        headingField(
+          {
             name: 'subheading',
             type: 'textarea',
             label: 'Sub heading',
           },
-        }),
-        // Rich text value rendered through the custom group field.
-        headingField({
-          config: {
-            tags: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+          {
+            defaultTag: 'h3',
+            tags: ['h2', 'h3', 'h4'],
           },
-          field: {
+        ),
+        // Rich text value rendered through the custom group field.
+        headingField(
+          {
             name: 'richHeading',
             type: 'richText',
             editor: lexicalEditor(),
             label: 'Rich heading',
           },
-        }),
+          {
+            tags: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+          },
+        ),
       ],
     },
   ],

@@ -22,10 +22,7 @@ const runHook = (hook: unknown, value: unknown) =>
 
 describe('@whatworks/payload-heading-field peer smoke', () => {
   it('headingField() returns a named group field with tag + value sub-fields', () => {
-    const field = headingField({
-      config: {},
-      field: { name: 'heading', type: 'text' },
-    })
+    const field = headingField({ name: 'heading', type: 'text' })
 
     expect(field.type).toBe('group')
     expect('name' in field && field.name).toBe('heading')
@@ -38,10 +35,10 @@ describe('@whatworks/payload-heading-field peer smoke', () => {
   })
 
   it('marks the group and stores the configured tags so the matcher recognises it', () => {
-    const field = headingField({
-      config: { defaultTag: 'h3', tags: ['h2', 'h3', 'h4'] },
-      field: { name: 'heading', type: 'text' },
-    })
+    const field = headingField(
+      { name: 'heading', type: 'text' },
+      { defaultTag: 'h3', tags: ['h2', 'h3', 'h4'] },
+    )
 
     expect(headingFieldMatches(field)).toBe(true)
     expect(field.admin?.custom?.[HEADING_TAGS_CUSTOM_KEY]).toEqual(['h2', 'h3', 'h4'])
@@ -49,7 +46,7 @@ describe('@whatworks/payload-heading-field peer smoke', () => {
   })
 
   it('defaults to the documented tags and default tag', () => {
-    const field = headingField({ config: {}, field: { name: 'heading', type: 'text' } })
+    const field = headingField({ name: 'heading', type: 'text' })
     const tag = getNamedSubField(field, 'tag')
 
     expect(getHeadingTags(field)).toEqual([...DEFAULT_HEADING_TAGS])
@@ -58,7 +55,7 @@ describe('@whatworks/payload-heading-field peer smoke', () => {
   })
 
   it('wires the custom Field component and hides the inner value label', () => {
-    const field = headingField({ config: {}, field: { name: 'heading', type: 'text' } })
+    const field = headingField({ name: 'heading', type: 'text' })
     const value = getNamedSubField(field, 'value')
 
     expect(field.admin?.components?.Field).toBe(
@@ -69,15 +66,12 @@ describe('@whatworks/payload-heading-field peer smoke', () => {
 
   it('lifts a custom Label onto the group and off the value field', () => {
     const field = headingField({
-      config: {},
-      field: {
-        name: 'heading',
-        type: 'text',
-        admin: {
-          components: {
-            beforeInput: ['./BeforeInput#BeforeInput'],
-            Label: './MyLabel#MyLabel',
-          },
+      name: 'heading',
+      type: 'text',
+      admin: {
+        components: {
+          beforeInput: ['./BeforeInput#BeforeInput'],
+          Label: './MyLabel#MyLabel',
         },
       },
     })
@@ -95,36 +89,33 @@ describe('@whatworks/payload-heading-field peer smoke', () => {
   })
 
   it('stores a configured tooltip so the UI can read it', () => {
-    const field = headingField({
-      config: { tooltip: 'Pick the heading level for SEO.' },
-      field: { name: 'heading', type: 'text' },
-    })
+    const field = headingField(
+      { name: 'heading', type: 'text' },
+      { tooltip: 'Pick the heading level for SEO.' },
+    )
 
     expect(getHeadingTooltip(field)).toBe('Pick the heading level for SEO.')
   })
 
   it('omits the tooltip key when none is configured (built-in default applies)', () => {
-    const field = headingField({ config: {}, field: { name: 'heading', type: 'text' } })
+    const field = headingField({ name: 'heading', type: 'text' })
 
     expect(getHeadingTooltip(field)).toBeUndefined()
   })
 
   it('throws when the default tag is not part of the available tags', () => {
     expect(() =>
-      headingField({
-        config: { defaultTag: 'h1', tags: ['h2', 'h3'] },
-        field: { name: 'heading', type: 'text' },
-      }),
+      headingField({ name: 'heading', type: 'text' }, { defaultTag: 'h1', tags: ['h2', 'h3'] }),
     ).toThrow(/defaultTag/)
   })
 
   it('throws when an unknown tag is supplied', () => {
     expect(() =>
-      headingField({
+      headingField(
+        { name: 'heading', type: 'text' },
         // @ts-expect-error - exercising runtime validation with an invalid tag
-        config: { tags: ['h7'] },
-        field: { name: 'heading', type: 'text' },
-      }),
+        { tags: ['h7'] },
+      ),
     ).toThrow(/invalid tag/)
   })
 })
@@ -164,10 +155,10 @@ describe('normalizeHeadingValue (backwards compatibility)', () => {
   })
 
   it('wires afterRead + beforeValidate hooks that coerce legacy data', () => {
-    const field = headingField({
-      config: { defaultTag: 'h3', tags: ['h2', 'h3', 'h4'] },
-      field: { name: 'heading', type: 'text' },
-    })
+    const field = headingField(
+      { name: 'heading', type: 'text' },
+      { defaultTag: 'h3', tags: ['h2', 'h3', 'h4'] },
+    )
 
     const afterRead = field.hooks?.afterRead?.[0]
     const beforeValidate = field.hooks?.beforeValidate?.[0]

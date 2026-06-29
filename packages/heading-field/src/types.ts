@@ -12,20 +12,13 @@ export interface HeadingFieldConfig {
    */
   readonly defaultTag?: HeadingTag
   /** Tags offered in the inline dropdown, in display order.
-   * @default ['h1', 'h2', 'h3']
+   * @default ['h1', 'h2', 'h3', 'h4', 'h5']
    */
   readonly tags?: readonly HeadingTag[]
   /** Text shown in the “(?)” tooltip beside the field label. Overrides the
    * built-in, content-editor-friendly explanation of heading levels and SEO.
    */
   readonly tooltip?: string
-}
-
-export interface HeadingFieldArgs {
-  /** Controls which tags are selectable and which one is the default. */
-  readonly config?: HeadingFieldConfig
-  /** The field that captures the heading's value. Stored under `<name>.value`. */
-  readonly field: HeadingValueField
 }
 
 /** Shape stored in the database / returned by the API for a heading field. */

@@ -74,6 +74,10 @@ payload generate:importmap
 
 ## Usage
 
+Wrap an existing field object in `headingField()` — that's the whole change.
+The field is the first argument, so adopting it in an existing codebase is a
+one-line edit:
+
 ```ts
 import { buildConfig } from 'payload'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
@@ -84,28 +88,24 @@ export default buildConfig({
     {
       slug: 'pages',
       fields: [
+        // Just wrap the field — defaults to tags ['h1'–'h5'], default 'h2'.
         headingField({
-          config: {
-            tags: ['h1', 'h2', 'h3'], // default
-            defaultTag: 'h2', // default
-          },
-          field: {
-            name: 'heading',
-            type: 'text',
-            label: 'Page heading',
-            required: true,
-          },
+          name: 'heading',
+          type: 'text',
+          label: 'Page heading',
+          required: true,
         }),
 
+        // Pass a second argument only when you want to override the defaults.
         // Works with textarea and richText values too.
-        headingField({
-          config: { tags: ['h2', 'h3', 'h4'], defaultTag: 'h3' },
-          field: {
+        headingField(
+          {
             name: 'intro',
             type: 'richText',
             editor: lexicalEditor(),
           },
-        }),
+          { tags: ['h2', 'h3', 'h4'], defaultTag: 'h3' },
+        ),
       ],
     },
   ],
@@ -116,15 +116,16 @@ There is no plugin to register — `headingField()` returns a normal Payload fie
 
 ## Arguments
 
-`headingField({ config, field })`
+`headingField(field, config?)`
 
-### `field`
+### `field` (required, first argument)
 
 The field that captures the heading's value. Must be a named `TextField`,
-`TextareaField`, or `RichTextField`. Its label drives the rendered field label;
+`TextareaField`, or `RichTextField`. Pass your existing field object here — that
+is the only change needed to adopt it. Its label drives the rendered field label;
 its value is stored under `<name>.value`.
 
-### `config`
+### `config` (optional, second argument)
 
 | Key          | Type                                               | Default                          | Notes                                                                |
 | ------------ | -------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------- |
@@ -143,13 +144,11 @@ component, so set one on the field exactly as you would for any Payload field �
 
 ```ts
 headingField({
-  field: {
-    name: 'heading',
-    type: 'text',
-    admin: {
-      components: {
-        Label: './components/HeadingLabel#HeadingLabel',
-      },
+  name: 'heading',
+  type: 'text',
+  admin: {
+    components: {
+      Label: './components/HeadingLabel#HeadingLabel',
     },
   },
 })
@@ -218,11 +217,8 @@ before the wrap keep loading without error or data loss.
 // Before
 { name: 'richHeading', type: 'richText', editor: lexicalEditor() }
 
-// After — existing `richHeading` documents still load fine
-headingField({
-  config: { tags: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] },
-  field: { name: 'richHeading', type: 'richText', editor: lexicalEditor() },
-})
+// After — wrap the same field object; existing `richHeading` documents still load fine
+headingField({ name: 'richHeading', type: 'richText', editor: lexicalEditor() })
 ```
 
 The generated group carries `afterRead` and `beforeValidate` hooks that coerce a
