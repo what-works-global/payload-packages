@@ -33,7 +33,7 @@
     "generate:types": "pnpm dev:generate-types",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "prepublishOnly": "pnpm build",
+    "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
     "test": "pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
     "test:int": "vitest run dev/int.spec.ts",

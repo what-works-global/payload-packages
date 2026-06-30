@@ -27,7 +27,7 @@
     "generate:types": "pnpm dev:generate-types",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "prepublishOnly": "pnpm build",
+    "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
     "test": "vitest run",
     "test:mongo": "vitest run test/mongo",
     "test:peer": "vitest run test/peer.smoke.spec.ts",

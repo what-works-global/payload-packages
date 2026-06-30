@@ -55,7 +55,7 @@
     "dev": "next dev dev",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "prepublishOnly": "pnpm build",
+    "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

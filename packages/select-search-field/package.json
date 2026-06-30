@@ -23,7 +23,7 @@
     "generate:types": "pnpm dev:generate-types",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "prepublishOnly": "pnpm build",
+    "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
     "test:peer": "vitest run",
     "typecheck": "tsc --noEmit"
   },
