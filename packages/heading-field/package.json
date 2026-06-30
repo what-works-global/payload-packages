@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-heading-field",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Payload field that lets content editors pick the rendered heading tag (h1–h6) for any text, textarea, or rich text heading.",
   "license": "MIT",
   "type": "module",
