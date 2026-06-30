@@ -283,10 +283,10 @@ import { RenderHeading } from '@whatworks/payload-heading-field/rsc'
 ;<RenderHeading data={page.intro} render={(value) => <RichText data={value} />} />
 ```
 
-It accepts Payload's generated types directly — `data` is partial, so optional
-`value` (or a whole optional group) on a non-required field is fine. It is also
-generic over the value type, so the `render` argument is typed from `data` with
-no cast.
+It accepts Payload's generated types directly — `data` is a nullable partial, so
+an optional, nullable `value` (or a whole optional group) on a non-required field
+is fine; `null`/missing `tag` and `value` are handled for you. It is also generic
+over the value type, so the `render` argument is typed from `data` with no cast.
 
 ### Wrapping `RenderHeading`
 

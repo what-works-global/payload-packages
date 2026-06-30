@@ -27,6 +27,13 @@ export interface HeadingValue<TValue = unknown> {
   readonly value: TValue
 }
 
+/**
+ * Like `Partial<T>`, but each property may also be `null`. Matches the shape
+ * Payload generates for an optional field, where values are typed `T | null`
+ * (e.g. `value?: string | null`) rather than merely optional.
+ */
+export type NullablePartial<T> = { readonly [K in keyof T]?: null | T[K] }
+
 /** Extra props handed to the inline tag selector via `admin.components.Field.clientProps`. */
 export interface HeadingFieldClientProps {
   readonly headingTags: HeadingTag[]

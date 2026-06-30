@@ -1,6 +1,6 @@
 import React from 'react'
 
-import type { HeadingTag, HeadingValue } from '../types.js'
+import type { HeadingTag, HeadingValue, NullablePartial } from '../types.js'
 
 export interface RenderHeadingProps<TValue = unknown>
   extends Omit<React.HTMLAttributes<HTMLHeadingElement>, 'children'> {
@@ -11,13 +11,14 @@ export interface RenderHeadingProps<TValue = unknown>
    */
   readonly children?: React.ReactNode
   /**
-   * The `{ tag, value }` object stored by `headingField()`. Accepts a partial
-   * shape so it takes Payload's generated types directly — non-required heading
-   * fields type `value` (and sometimes the whole group) as optional. A missing
-   * `tag` falls back to `fallbackTag`; with no resolvable content the component
-   * renders nothing rather than an empty heading.
+   * The `{ tag, value }` object stored by `headingField()`. Accepts a nullable,
+   * partial shape so it takes Payload's generated types directly — a non-required
+   * heading field types `tag`/`value` (and sometimes the whole group) as optional
+   * *and* nullable (`value?: string | null`). A missing/null `tag` falls back to
+   * `fallbackTag`; with no resolvable content the component renders nothing rather
+   * than an empty heading.
    */
-  readonly data: null | Partial<HeadingValue<TValue>> | undefined
+  readonly data: null | NullablePartial<HeadingValue<TValue>> | undefined
   /** Tag to use when `data.tag` is missing. @default 'h2' */
   readonly fallbackTag?: HeadingTag
   /** Attached to the emitted heading element when content resolves. */

@@ -19,4 +19,5 @@ export type {
   HeadingTag,
   HeadingValue,
   HeadingValueField,
+  NullablePartial,
 } from './types.js'
