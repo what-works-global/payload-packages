@@ -3,7 +3,11 @@ import os from 'os'
 import path from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { detectPayloadVersion, findPayloadVersion } from '../src/lib/detectPayloadVersion.js'
+import {
+  detectPayloadVersion,
+  findPayloadVersion,
+  getRuntimeDirs,
+} from '../src/lib/detectPayloadVersion.js'
 
 const tmpDirs: string[] = []
 
@@ -31,6 +35,31 @@ describe('detectPayloadVersion', () => {
     // the workspace has payload installed, so the primary strategy
     // (payload's exported getDependencies) must find a real version
     await expect(detectPayloadVersion()).resolves.toMatch(/^\d+\.\d+\.\d+/)
+  })
+
+  it('resolves even when process.cwd() is a directory with no payload', async () => {
+    // Regression guard: on a pnpm monorepo deployed to Vercel the function's
+    // cwd is the workspace root, which has no top-level `payload` symlink.
+    // Detection must not depend on cwd — it resolves from the running module's
+    // own directory instead. Both strategies must keep that cwd-independence.
+    const cwd = process.cwd()
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-env-cwd-'))
+    tmpDirs.push(emptyDir)
+    try {
+      process.chdir(emptyDir)
+      await expect(detectPayloadVersion()).resolves.toMatch(/^\d+\.\d+\.\d+/)
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+})
+
+describe('getRuntimeDirs', () => {
+  it('lists process.cwd() last and dedupes', () => {
+    const dirs = getRuntimeDirs()
+    expect(dirs.length).toBeGreaterThan(0)
+    expect(dirs[dirs.length - 1]).toBe(process.cwd())
+    expect(new Set(dirs).size).toBe(dirs.length)
   })
 })
 

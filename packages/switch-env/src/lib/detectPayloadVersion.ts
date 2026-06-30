@@ -128,13 +128,53 @@ export const findPayloadVersion = (startDirs: string[]): string | undefined => {
 }
 
 /**
+ * Runtime directories from which payload might be resolvable, most-specific
+ * first. Shared by both detection strategies. Exported for tests.
+ *
+ * - this module's location — where the unbundled plugin sits in node_modules,
+ *   and (via a bundler-inlined runtime `import.meta.url`) the executing chunk
+ * - the executing file per the stack trace — the chunk's real runtime path in
+ *   bundled server output (e.g. Vercel lambdas), where `import.meta.url` may be
+ *   inlined to a nonexistent build-machine path instead
+ * - the process working directory — last resort
+ *
+ * `process.cwd()` is deliberately last: in a pnpm monorepo on Vercel the
+ * function's cwd is the workspace root, which has no top-level `payload`
+ * symlink (pnpm only links payload into the consuming app's own node_modules),
+ * so neither Node's resolver nor a node_modules walk finds payload there. The
+ * module/stack dirs sit inside the app, whose node_modules does resolve it.
+ */
+export const getRuntimeDirs = (): string[] => {
+  const dirs: string[] = []
+  try {
+    dirs.push(path.dirname(fileURLToPath(import.meta.url)))
+  } catch {
+    // import.meta.url may not be a file URL in some bundler outputs
+  }
+  const stackDir = getCallerDirFromStack()
+  if (stackDir) {
+    dirs.push(stackDir)
+  }
+  dirs.push(process.cwd())
+  return [...new Set(dirs)]
+}
+
+/**
  * Asks payload itself where it is installed. `getDependencies` (exported from
  * `payload` since 3.0.0) resolves a package with Node's own resolver and reads
  * its package.json version. Because that helper executes *inside* the payload
  * package — which Next.js keeps in `serverExternalPackages` and never bundles —
  * its `import.meta.url` is the real runtime path even in traced serverless
- * bundles (e.g. Vercel lambdas), so resolution works wherever payload itself
- * loads. This makes it the most reliable strategy available.
+ * bundles (e.g. Vercel lambdas), so it can validate payload's location wherever
+ * payload itself loads. This makes it the most reliable strategy available.
+ *
+ * Resolution is attempted from each {@link getRuntimeDirs} candidate, not just
+ * `process.cwd()`: getDependencies resolves `payload` *from the base dir passed
+ * in*, and a monorepo's cwd (the workspace root) can't see payload at all (no
+ * top-level symlink under pnpm). The directory of the module that imported
+ * payload always can — it is the exact base from which the `import('payload')`
+ * just above succeeded — so Node's resolver mirrors that working resolution
+ * even when the deployed file layout defeats a raw filesystem walk.
  *
  * The import is dynamic so a payload build that unexpectedly lacks the export
  * (or a bundler that mangles the module) degrades to the filesystem fallback
@@ -151,9 +191,18 @@ const detectViaPayloadResolver = async (): Promise<string | undefined> => {
     if (typeof getDependencies !== 'function') {
       return undefined
     }
-    const { resolved } = await getDependencies(process.cwd(), ['payload'])
-    const version = resolved.get('payload')?.version
-    return typeof version === 'string' ? version : undefined
+    for (const baseDir of getRuntimeDirs()) {
+      try {
+        const { resolved } = await getDependencies(baseDir, ['payload'])
+        const version = resolved.get('payload')?.version
+        if (typeof version === 'string') {
+          return version
+        }
+      } catch {
+        // payload not resolvable from this base dir — try the next
+      }
+    }
+    return undefined
   } catch {
     return undefined
   }
@@ -178,14 +227,7 @@ const detectViaPayloadResolver = async (): Promise<string | undefined> => {
  *
  * Fallback: a plain filesystem walk for payload's package.json, which triggers
  * no bundler analysis ('payload' is only a path segment, never a module
- * specifier). Start dirs, in order:
- * - this module's location — correct when the plugin runs unbundled from
- *   node_modules (the peer-resolved payload sits alongside it in pnpm's store)
- * - the executing file per the stack trace — correct in bundled server output
- *   (e.g. Vercel lambdas), where import.meta.url is inlined to a build-machine
- *   path but the stack frame carries the chunk's real runtime path
- * - the process working directory — last-resort fallback for layouts where
- *   neither of the above lands inside the deployed app
+ * specifier), starting from each {@link getRuntimeDirs} candidate.
  *
  * Returns undefined when nothing is found; callers should fall back to an
  * explicit `payloadVersion`.
@@ -196,17 +238,5 @@ export const detectPayloadVersion = async (): Promise<string | undefined> => {
     return resolverVersion
   }
 
-  const startDirs: string[] = []
-  try {
-    startDirs.push(path.dirname(fileURLToPath(import.meta.url)))
-  } catch {
-    // import.meta.url may not be a file URL in some bundler outputs
-  }
-  const stackDir = getCallerDirFromStack()
-  if (stackDir) {
-    startDirs.push(stackDir)
-  }
-  startDirs.push(process.cwd())
-
-  return findPayloadVersion(startDirs)
+  return findPayloadVersion(getRuntimeDirs())
 }
