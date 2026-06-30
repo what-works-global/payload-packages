@@ -20,6 +20,8 @@ export interface RenderHeadingProps<TValue = unknown>
   readonly data: null | Partial<HeadingValue<TValue>> | undefined
   /** Tag to use when `data.tag` is missing. @default 'h2' */
   readonly fallbackTag?: HeadingTag
+  /** Attached to the emitted heading element when content resolves. */
+  readonly ref?: React.Ref<HTMLHeadingElement>
   /**
    * Render the stored value into React nodes. Use for rich text values — e.g.
    * `render={(value) => <RichText data={value} />}`. The argument is typed from
@@ -40,6 +42,10 @@ export interface RenderHeadingProps<TValue = unknown>
  * Generic over the value type so `render` is typed straight from `data`. It is
  * commonly wrapped to inject an app's converter once — see the README.
  *
+ * Accepts a `ref` and attaches it to the emitted heading element, for callers
+ * that measure or animate the heading (e.g. a fit-to-width font-size hook). The
+ * ref is not attached when the component renders nothing (no resolvable content).
+ *
  * @example
  * // text / textarea
  * <RenderHeading data={page.heading} className="display" />
@@ -47,11 +53,16 @@ export interface RenderHeadingProps<TValue = unknown>
  * @example
  * // rich text — `value` is typed from `data`, no cast
  * <RenderHeading data={page.intro} render={(value) => <RichText data={value} />} />
+ *
+ * @example
+ * // ref attached to the heading element — `value` is typed from `data`
+ * <RenderHeading data={page.heading} ref={headingRef} />
  */
 export function RenderHeading<TValue = unknown>({
   children,
   data,
   fallbackTag = 'h2',
+  ref,
   render,
   ...rest
 }: RenderHeadingProps<TValue>): React.ReactNode {
@@ -79,5 +90,9 @@ export function RenderHeading<TValue = unknown>({
 
   const Tag: HeadingTag = data.tag ?? fallbackTag
 
-  return <Tag {...rest}>{content}</Tag>
+  return (
+    <Tag {...rest} ref={ref}>
+      {content}
+    </Tag>
+  )
 }

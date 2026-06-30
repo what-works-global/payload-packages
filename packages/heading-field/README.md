@@ -250,10 +250,21 @@ for (const doc of docs) {
 
 A small, framework-agnostic `RenderHeading` component is provided from the `/rsc`
 entry point (safe to use in React Server Components). It renders the chosen tag,
-spreads any extra HTML attributes (`className`, `id`, `style`, …) onto it, and
-renders nothing when there is no resolvable content — so you never ship an empty
-heading. It handles plain string values out of the box; for rich text, supply a
-converter via `render` or pre-rendered nodes via `children`.
+spreads any extra HTML attributes (`className`, `id`, `style`, …) onto it,
+forwards a `ref` to the emitted heading element, and renders nothing when there
+is no resolvable content — so you never ship an empty heading. It handles plain
+string values out of the box; for rich text, supply a converter via `render` or
+pre-rendered nodes via `children`.
+
+The forwarded `ref` is handy when a client component needs to measure or animate
+the heading (e.g. a fit-to-width font-size hook). It is not attached when the
+component renders nothing.
+
+```tsx
+'use client'
+const ref = useRef<HTMLHeadingElement>(null)
+;<RenderHeading data={page.heading} ref={ref} />
+```
 
 > It's deliberately named `RenderHeading`, not `Heading`, so the short name stays
 > free for your own component — most apps wrap it (see below) and call the wrapper

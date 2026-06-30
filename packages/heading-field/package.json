@@ -81,8 +81,8 @@
     "@payloadcms/translations": ">=3.30.0 <4",
     "@payloadcms/ui": ">=3.30.0 <4",
     "payload": ">=3.30.0 <4",
-    "react": ">=18.2.0 <20",
-    "react-dom": ">=18.2.0 <20"
+    "react": ">=19.0.0 <20",
+    "react-dom": ">=19.0.0 <20"
   },
   "whatworks": {
     "peerMatrix": {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useField } from '@payloadcms/ui'
-// `use` is React 19 only; this package supports React 18+, so `useContext` stays.
+// `use` is available in React 19, but `useContext` is clearer for a simple context read.
 // eslint-disable-next-line @eslint-react/no-use-context
 import React, { createContext, useContext } from 'react'
 
