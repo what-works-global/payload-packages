@@ -1,0 +1,47 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  line-height: 1.5;
+}
+
+main {
+  margin: 0 auto;
+  max-width: 56rem;
+  padding: 2rem 1.5rem 6rem;
+}
+
+.intro {
+  color: #6b7280;
+  max-width: 44rem;
+}
+
+code {
+  background: rgba(125, 125, 125, 0.15);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.group {
+  border: 1px solid rgba(125, 125, 125, 0.3);
+  border-radius: 8px;
+  margin-top: 1.5rem;
+  padding: 0.25rem 1.5rem 1rem;
+}
+
+.group__meta {
+  color: #6b7280;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  margin-left: 0.75rem;
+}
+
+a {
+  color: inherit;
+}
