@@ -100,10 +100,22 @@ const captureWithSearchPath = async (
 ): Promise<string[]> => {
   const statements: string[] = []
 
-  // Extensions (e.g. postgis for point fields). Replayed with IF NOT EXISTS:
-  // on the target they may survive the schema wipe when installed elsewhere.
+  // Extensions (e.g. postgis for point fields), but only those installed INTO
+  // the captured schema — they are the ones whose objects live alongside the
+  // tables and vanish with the target's DROP SCHEMA CASCADE. Provider-managed
+  // extensions live in their own schemas (Supabase's `extensions`/`vault`,
+  // Neon's `neon`) and must not be replayed: recreating one that IS available
+  // locally (pg_stat_statements) plants extension-owned views in the dev
+  // schema, which every later Drizzle push tries — and fails — to DROP VIEW.
+  // Replayed with IF NOT EXISTS: on the target they may survive the schema
+  // wipe when installed elsewhere.
   const extensions = await client.query(
-    `SELECT extname FROM pg_extension WHERE extname <> 'plpgsql' ORDER BY extname`,
+    `SELECT e.extname
+     FROM pg_extension e
+     JOIN pg_namespace n ON n.oid = e.extnamespace
+     WHERE n.nspname = $1 AND e.extname <> 'plpgsql'
+     ORDER BY e.extname`,
+    [schemaName],
   )
   for (const row of extensions.rows) {
     statements.push(`${EXTENSION_DDL_PREFIX}${quoteIdent(String(row.extname))}`)

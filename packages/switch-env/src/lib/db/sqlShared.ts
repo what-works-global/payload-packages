@@ -118,6 +118,28 @@ export const requireDrizzleKitApi = (targetAdapter: DatabaseAdapter): DrizzleKit
 }
 
 /**
+ * True when `statement` is a DROP VIEW that Postgres rejected because the view
+ * is owned by an installed extension (SQLSTATE 2BP01, dependent objects). The
+ * driver error arrives wrapped (drizzle re-throws with the original as
+ * `cause`), so walk the cause chain for the code.
+ */
+const isUndroppableExtensionView = (statement: string, error: unknown): boolean => {
+  if (!/^\s*DROP\s+(?:MATERIALIZED\s+)?VIEW\b/i.test(statement)) {
+    return false
+  }
+  for (
+    let cause: unknown = error;
+    typeof cause === 'object' && cause !== null;
+    cause = (cause as { cause?: unknown }).cause
+  ) {
+    if ((cause as { code?: unknown }).code === '2BP01') {
+      return true
+    }
+  }
+  return false
+}
+
+/**
  * Non-interactive equivalent of @payloadcms/drizzle's `pushDevSchema`:
  * reconcile the adapter's code-defined schema against the live target database
  * and record the push with a `batch = -1` "dev" row in `payload_migrations`.
@@ -192,6 +214,11 @@ export const applyDevSchema = async (
   //   emits an explicit DROP CONSTRAINT for those, which then fails with
   //   "does not exist". The desired end state is absence, so make DROP
   //   CONSTRAINT / DROP INDEX clauses idempotent with IF EXISTS.
+  // - Postgres: a view owned by an installed extension (pg_stat_statements
+  //   lands in `public` wherever CREATE EXTENSION ran without a SCHEMA clause,
+  //   e.g. RDS) is diffed as unknown and emitted as DROP VIEW — which Postgres
+  //   refuses with 2BP01 ("extension ... requires it"). No push can ever drop
+  //   it; skip the statement and leave the view, invisible to Payload.
   const statements = result.statementsToExecute
   if (statements === undefined) {
     await result.apply()
@@ -205,7 +232,16 @@ export const applyDevSchema = async (
       const idempotent = statement
         .replace(/\bDROP CONSTRAINT\s+(?!IF\s+EXISTS\b)/i, 'DROP CONSTRAINT IF EXISTS ')
         .replace(/\bDROP INDEX\s+(?!IF\s+EXISTS\b)/i, 'DROP INDEX IF EXISTS ')
-      await adapter.execute({ drizzle: adapter.drizzle, raw: idempotent })
+      try {
+        await adapter.execute({ drizzle: adapter.drizzle, raw: idempotent })
+      } catch (error) {
+        if (!isUndroppableExtensionView(idempotent, error)) {
+          throw error
+        }
+        logger?.warn(
+          `[switch-env] skipped \`${idempotent.trim()}\` — the view belongs to an installed extension and cannot be dropped by a schema push`,
+        )
+      }
     }
   }
 

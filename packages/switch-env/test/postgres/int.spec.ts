@@ -284,6 +284,68 @@ runCopyScenarios(
 
         expect(targetCounts).toEqual(sourceCounts)
       })
+
+      it('captures only extensions installed in the copied schema and skips un-droppable extension views', async () => {
+        const { runCopy, sourcePayload, targetPayload } = getContext()
+        const source = pgPool(sourcePayload)
+        const target = pgPool(targetPayload)
+
+        try {
+          // Provider-managed extension outside the copied schema (Supabase's
+          // `extensions`/`vault`, Neon's `neon`): must not be captured — on a
+          // local target it is either unavailable (noisy skip) or, worse,
+          // available and installed into the dev schema, where its objects
+          // break every later Drizzle push.
+          await source.query(`CREATE SCHEMA IF NOT EXISTS provider_ext`)
+          await source.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA provider_ext`)
+          // An extension installed IN the copied schema is part of the replica
+          // (RDS-style setups: CREATE EXTENSION defaults to public). This one
+          // owns views, which the reconcile push diffs as unknown and tries to
+          // DROP — Postgres refuses (2BP01), and the copy must skip that
+          // instead of failing.
+          await source.query(`CREATE EXTENSION IF NOT EXISTS pg_stat_statements`)
+
+          const backupData = await backupSql({
+            copyConfig: { documents: { default: { mode: 'all' } } },
+            payload: sourcePayload,
+            sourceAdapter: sourcePayload.db,
+          })
+          const extensionStatements = backupData.schema.filter((statement) =>
+            statement.startsWith('CREATE EXTENSION'),
+          )
+          expect(extensionStatements).toEqual([
+            'CREATE EXTENSION IF NOT EXISTS "pg_stat_statements"',
+          ])
+
+          await runCopy()
+
+          const targetExtensions = await target.query(
+            `SELECT e.extname, n.nspname FROM pg_extension e
+             JOIN pg_namespace n ON n.oid = e.extnamespace`,
+          )
+          const schemaByExtension = Object.fromEntries(
+            targetExtensions.rows.map((row) => [String(row.extname), String(row.nspname)]),
+          )
+          expect(schemaByExtension['pg_stat_statements']).toBe('public')
+          expect(schemaByExtension['uuid-ossp']).toBeUndefined()
+
+          // The extension's views survived (they can never be dropped by a
+          // push) and the reconcile still completed: the dev row is present.
+          const views = await target.query(
+            `SELECT viewname FROM pg_views
+             WHERE schemaname = 'public' AND viewname LIKE 'pg_stat_statements%'`,
+          )
+          expect(views.rows.length).toBeGreaterThan(0)
+          const devRow = await target.query(
+            `SELECT name FROM "public"."payload_migrations" WHERE batch = -1`,
+          )
+          expect(devRow.rows).toHaveLength(1)
+        } finally {
+          await source.query(`DROP EXTENSION IF EXISTS pg_stat_statements`)
+          await source.query(`DROP SCHEMA IF EXISTS provider_ext CASCADE`)
+          await target.query(`DROP EXTENSION IF EXISTS pg_stat_statements`)
+        }
+      })
     },
   },
 )
