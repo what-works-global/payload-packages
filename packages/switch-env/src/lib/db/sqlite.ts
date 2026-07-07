@@ -2,15 +2,15 @@ import type { DatabaseAdapter } from 'payload'
 
 import { existsSync } from 'node:fs'
 
-import type { BackupSqlArgs, RestoreSqlArgs, SqlBackupData } from './sqlShared.js'
+import type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } from './sqlShared.js'
 
 import {
+  applyDevSchema,
   filterLatestXPerParent,
   filterLatestXRows,
-  forcePushDevSchema,
-  importPushDevSchema,
   PAYLOAD_MIGRATIONS_TABLE,
   quoteIdent,
+  requireDrizzleKitApi,
   resolveBaseTableModes,
   resolveVersionTableModes,
   rowToObject,
@@ -130,10 +130,10 @@ export const restoreSqlite = async ({
   backupData,
   logger,
   targetAdapter,
-}: RestoreSqlArgs): Promise<void> => {
+}: RestoreSqlArgs): Promise<RestoreSqlResult> => {
   // Resolve before touching the target: the restore below is destructive
-  // (drops every table), so a missing peer must abort the whole operation.
-  const pushDevSchemaFn = await importPushDevSchema()
+  // (drops every table), so a missing drizzle-kit must abort the whole operation.
+  requireDrizzleKitApi(targetAdapter)
   const client = getClient(targetAdapter)
 
   const existingRs = await client.execute(
@@ -164,7 +164,7 @@ export const restoreSqlite = async ({
   await client.migrate([...dropIndexes, ...dropTables, ...backupData.schema, ...inserts])
 
   // payload.db.migrate prompts the user when it sees a batch=-1 ("dev") row —
-  // unworkable in headless contexts. Strip it; pushDevSchema re-inserts it below.
+  // unworkable in headless contexts. Strip it; applyDevSchema re-inserts it below.
   await client.execute(`DELETE FROM ${quoteIdent(PAYLOAD_MIGRATIONS_TABLE)} WHERE batch = -1`)
 
   // Apply any pending migration files (e.g. renames the dev wrote but prod
@@ -173,6 +173,8 @@ export const restoreSqlite = async ({
 
   // Source schema is now on the target, but the dev's Drizzle schema may know
   // about columns/tables that don't exist yet (i.e. unmigrated dev changes).
-  // Force-push reconciles by running drizzle-kit's push against the live DB.
-  await forcePushDevSchema(pushDevSchemaFn, targetAdapter)
+  // Reconcile by running drizzle-kit's push against the live DB, without
+  // pushDevSchema's interactive data-loss prompt — or pause on rename-shaped
+  // ambiguity.
+  return applyDevSchema(targetAdapter, logger)
 }

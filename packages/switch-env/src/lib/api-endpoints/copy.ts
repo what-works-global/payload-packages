@@ -12,7 +12,7 @@ import { backup, restore } from '../db/mongo.js'
 import { openAdapter } from '../db/openAdapter.js'
 import { backupSql, restoreSql } from '../db/sql.js'
 import { switchDbConnection } from '../db/switchDbConnection.js'
-import { formatFileSize } from '../utils.js'
+import { describeDeferredReconcile, formatFileSize } from '../utils.js'
 
 // No parameters needed - always copies from production to development
 export type CopyEndpointInput = Record<string, never>
@@ -39,6 +39,7 @@ export const copyEndpoint = ({
     const payload = req.payload
     const logger = payload.logger
     const currentEnv = await getEnv(payload)
+    let deferredReconcile: string[] = []
 
     if (currentEnv !== 'development') {
       return Response.json({
@@ -93,12 +94,13 @@ export const copyEndpoint = ({
           )
 
           logger.debug(`Restoring production backup to development target`)
-          await restoreSql({
+          const restoreResult = await restoreSql({
             backupData,
             logger,
             payload,
             targetAdapter: payload.db,
           })
+          deferredReconcile = restoreResult.deferredReconcile
         } finally {
           if (typeof sourceAdapter.destroy === 'function') {
             await sourceAdapter.destroy()
@@ -111,7 +113,10 @@ export const copyEndpoint = ({
       logger.info(`Successfully copied production database to development environment`)
 
       const res: CopyEndpointOutput = {
-        message: `Successfully copied production database to development`,
+        message:
+          deferredReconcile.length === 0
+            ? 'Successfully copied production database to development'
+            : `Copied production database to development, but ${describeDeferredReconcile(deferredReconcile)}`,
         success: true,
       }
       return Response.json(res)

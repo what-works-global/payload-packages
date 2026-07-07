@@ -1,7 +1,9 @@
-import type { pushDevSchema } from '@payloadcms/drizzle'
 import type { BasePayload, DatabaseAdapter } from 'payload'
 
 import type { CopyConfig } from '../../types.js'
+import type { DrizzleSnapshot } from './renameAmbiguity.js'
+
+import { detectRenameAmbiguities } from './renameAmbiguity.js'
 
 export interface SqlBackupData {
   /**
@@ -10,10 +12,11 @@ export interface SqlBackupData {
    */
   migrations: Record<string, unknown>[]
   /**
-   * CREATE TABLE / CREATE INDEX statements captured from the source schema, in
-   * the order they should be re-applied to the target. Only the SQLite (libSQL)
-   * path populates this — the Postgres path materializes the schema with
-   * `pushDevSchema` instead, so it leaves this empty.
+   * DDL statements captured from the source database, in the order they should
+   * be re-applied to the target: `sqlite_master` SQL on SQLite, catalog
+   * introspection (enums, sequences, tables, constraints, indexes) on Postgres.
+   * Replaying these recreates the SOURCE's schema on the target — even when the
+   * target's code schema has progressed past it — so the source rows always fit.
    */
   schema: string[]
   /**
@@ -36,47 +39,198 @@ export interface RestoreSqlArgs {
   targetAdapter: DatabaseAdapter
 }
 
+export interface RestoreSqlResult {
+  /**
+   * Non-empty when the final dev-schema reconcile was paused because of
+   * rename-shaped ambiguity: the target holds a pure production replica plus
+   * applied migrations, and these entries describe the created-vs-deleted
+   * pairs. Resolving them requires either a migration file for the rename, or
+   * (in development) a dev server restart so Payload's own boot-time push can
+   * prompt in the terminal.
+   */
+  deferredReconcile: string[]
+}
+
 export const PAYLOAD_MIGRATIONS_TABLE = 'payload_migrations'
 
+/** The drizzle-kit `pushSchema` result (see schemaDrift.ts for field notes). */
+interface PushSchemaResult {
+  apply: () => Promise<unknown>
+  hasDataLoss?: boolean
+  statementsToExecute?: string[]
+  warnings?: string[]
+}
+
+type PushSchemaFn = (
+  schema: unknown,
+  drizzle: unknown,
+  schemaFilters?: string[],
+  tablesFilter?: unknown,
+  extensionsFilter?: string[],
+) => Promise<PushSchemaResult>
+
 /**
- * `@payloadcms/drizzle` is an optional peer dependency — Mongo consumers don't
- * install it, so it must never be imported at module load time. Resolve it
- * lazily and only on the SQL restore path.
+ * drizzle-kit's API as re-exported by the Payload adapters' requireDrizzleKit.
+ * `generateDrizzleJson` is sync on Postgres and async on SQLite
+ * (generateSQLiteDrizzleJson) — always await it.
  */
-export const importPushDevSchema = async (): Promise<typeof pushDevSchema> => {
+interface DrizzleKitApi {
+  generateDrizzleJson: (schema: unknown) => DrizzleSnapshot | Promise<DrizzleSnapshot>
+  pushSchema: PushSchemaFn
+}
+
+interface DrizzleAdapterLike {
+  drizzle: {
+    insert: (table: unknown) => { values: (row: Record<string, unknown>) => Promise<unknown> }
+  }
+  execute: (args: {
+    drizzle: unknown
+    raw: string
+  }) => Promise<{ rows: Array<Record<string, unknown>> }>
+  extensions?: { postgis?: boolean }
+  requireDrizzleKit: () => DrizzleKitApi
+  schema: unknown
+  schemaName?: string
+  tables: Record<string, unknown>
+  tablesFilter?: unknown
+}
+
+/**
+ * Resolve drizzle-kit's API through the adapter's own `requireDrizzleKit`.
+ * Called as a preflight before any destructive restore step: if drizzle-kit
+ * can't be resolved, the restore must abort while the target database is still
+ * intact.
+ */
+export const requireDrizzleKitApi = (targetAdapter: DatabaseAdapter): DrizzleKitApi => {
+  const adapter = targetAdapter as unknown as DrizzleAdapterLike
+  if (typeof adapter.requireDrizzleKit !== 'function') {
+    throw new Error('[switch-env] expected a Drizzle adapter exposing requireDrizzleKit')
+  }
   try {
-    const drizzle = await import('@payloadcms/drizzle')
-    return drizzle.pushDevSchema
+    return adapter.requireDrizzleKit()
   } catch (cause) {
     throw new Error(
-      '[switch-env] could not import @payloadcms/drizzle, which is required when using a SQL ' +
-        'database adapter. Install it alongside your @payloadcms/db-* adapter.',
+      '[switch-env] could not resolve drizzle-kit, which is required when using a SQL ' +
+        'database adapter. It ships with @payloadcms/db-postgres / @payloadcms/db-sqlite.',
       { cause },
     )
   }
 }
 
 /**
- * Run Drizzle's dev schema push against the live adapter. The `previousSchema`
- * cache inside `pushDevSchema` can silently no-op a second push in a process —
- * `PAYLOAD_FORCE_DRIZZLE_PUSH=true` is the documented bypass — so force it on
- * and restore the prior value afterwards.
+ * Non-interactive equivalent of @payloadcms/drizzle's `pushDevSchema`:
+ * reconcile the adapter's code-defined schema against the live target database
+ * and record the push with a `batch = -1` "dev" row in `payload_migrations`.
+ *
+ * `pushDevSchema` itself is unusable here: when the diff carries warnings —
+ * exactly what reconciling a restored production schema past a local rename or
+ * column removal produces — it prompts on stdin via `prompts` and calls
+ * `process.exit(0)` on decline/cancel. Inside a copy endpoint that means a
+ * hidden interactive prompt at best and killing the dev server at worst. The
+ * restore has just deliberately wiped and reloaded a development database, so
+ * data-loss warnings are expected: log them and apply.
+ *
+ * Calling drizzle-kit's `pushSchema` directly also sidesteps `pushDevSchema`'s
+ * module-scoped previous-schema cache (no PAYLOAD_FORCE_DRIZZLE_PUSH juggling).
+ *
+ * The warnings prompt is not the only interactive surface: drizzle-kit's diff
+ * resolvers prompt on stdin whenever created and deleted objects of the same
+ * kind coexist — a possible rename, unanswerable without a human. If any such
+ * pair exists, the reconcile PAUSES: it returns the pairs without touching the
+ * schema, leaving the target a pure production replica (plus applied
+ * migrations). The resolution is a migration file for the rename, or — in
+ * development — a dev server restart, where Payload's own boot-time push runs
+ * drizzle's rename prompt in the terminal. Purely additive or purely
+ * destructive drift never pauses: drizzle's resolvers pass it through without
+ * prompting, so the push runs headless (deletions surface as logged warnings).
  */
-export const forcePushDevSchema = async (
-  pushDevSchemaFn: typeof pushDevSchema,
+export const applyDevSchema = async (
   targetAdapter: DatabaseAdapter,
-): Promise<void> => {
-  const previousForce = process.env.PAYLOAD_FORCE_DRIZZLE_PUSH
-  process.env.PAYLOAD_FORCE_DRIZZLE_PUSH = 'true'
-  try {
-    await pushDevSchemaFn(targetAdapter as unknown as Parameters<typeof pushDevSchema>[0])
-  } finally {
-    if (previousForce === undefined) {
-      delete process.env.PAYLOAD_FORCE_DRIZZLE_PUSH
-    } else {
-      process.env.PAYLOAD_FORCE_DRIZZLE_PUSH = previousForce
+  logger?: BasePayload['logger'],
+): Promise<RestoreSqlResult> => {
+  const adapter = targetAdapter as unknown as DrizzleAdapterLike
+  const { generateDrizzleJson, pushSchema } = requireDrizzleKitApi(targetAdapter)
+  const { extensions = {}, tablesFilter } = adapter
+
+  const snapshot = await generateDrizzleJson(adapter.schema)
+
+  const ambiguities = await detectRenameAmbiguities(targetAdapter, snapshot)
+  if (ambiguities.length > 0) {
+    logger?.warn(
+      `[switch-env] schema reconcile paused — possible rename(s) detected:\n${ambiguities.join('\n')}\n` +
+        'The development database was left as a production replica. Add a migration for the ' +
+        'rename, or (in development) restart the dev server to resolve interactively.',
+    )
+    return { deferredReconcile: ambiguities }
+  }
+
+  const result = await pushSchema(
+    adapter.schema,
+    adapter.drizzle,
+    adapter.schemaName ? [adapter.schemaName] : undefined,
+    tablesFilter,
+    extensions.postgis ? ['postgis'] : undefined,
+  )
+
+  const warnings = result.warnings ?? []
+  if (warnings.length > 0) {
+    logger?.warn(
+      `[switch-env] applying dev schema push with warnings${
+        result.hasDataLoss ? ' (data loss on the development database)' : ''
+      }:\n${warnings.join('\n')}`,
+    )
+  }
+  // Run the statements ourselves instead of result.apply() to smooth over two
+  // drizzle-kit push generation warts that only surface on destructive diffs:
+  //
+  // - SQLite: a recreated table's CREATE INDEX statements are emitted twice
+  //   (once by the table-recreate flow, once by the index diff) and the
+  //   duplicate fails with "index already exists". Duplicate DDL in a push
+  //   list is never intentional — execute each distinct statement once.
+  // - Postgres: a dropped table is emitted as DROP TABLE ... CASCADE, which
+  //   already removes other tables' FK constraints on it — but the diff ALSO
+  //   emits an explicit DROP CONSTRAINT for those, which then fails with
+  //   "does not exist". The desired end state is absence, so make DROP
+  //   CONSTRAINT / DROP INDEX clauses idempotent with IF EXISTS.
+  const statements = result.statementsToExecute
+  if (statements === undefined) {
+    await result.apply()
+  } else {
+    const seen = new Set<string>()
+    for (const statement of statements) {
+      if (seen.has(statement)) {
+        continue
+      }
+      seen.add(statement)
+      const idempotent = statement
+        .replace(/\bDROP CONSTRAINT\s+(?!IF\s+EXISTS\b)/i, 'DROP CONSTRAINT IF EXISTS ')
+        .replace(/\bDROP INDEX\s+(?!IF\s+EXISTS\b)/i, 'DROP INDEX IF EXISTS ')
+      await adapter.execute({ drizzle: adapter.drizzle, raw: idempotent })
     }
   }
+
+  // Mirror pushDevSchema's bookkeeping: upsert the batch = -1 "dev" row so
+  // Payload knows this database is managed by push. Insert through drizzle so
+  // the payload_migrations $defaultFn timestamps are populated.
+  const migrationsTable = adapter.schemaName
+    ? `"${adapter.schemaName}"."${PAYLOAD_MIGRATIONS_TABLE}"`
+    : `"${PAYLOAD_MIGRATIONS_TABLE}"`
+  const existing = await adapter.execute({
+    drizzle: adapter.drizzle,
+    raw: `SELECT * FROM ${migrationsTable} WHERE batch = '-1'`,
+  })
+  if (existing.rows.length === 0) {
+    await adapter.drizzle
+      .insert(adapter.tables[PAYLOAD_MIGRATIONS_TABLE])
+      .values({ name: 'dev', batch: -1 })
+  } else {
+    await adapter.execute({
+      drizzle: adapter.drizzle,
+      raw: `UPDATE ${migrationsTable} SET updated_at = CURRENT_TIMESTAMP WHERE batch = '-1'`,
+    })
+  }
+
+  return { deferredReconcile: [] }
 }
 
 /**
@@ -93,7 +247,7 @@ export const forcePushDevSchema = async (
  * resolve those type-only names — they aren't real runtime exports — so the
  * import throws with e.g. `does not provide an export named 'MigrateDownArgs'`.
  * The copy doesn't need migrations to succeed: the caller reconciles the dev
- * schema with `forcePushDevSchema` immediately afterwards, so a load failure is
+ * schema with `applyDevSchema` immediately afterwards, so a load failure is
  * logged and swallowed rather than aborting a copy whose data is already loaded.
  */
 export const runPendingMigrations = async (

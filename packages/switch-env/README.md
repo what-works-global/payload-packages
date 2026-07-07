@@ -170,10 +170,18 @@ If you edit a field while connected to production, queries touching the new colu
 
 ### How `copy` works on SQL adapters
 
-Both Drizzle adapters are supported. The flow reads from production and rewrites your development database in place — it never mutates production:
+Both Drizzle adapters are supported. The flow reads from production and rewrites your development database in place — it never mutates production. It also works when your development schema has **progressed past production** (added/removed fields, new or deleted collections): the copy recreates production's schema first, loads the data into it, then brings the schema forward to match your local code.
 
-- **SQLite (`@payloadcms/db-sqlite`)** replays production's captured `CREATE TABLE`/`CREATE INDEX` statements, then reloads the data.
-- **Postgres (`@payloadcms/db-postgres`)** materializes your development schema with Drizzle's push, truncates it, then bulk-loads production's rows. Foreign-key enforcement is suspended for the load with `SET LOCAL session_replication_role = 'replica'`, and identity sequences are advanced past the restored rows so later inserts don't collide. Disabling `session_replication_role` requires a sufficiently privileged role on the **development** connection (the local superuser you normally develop against is fine).
+1. **Capture.** Production's schema DDL is captured alongside its rows — from `sqlite_master` on SQLite, from the system catalogs on Postgres (enums, sequences, tables, constraints, indexes — a `pg_dump` equivalent with no external binary required).
+2. **Replay.** The development database is wiped (every table on SQLite; `DROP SCHEMA ... CASCADE` on Postgres, inside a transaction so a failed copy rolls back untouched) and production's DDL is replayed — production's rows always fit exactly, regardless of local schema drift.
+3. **Load.** Rows are bulk-loaded. On Postgres, foreign-key enforcement is suspended with `SET LOCAL session_replication_role = 'replica'` (requires a sufficiently privileged role on the **development** connection — the local user you normally develop against is fine), and identity sequences are advanced past the restored rows so later inserts don't collide.
+4. **Migrate forward.** Local migration files that production hasn't run yet are applied (best-effort), so their renames and backfills transform the production data the way the migration author intended.
+5. **Reconcile.** Remaining unmigrated dev-only schema changes are applied with a **non-interactive** Drizzle push. Data-loss warnings are logged instead of prompted — it's your development database, which the copy just deliberately rewrote. Unambiguous drift (added fields, removed fields, new or deleted collections, and any rename covered by a migration file) always reconciles automatically.
+
+An _unmigrated_ rename is the one thing the reconcile refuses to guess: it is indistinguishable from a remove+add, and drizzle-kit's push would normally stop and ask "created or renamed?" on stdin — impossible inside an endpoint, and answering wrong silently empties the renamed field. When the reconcile detects that shape (a table, column, or enum type that was both created and deleted), it **pauses**: the reconcile is skipped and the response lists the ambiguous pairs. Your development database is left as a pure production replica (plus applied migrations), so nothing is lost. Then either:
+
+- **In development** — restart the dev server: Payload's own boot-time schema push resolves the renames interactively in your terminal. Or add a migration for the rename and copy again.
+- **On a staging deployment** (`buttonMode: 'copy'`, where Payload never runs its dev push) — a pause means this environment is missing the migrations for those schema changes. Deploy them; `payload migrate` runs against the freshly copied database and resolves the difference in place, no re-copy needed.
 
 ## Caution
 

@@ -22,7 +22,7 @@ import {
 import { backupSql, restoreSql, type SqlBackupData } from '../db/sql.js'
 import { resolveSqlBaseTableName } from '../db/sqlShared.js'
 import { switchDbConnection } from '../db/switchDbConnection.js'
-import { formatFileSize, getServerUrl } from '../utils.js'
+import { describeDeferredReconcile, formatFileSize, getServerUrl } from '../utils.js'
 
 export interface SwitchEndpointInput {
   copyDatabase: boolean
@@ -169,14 +169,16 @@ export const switchEndpoint = ({
       await restore(payload.db.connection, mongoBackup, payload.logger)
     }
 
+    let deferredReconcile: string[] = []
     if (sqlBackup) {
       logger.info('Restoring production database backup to local')
-      await restoreSql({
+      const restoreResult = await restoreSql({
         backupData: sqlBackup,
         logger,
         payload,
         targetAdapter: payload.db,
       })
+      deferredReconcile = restoreResult.deferredReconcile
     }
 
     if (newEnv === 'development') {
@@ -214,8 +216,13 @@ export const switchEndpoint = ({
 
     logger.info('Switched to ' + newEnv + ' environment')
 
+    const message =
+      deferredReconcile.length === 0
+        ? 'Switched to ' + newEnv
+        : `Switched to ${newEnv}, but ${describeDeferredReconcile(deferredReconcile)}`
+
     const res: SwitchEndpointOutput = {
-      message: 'Switched to ' + newEnv,
+      message,
       success: true,
     }
     return Response.json(res)

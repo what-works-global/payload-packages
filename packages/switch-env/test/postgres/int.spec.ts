@@ -107,6 +107,56 @@ runCopyScenarios(
         }
       })
 
+      it('recreates the full set of production schema objects on the target', async () => {
+        const { runCopy, sourcePayload, targetPayload } = getContext()
+
+        await runCopy()
+
+        // Snapshot every schema-level object kind the DDL capture reconstructs.
+        // Compared as sets (ordered by name) — replay may renumber ordinal
+        // positions, which is fine; names, types, defaults, constraint and
+        // index definitions must survive the round trip exactly.
+        const snapshot = async (payload: BasePayload) => {
+          const pool = pgPool(payload)
+          const q = async (text: string) => (await pool.query(text)).rows
+          return {
+            columns: await q(
+              `SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default
+               FROM information_schema.columns WHERE table_schema = 'public'
+               ORDER BY table_name, column_name`,
+            ),
+            constraints: await q(
+              `SELECT conrelid::regclass::text AS table_name, conname,
+                      pg_get_constraintdef(oid) AS definition
+               FROM pg_constraint WHERE connamespace = 'public'::regnamespace
+               ORDER BY conname`,
+            ),
+            enums: await q(
+              `SELECT t.typname, e.enumlabel FROM pg_type t
+               JOIN pg_enum e ON e.enumtypid = t.oid
+               JOIN pg_namespace n ON n.oid = t.typnamespace
+               WHERE n.nspname = 'public'
+               ORDER BY t.typname, e.enumsortorder`,
+            ),
+            indexes: await q(
+              `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public'
+               ORDER BY indexname`,
+            ),
+            sequences: await q(
+              `SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
+               ORDER BY sequencename`,
+            ),
+            tables: await q(
+              `SELECT table_name FROM information_schema.tables
+               WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+               ORDER BY table_name`,
+            ),
+          }
+        }
+
+        expect(await snapshot(targetPayload)).toEqual(await snapshot(sourcePayload))
+      })
+
       it('copies payload_migrations rows from source to target', async () => {
         const { runCopy, sourcePayload, targetPayload } = getContext()
 

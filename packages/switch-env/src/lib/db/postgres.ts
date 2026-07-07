@@ -2,15 +2,16 @@ import type { DatabaseAdapter } from 'payload'
 
 import { existsSync } from 'node:fs'
 
-import type { BackupSqlArgs, RestoreSqlArgs, SqlBackupData } from './sqlShared.js'
+import type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } from './sqlShared.js'
 
+import { capturePostgresDdl, EXTENSION_DDL_PREFIX } from './postgresDdl.js'
 import {
+  applyDevSchema,
   filterLatestXPerParent,
   filterLatestXRows,
-  forcePushDevSchema,
-  importPushDevSchema,
   PAYLOAD_MIGRATIONS_TABLE,
   quoteIdent,
+  requireDrizzleKitApi,
   resolveBaseTableModes,
   resolveVersionTableModes,
   runPendingMigrations,
@@ -47,12 +48,24 @@ const getPgAdapter = (adapter: DatabaseAdapter): PgAdapter => {
 
 const qualify = (schema: string, table: string) => `${quoteIdent(schema)}.${quoteIdent(table)}`
 
-/** Base tables (excludes views) in the adapter's schema, alphabetically. */
+/**
+ * Base tables (excludes views) in the adapter's schema, alphabetically.
+ * Extension members (e.g. postgis's spatial_ref_sys) are excluded: the restore
+ * recreates them via CREATE EXTENSION — including their seed rows — so backing
+ * up their data would only produce duplicate-key failures on reload.
+ */
 const listBaseTables = async (pool: PgPool, schema: string): Promise<string[]> => {
   const result = await pool.query(
-    `SELECT table_name FROM information_schema.tables
-     WHERE table_schema = $1 AND table_type = 'BASE TABLE'
-     ORDER BY table_name`,
+    `SELECT c.relname AS table_name
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = $1 AND c.relkind = 'r'
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_depend d
+         WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
+           AND d.refclassid = 'pg_extension'::regclass AND d.deptype = 'e'
+       )
+     ORDER BY c.relname`,
     [schema],
   )
   return result.rows.map((row) => String(row.table_name))
@@ -65,10 +78,10 @@ const listBaseTables = async (pool: PgPool, schema: string): Promise<string[]> =
  * into a Postgres array literal and corrupt). See `bindValue` below.
  */
 const getJsonColumnsByTable = async (
-  pool: PgPool,
+  queryRunner: Pick<PgPool, 'query'>,
   schema: string,
 ): Promise<Record<string, Set<string>>> => {
-  const result = await pool.query(
+  const result = await queryRunner.query(
     `SELECT table_name, column_name FROM information_schema.columns
      WHERE table_schema = $1 AND data_type IN ('json', 'jsonb')`,
     [schema],
@@ -168,6 +181,16 @@ export const backupPostgres = async ({
   const baseModes = resolveBaseTableModes(payload, copyConfig)
   const versionModes = resolveVersionTableModes(payload, copyConfig)
 
+  // Capture the source's DDL on a dedicated client — the capture pins the
+  // session's search_path, which must not leak into other pooled queries.
+  const ddlClient = await pool.connect()
+  let schemaDdl: string[]
+  try {
+    schemaDdl = await capturePostgresDdl(ddlClient, schema)
+  } finally {
+    ddlClient.release()
+  }
+
   const tableNames = await listBaseTables(pool, schema)
 
   const tables: Record<string, Record<string, unknown>[]> = {}
@@ -198,28 +221,46 @@ export const backupPostgres = async ({
     }
   }
 
-  // Postgres rebuilds its schema with pushDevSchema on restore (no DDL replay),
-  // so `schema` is intentionally empty.
-  return { migrations, schema: [], tables }
+  return { migrations, schema: schemaDdl, tables }
+}
+
+/**
+ * Replay a captured DDL statement inside the restore transaction. Extension
+ * statements soft-fail in a savepoint: production may carry provider extensions
+ * (e.g. Neon's `neon`) the local Postgres has no binaries for, and a table that
+ * genuinely needs a missing extension still fails loudly on its CREATE TABLE.
+ */
+const replayDdlStatement = async (
+  client: PgClient,
+  statement: string,
+  logger: RestoreSqlArgs['logger'],
+): Promise<void> => {
+  if (!statement.startsWith(EXTENSION_DDL_PREFIX)) {
+    await client.query(statement)
+    return
+  }
+  await client.query('SAVEPOINT switch_env_extension')
+  try {
+    await client.query(statement)
+    await client.query('RELEASE SAVEPOINT switch_env_extension')
+  } catch (error) {
+    await client.query('ROLLBACK TO SAVEPOINT switch_env_extension')
+    logger.warn(
+      { err: error },
+      `[switch-env] could not recreate a production extension locally, continuing: ${statement}`,
+    )
+  }
 }
 
 export const restorePostgres = async ({
   backupData,
   logger,
   targetAdapter,
-}: RestoreSqlArgs): Promise<void> => {
+}: RestoreSqlArgs): Promise<RestoreSqlResult> => {
   // Resolve before touching the target: the restore below is destructive, so a
-  // missing peer must abort the whole operation.
-  const pushDevSchemaFn = await importPushDevSchema()
+  // missing drizzle-kit must abort while the target is still intact.
+  requireDrizzleKitApi(targetAdapter)
   const { pool, schema } = getPgAdapter(targetAdapter)
-
-  // Make sure the development schema is materialized on the target before we
-  // wipe and reload data — handles a brand-new target database whose tables
-  // have not been pushed yet.
-  await forcePushDevSchema(pushDevSchemaFn, targetAdapter)
-
-  const allTables = await listBaseTables(pool, schema)
-  const jsonColumnsByTable = await getJsonColumnsByTable(pool, schema)
 
   const client = await pool.connect()
   try {
@@ -229,10 +270,24 @@ export const restorePostgres = async ({
     // Requires a sufficiently privileged role (the local development user).
     await client.query("SET LOCAL session_replication_role = 'replica'")
 
-    if (allTables.length > 0) {
-      const list = allTables.map((table) => qualify(schema, table)).join(', ')
-      await client.query(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`)
+    // Rebuild the target as the SOURCE's schema, not the local code schema:
+    // dropping the whole Postgres schema and replaying the captured DDL means
+    // the source rows always fit, even when the local code schema has
+    // progressed (renamed/removed columns, new NOT NULL fields, new tables).
+    // Postgres DDL is transactional, so a failure anywhere rolls the target
+    // back untouched. The recreated schema is owned by the connecting role;
+    // that role is the only user of a development database.
+    await client.query(`DROP SCHEMA IF EXISTS ${quoteIdent(schema)} CASCADE`)
+    await client.query(`CREATE SCHEMA ${quoteIdent(schema)}`)
+    // The captured DDL is unqualified — aim it at the recreated schema.
+    await client.query(`SET LOCAL search_path TO ${quoteIdent(schema)}`)
+    for (const statement of backupData.schema) {
+      await replayDdlStatement(client, statement, logger)
     }
+
+    // Must be computed after the replay (and inside the transaction): the JSON
+    // columns that matter are the SOURCE's, which now exist on the target.
+    const jsonColumnsByTable = await getJsonColumnsByTable(client, schema)
 
     for (const [tableName, rows] of Object.entries(backupData.tables)) {
       await insertRows(client, schema, tableName, rows, jsonColumnsByTable[tableName] ?? new Set())
@@ -246,8 +301,16 @@ export const restorePostgres = async ({
     )
 
     // payload.db.migrate prompts the user when it sees a batch=-1 ("dev") row —
-    // unworkable in headless contexts. Strip it; pushDevSchema re-inserts it below.
-    await client.query(`DELETE FROM ${qualify(schema, PAYLOAD_MIGRATIONS_TABLE)} WHERE batch = -1`)
+    // unworkable in headless contexts. Strip it; applyDevSchema re-inserts it
+    // below. Guarded: an empty source database has no migrations table at all.
+    const migrationsTable = await client.query(`SELECT to_regclass($1) AS reg`, [
+      qualify(schema, PAYLOAD_MIGRATIONS_TABLE),
+    ])
+    if (migrationsTable.rows[0]?.reg) {
+      await client.query(
+        `DELETE FROM ${qualify(schema, PAYLOAD_MIGRATIONS_TABLE)} WHERE batch = -1`,
+      )
+    }
 
     await client.query('COMMIT')
   } catch (error) {
@@ -261,10 +324,13 @@ export const restorePostgres = async ({
   // don't collide on the primary key.
   await resetSequences(pool, schema, [...Object.keys(backupData.tables), PAYLOAD_MIGRATIONS_TABLE])
 
-  // Apply any pending migration files (e.g. renames the dev wrote but prod
-  // hasn't run yet). Best-effort — see runPendingMigrations.
+  // Apply any pending migration files (i.e. local migrations production hasn't
+  // run yet) against the freshly restored production schema + data, so their
+  // backfills and renames transform the production rows the way the migration
+  // author intended. Best-effort — see runPendingMigrations.
   await runPendingMigrations(targetAdapter, existsSync, logger)
 
-  // Reconcile any unmigrated dev-only schema changes against the live DB.
-  await forcePushDevSchema(pushDevSchemaFn, targetAdapter)
+  // Reconcile any remaining (unmigrated) dev-only schema changes against the
+  // live DB, non-interactively — or pause on rename-shaped ambiguity.
+  return applyDevSchema(targetAdapter, logger)
 }

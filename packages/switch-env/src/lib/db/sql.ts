@@ -1,9 +1,9 @@
-import type { BackupSqlArgs, RestoreSqlArgs, SqlBackupData } from './sqlShared.js'
+import type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } from './sqlShared.js'
 
 import { backupPostgres, restorePostgres } from './postgres.js'
 import { backupSqlite, restoreSqlite } from './sqlite.js'
 
-export type { BackupSqlArgs, RestoreSqlArgs, SqlBackupData } from './sqlShared.js'
+export type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } from './sqlShared.js'
 
 const isPostgres = (adapterName: string | undefined): boolean => adapterName === 'postgres'
 
@@ -17,5 +17,5 @@ const isPostgres = (adapterName: string | undefined): boolean => adapterName ===
 export const backupSql = (args: BackupSqlArgs): Promise<SqlBackupData> =>
   isPostgres(args.sourceAdapter.name) ? backupPostgres(args) : backupSqlite(args)
 
-export const restoreSql = (args: RestoreSqlArgs): Promise<void> =>
+export const restoreSql = (args: RestoreSqlArgs): Promise<RestoreSqlResult> =>
   isPostgres(args.targetAdapter.name) ? restorePostgres(args) : restoreSqlite(args)
