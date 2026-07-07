@@ -245,9 +245,12 @@ const replayDdlStatement = async (
     await client.query('RELEASE SAVEPOINT switch_env_extension')
   } catch (error) {
     await client.query('ROLLBACK TO SAVEPOINT switch_env_extension')
+    // A single calm line, not the error object: pino would render its full
+    // stack, making a routine skip (Supabase/Neon carry several provider
+    // extensions with no local binaries) read like a failed copy.
+    const reason = error instanceof Error ? error.message : String(error)
     logger.warn(
-      { err: error },
-      `[switch-env] could not recreate a production extension locally, continuing: ${statement}`,
+      `[switch-env] skipped \`${statement}\` (${reason}) — fine unless your tables use this extension, in which case a later CREATE TABLE fails loudly`,
     )
   }
 }
