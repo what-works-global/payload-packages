@@ -12,9 +12,28 @@ permissions:
   contents: read
 
 jobs:
+  resolve:
+    name: Resolve affected packages & matrix
+    if: github.head_ref == 'changeset-release/main'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      filterArgs: ${{ steps.resolve.outputs.filterArgs }}
+      hasWork: ${{ steps.resolve.outputs.hasWork }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: resolve
+        run: node scripts/resolve-ci-matrix.mjs
+
   check:
     name: Lint / Typecheck / Build
-    if: github.head_ref == 'changeset-release/main'
+    needs: [resolve]
+    if: needs.resolve.outputs.hasWork == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,36 +43,25 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Repo-wide checks — cheap and cross-cutting, always run.
       - run: pnpm format:check
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm build
       - run: pnpm check:use-client
       - run: pnpm check:publish-config
-      - run: pnpm check:exports
-      - run: pnpm test:peer
-
-  resolve-matrix:
-    name: Resolve Payload version matrix
-    if: github.head_ref == 'changeset-release/main'
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.resolve.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - id: resolve
-        run: node scripts/resolve-payload-matrix.mjs
+      # Per-package checks — scoped to the packages this PR affects.
+      - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present lint
+      - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present typecheck
+      - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present build
+      - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present check:exports
+      - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present test:peer
 
   peer-matrix:
     name: ${{ matrix.package }} @ payload ${{ matrix.payloadVersion }} (${{ matrix.label }})
-    needs: [check, resolve-matrix]
+    needs: [check, resolve]
+    if: needs.resolve.outputs.hasWork == 'true' && needs.resolve.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.resolve-matrix.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -75,8 +83,15 @@ jobs:
     if: always() && github.head_ref == 'changeset-release/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Verify all required jobs passed
+      - name: Verify no required job failed
         run: |
-          if [[ "${{ needs.check.result }}" != "success" || "${{ needs.peer-matrix.result }}" != "success" ]]; then
-            exit 1
-          fi
+          check="${{ needs.check.result }}"
+          peer="${{ needs.peer-matrix.result }}"
+          echo "check=$check peer-matrix=$peer"
+          # 'skipped' is acceptable (nothing to run for that job); only real
+          # failures or cancellations should fail the gate.
+          for result in "$check" "$peer"; do
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              exit 1
+            fi
+          done
