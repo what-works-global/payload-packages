@@ -49,14 +49,14 @@ export const buildRobotsData = ({
   options = {},
   sitemaps,
 }: BuildRobotsArgs): RobotsData => {
-  const isProduction =
-    options.isProduction ??
+  const allowIndexing =
+    options.allowIndexing ??
     (process.env.VERCEL_ENV
       ? process.env.VERCEL_ENV === 'production'
       : process.env.NODE_ENV === 'production')
 
   let data: RobotsData
-  if (!isProduction) {
+  if (!allowIndexing) {
     data = { rules: [{ disallow: '/', userAgent: '*' }], sitemaps: [] }
   } else {
     const sitemapUrls = options.sitemaps ?? sitemaps

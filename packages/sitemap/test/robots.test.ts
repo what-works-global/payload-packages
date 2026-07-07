@@ -6,7 +6,7 @@ const sitemaps = ['https://example.com/sitemap.xml']
 
 describe('buildRobotsData', () => {
   it('disallows everything outside production', () => {
-    const data = buildRobotsData({ options: { isProduction: false }, sitemaps })
+    const data = buildRobotsData({ options: { allowIndexing: false }, sitemaps })
     expect(data.rules).toEqual([{ disallow: '/', userAgent: '*' }])
     expect(data.sitemaps).toEqual([])
   })
@@ -15,7 +15,7 @@ describe('buildRobotsData', () => {
     const data = buildRobotsData({
       adminRoute: '/admin',
       apiRoute: '/api',
-      options: { isProduction: true },
+      options: { allowIndexing: true },
       sitemaps,
     })
     expect(data.rules[0].disallow).toEqual(['/admin/', '/api/'])
@@ -24,7 +24,7 @@ describe('buildRobotsData', () => {
 
   it('appends extra disallow paths to the default rule', () => {
     const data = buildRobotsData({
-      options: { disallow: ['/drafts/'], isProduction: true },
+      options: { allowIndexing: true, disallow: ['/drafts/'] },
       sitemaps,
     })
     expect(data.rules[0].disallow).toContain('/drafts/')
@@ -32,7 +32,7 @@ describe('buildRobotsData', () => {
 
   it('auto-allows sitemap URLs living under a disallowed prefix', () => {
     const data = buildRobotsData({
-      options: { isProduction: true },
+      options: { allowIndexing: true },
       sitemaps: ['https://cms.example.com/api/sitemap/index.xml'],
     })
     expect(data.rules[0].allow).toContain('/api/sitemap/index.xml')
@@ -40,7 +40,7 @@ describe('buildRobotsData', () => {
 
   it('lets `rules` replace the defaults entirely', () => {
     const rules = [{ disallow: ['/private/'], userAgent: 'Googlebot' }]
-    const data = buildRobotsData({ options: { isProduction: true, rules }, sitemaps })
+    const data = buildRobotsData({ options: { allowIndexing: true, rules }, sitemaps })
     expect(data.rules).toHaveLength(1)
     expect(data.rules[0].userAgent).toBe('Googlebot')
   })
@@ -48,7 +48,7 @@ describe('buildRobotsData', () => {
   it('gives transform the final say', () => {
     const data = buildRobotsData({
       options: {
-        isProduction: true,
+        allowIndexing: true,
         transform: (robots) => ({ ...robots, host: 'https://example.com' }),
       },
       sitemaps,

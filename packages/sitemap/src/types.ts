@@ -176,13 +176,14 @@ export type RobotsData = {
 }
 
 export type RobotsOptions = {
-  /** Extra disallow paths appended to the default rule. Ignored when `rules` is set. */
-  disallow?: string[]
   /**
-   * Force production behavior. Non-production output disallows everything.
+   * Allow search engines to index the site. When `false`, the output disallows
+   * everything so non-production environments stay out of search indexes.
    * @default VERCEL_ENV === 'production', falling back to NODE_ENV === 'production'
    */
-  isProduction?: boolean
+  allowIndexing?: boolean
+  /** Extra disallow paths appended to the default rule. Ignored when `rules` is set. */
+  disallow?: string[]
   /** Replace the default rules entirely (default: allow all, disallow admin + API routes). */
   rules?: RobotsRule[]
   /** Sitemap URL(s). @default `${siteUrl}/sitemap.xml` */

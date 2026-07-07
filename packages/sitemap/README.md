@@ -131,7 +131,7 @@ sitemapPlugin({
 
   // Defaults for robots output (createRobots / generateRobotsTxt).
   robots: {
-    isProduction: undefined, // default VERCEL_ENV/NODE_ENV
+    allowIndexing: undefined, // default VERCEL_ENV/NODE_ENV
     disallow: ['/drafts/'], // appended to the default rule
     rules: undefined, // replace default rules entirely
     sitemaps: undefined, // default `${siteUrl}/sitemap.xml`

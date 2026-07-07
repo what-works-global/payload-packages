@@ -255,7 +255,7 @@ describe('REST endpoints', () => {
 
 describe('robots.txt', () => {
   it('produces production output with sitemap reference and admin/API disallows', async () => {
-    const txt = await generateRobotsTxt(payload.config, { isProduction: true })
+    const txt = await generateRobotsTxt(payload.config, { allowIndexing: true })
     expect(txt).toContain('User-agent: *')
     expect(txt).toContain('Disallow: /admin/')
     expect(txt).toContain('Disallow: /api/')
@@ -263,7 +263,7 @@ describe('robots.txt', () => {
   })
 
   it('disallows everything outside production', async () => {
-    const txt = await generateRobotsTxt(payload.config, { isProduction: false })
+    const txt = await generateRobotsTxt(payload.config, { allowIndexing: false })
     expect(txt).toContain('Disallow: /')
     expect(txt).not.toContain('Sitemap:')
   })
