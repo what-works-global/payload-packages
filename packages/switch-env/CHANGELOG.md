@@ -1,5 +1,15 @@
 # @whatworks/payload-switch-env
 
+## 1.4.0
+
+### Minor Changes
+
+- f05a0d0: Copying production to development on SQL adapters now works when the local schema has progressed past production (added/removed fields, new or deleted collections).
+
+  - **Postgres**: the copy now captures production's schema DDL from the system catalogs (enums, sequences, tables, constraints, indexes) and rebuilds the development schema as production's — `DROP SCHEMA ... CASCADE` + replay inside one transaction — before loading rows, instead of loading production rows into the (possibly diverged) local code schema. Extension-owned objects (e.g. postgis's `spatial_ref_sys`) are excluded from both DDL capture and row backup; provider extensions that don't exist locally (e.g. Neon's `neon`) are skipped with a warning.
+  - **Both SQL adapters**: after loading, pending local migration files are applied (as before), then the dev schema is reconciled with a non-interactive Drizzle push. This replaces `pushDevSchema`, which prompts on stdin (and can `process.exit`) when the diff carries data-loss warnings — warnings are now logged and applied instead. The push statements are also executed with two drizzle-kit generation warts smoothed over (duplicate CREATE INDEX after a SQLite table recreate; Postgres DROP CONSTRAINT for a constraint already removed by DROP TABLE CASCADE).
+  - **Rename-shaped drift pauses the reconcile instead of guessing.** An unmigrated rename is indistinguishable from a remove+add (drizzle-kit would prompt "created or renamed?" on stdin — impossible in an endpoint, and a wrong guess silently empties the field). When the reconcile detects a table/column/enum that was both created and deleted, it skips the push and reports the pairs in the response, leaving the development database as a lossless production replica plus applied migrations. Resolve by restarting the dev server (Payload's boot-time push prompts in the terminal) or adding a migration for the rename; on staging deployments, deploying the missing migrations resolves the difference in place. Unambiguous drift (additions, removals, migrated renames) always reconciles automatically.
+
 ## 1.3.5
 
 ### Patch Changes
