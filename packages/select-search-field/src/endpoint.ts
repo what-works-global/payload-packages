@@ -1,12 +1,18 @@
 import type {
   Data,
   Endpoint,
+  FlattenedField,
   PayloadRequest,
   SanitizedCollectionConfig,
   SanitizedGlobalConfig,
 } from 'payload'
 
-import { getFieldByPath } from 'payload'
+// The `./utilities/*` subpath export maps to `dist/utilities/*.js`, so the
+// package-relative `index` must be spelled out — `.../buildFieldSchemaMap`
+// alone would resolve to a non-existent `buildFieldSchemaMap.js` file rather
+// than the directory. Payload's own lexical code imports sibling modules from
+// this same `.../buildFieldSchemaMap/` path.
+import { buildFieldSchemaMap } from '@payloadcms/ui/utilities/buildFieldSchemaMap/index'
 
 import type { SelectSearchFunction, SelectSearchRequest, SelectSearchResponse } from './types.js'
 
@@ -78,23 +84,31 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
       return Response.json({ error: 'Unknown entity' }, { status: 404 })
     }
 
-    const fields = entityConfig.flattenedFields
-    if (!Array.isArray(fields)) {
-      return Response.json({ error: 'Fields not searchable' }, { status: 400 })
-    }
-
-    const fieldResult = getFieldByPath({
-      fields,
-      path: schemaPath.split('.').slice(1).join('.'),
+    // Resolve the target field from its full schemaPath via Payload's field
+    // schema map. The map is keyed by the exact schemaPath the client sends
+    // (both come from Payload's form-state machinery) and includes fields
+    // nested inside groups, arrays, blocks AND richText (lexical) blocks —
+    // e.g. `...content.lexical_internal_feature.blocks.lexical_blocks.<block>.fields.<name>`.
+    // Those lexical block fields are absent from `entityConfig.flattenedFields`,
+    // which is why resolving via `getFieldByPath` alone fails inside a lexical
+    // block. Building the map is scoped to this one entity and mirrors the work
+    // Payload already does to render the document's form.
+    const { fieldSchemaMap } = buildFieldSchemaMap({
+      collectionSlug: entityType === 'collection' ? slug : undefined,
+      config,
+      globalSlug: entityType === 'global' ? slug : undefined,
+      i18n: req.i18n,
     })
 
-    if (!fieldResult) {
+    const schemaField = fieldSchemaMap.get(schemaPath)
+    const resolvedField =
+      schemaField && 'type' in schemaField ? (schemaField as FlattenedField) : undefined
+
+    if (!resolvedField) {
       return Response.json({ error: 'Field not found' }, { status: 400 })
     }
 
-    const searchFunction = fieldResult?.field?.custom?.searchFunction as
-      | SelectSearchFunction
-      | undefined
+    const searchFunction = resolvedField.custom?.searchFunction as SelectSearchFunction | undefined
 
     if (typeof searchFunction !== 'function') {
       return Response.json({ error: 'Field not searchable' }, { status: 400 })
@@ -108,7 +122,7 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
     const options = await searchFunction({
       collection: collectionConfig,
       data,
-      field: fieldResult.field,
+      field: resolvedField,
       global: globalConfig,
       query: safeQuery,
       req,
@@ -120,7 +134,7 @@ export const selectSearchEndpointHandler = (): Endpoint => ({
       return Response.json({ error: 'Invalid searchFunction response' }, { status: 500 })
     }
 
-    if (fieldResult.field.type === 'relationship') {
+    if (resolvedField.type === 'relationship') {
       for (const option of options) {
         if (!isObjectIdLike(option?.value)) {
           return Response.json(
