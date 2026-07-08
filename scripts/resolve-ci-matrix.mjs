@@ -108,6 +108,8 @@ for (const entry of entries) {
 const matrix = { include }
 // pnpm --filter args scoping the check job to only the affected packages.
 const filterArgs = affectedDirs.map((dir) => `--filter ./packages/${dir}`).join(' ')
+// Bare directory names for scripts that take a package allowlist (e.g. check:use-client).
+const affectedList = affectedDirs.join(' ')
 const hasWork = affectedDirs.length > 0
 
 console.log(
@@ -117,13 +119,17 @@ console.log(
 )
 console.log(`matrix=${JSON.stringify(matrix)}`)
 console.log(`filterArgs=${filterArgs}`)
+console.log(`affectedList=${affectedList}`)
 console.log(`hasWork=${hasWork}`)
 
 if (process.env.GITHUB_OUTPUT) {
   await fs.appendFile(
     process.env.GITHUB_OUTPUT,
-    [`matrix=${JSON.stringify(matrix)}`, `filterArgs=${filterArgs}`, `hasWork=${hasWork}`].join(
-      '\n',
-    ) + '\n',
+    [
+      `matrix=${JSON.stringify(matrix)}`,
+      `filterArgs=${filterArgs}`,
+      `affectedList=${affectedList}`,
+      `hasWork=${hasWork}`,
+    ].join('\n') + '\n',
   )
 }

@@ -11,11 +11,18 @@
 // package's tsdown.config.ts, which emits one file per module so directives survive.
 //
 // Run AFTER `pnpm build`. Covers new packages automatically (globs packages/*).
+//
+// Optional CLI args restrict the check to specific package directory names, e.g.
+// `node scripts/check-use-client.mjs analytics select-search-field`. CI passes the
+// affected-package list so the check only inspects packages it actually built (an
+// unbuilt package has no dist/ and would otherwise false-fail). With no args every
+// package is checked — the correct behaviour after a full `pnpm build`.
 import fs from 'node:fs'
 import path from 'node:path'
 
 const packagesDir = path.resolve(import.meta.dirname, '../packages')
 const SRC_EXT_RE = /\.(?:tsx|ts|jsx|js|mts|cts|mjs|cjs)$/
+const only = new Set(process.argv.slice(2))
 
 /** Returns 'use client' | 'use server' if it is the first statement, else null. */
 function leadingDirective(code) {
@@ -46,6 +53,7 @@ let checkedDirectives = 0
 const pkgs = fs
   .readdirSync(packagesDir, { withFileTypes: true })
   .filter((d) => d.isDirectory() && fs.existsSync(path.join(packagesDir, d.name, 'package.json')))
+  .filter((d) => only.size === 0 || only.has(d.name))
 
 for (const pkg of pkgs) {
   const root = path.join(packagesDir, pkg.name)
