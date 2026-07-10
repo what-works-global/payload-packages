@@ -13,12 +13,14 @@ A monorepo of [Payload CMS](https://payloadcms.com) plugins, fields, and utiliti
 
 ## Packages
 
-| Package                                                         | Description                                                                                      |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [`payload-block-settings`](./packages/block-settings)           | Hide extra fields for blocks behind a visibility toggle button.                                  |
-| [`payload-heading-field`](./packages/heading-field)             | Let editors choose the rendered heading tag (`h1`–`h6`) for a text, textarea, or richText field. |
-| [`payload-select-search-field`](./packages/select-search-field) | Server-backed search select field and plugin for Payload.                                        |
-| [`payload-sitemap`](./packages/sitemap)                         | Chunked, lazily cached XML sitemaps with hook-driven invalidation and robots.txt helpers.        |
-| [`payload-switch-env`](./packages/switch-env)                   | Switch a running admin between production and development databases, or copy prod-to-dev.        |
-| [`payload-utilities`](./packages/payload-utilities)             | A collection of utilities for Payload 3.0.                                                       |
-| [`analytics`](./packages/analytics)                             | Analytics components for Next.js with cookie consent.                                            |
+| Package <img width="185" height="1" alt="">             | Description                                                                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [`activity-log`](./packages/activity-log)               | Chronological activity feed for the whole CMS — who did what, when, across collections and globals.         |
+| [`audit-fields`](./packages/audit-fields)               | Track `createdBy`/`lastModifiedBy` on every collection and global, with a per-version "Modified By" column. |
+| [`block-settings`](./packages/block-settings)           | Hide extra fields for blocks behind a visibility toggle button.                                             |
+| [`heading-field`](./packages/heading-field)             | Let editors choose the rendered heading tag (`h1`–`h6`) for a text, textarea, or richText field.            |
+| [`select-search-field`](./packages/select-search-field) | Server-backed search select field and plugin for Payload.                                                   |
+| [`sitemap`](./packages/sitemap)                         | Chunked, lazily cached XML sitemaps with hook-driven invalidation and robots.txt helpers.                   |
+| [`switch-env`](./packages/switch-env)                   | Switch a running admin between production and development databases, or copy prod-to-dev.                   |
+| [`utilities`](./packages/payload-utilities)             | A collection of utilities for Payload 3.0.                                                                  |
+| [`analytics`](./packages/analytics)                     | Analytics components for Next.js with cookie consent.                                                       |
