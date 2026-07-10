@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-sitemap",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Payload plugin that generates chunked, lazily cached XML sitemaps with hook-driven invalidation and robots.txt helpers. Next.js + Vercel work out of the box; every layer is overridable for other stacks.",
   "license": "MIT",
   "type": "module",
