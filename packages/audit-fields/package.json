@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-audit-fields",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Payload plugin that tracks who created and last modified every document, with an enhanced versions view showing who modified each version.",
   "license": "MIT",
   "type": "module",

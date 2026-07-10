@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-activity-log",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Payload plugin that records a chronological activity feed — document creates, updates, deletes, and user logins/logouts — with links to the affected document and version instead of full data snapshots.",
   "license": "MIT",
   "type": "module",
