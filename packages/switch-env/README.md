@@ -1,5 +1,12 @@
 # @whatworks/payload-switch-env
 
+<a href="https://whatworks.com.au/?utm_source=github.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
+    <img alt="@whatworks/payload-switch-env" src="../../assets/whitebanner.svg">
+  </picture>
+</a>
+
 A Payload plugin that lets you switch your local admin panel between your **development** and **production** databases — and copy production into development — at the press of a button.
 
 Two common uses:

@@ -1,5 +1,12 @@
 # @whatworks/payload-sitemap
 
+<a href="https://whatworks.com.au/?utm_source=github.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
+    <img alt="@whatworks/payload-sitemap" src="../../assets/whitebanner.svg">
+  </picture>
+</a>
+
 Chunked, lazily cached XML sitemaps for [Payload](https://payloadcms.com) with hook-driven invalidation and robots.txt helpers.
 
 Next.js + Vercel work with near-zero config; every layer — delivery, caching, invalidation, robots output — is overridable for other stacks (decoupled frontends, self-hosted servers, SSG builds).
