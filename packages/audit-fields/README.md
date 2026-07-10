@@ -135,9 +135,10 @@ pagination, status pills, autosave badges, and trash support), with one addition
 It reads `lastModifiedBy` from each version snapshot and falls back to `createdBy`
 for the initial version.
 
-The vendored view internals are pinned to the Payload version in the peer range; if
-Payload materially changes its versions view, update the vendored files alongside
-the peer bump.
+The vendored view internals come from `payload@3.84.1` and degrade gracefully on
+the older Payload versions in the peer range (version-gated props are simply
+absent there); if Payload materially changes its versions view, update the
+vendored files alongside the peer bump.
 
 ## Migrating from @payload-bites/audit-fields
 
