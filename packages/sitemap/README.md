@@ -64,18 +64,24 @@ This is the entire setup — no env vars required. `robots.txt` disallows everyt
 Every URL in the sitemap is joined onto the first available of:
 
 1. the `siteUrl` plugin option — a string, or a function `({ request }) => string` with full control
-2. `SITE_URL` → `NEXT_PUBLIC_SERVER_URL` → `https://$VERCEL_PROJECT_PRODUCTION_URL`
-3. **the incoming request** — `x-forwarded-proto`/`x-forwarded-host`, then `Host`, then the request URL's origin
+2. **the incoming request** — `x-forwarded-proto`/`x-forwarded-host`, then `Host`, then the request URL's origin
+3. `SITE_URL` → `NEXT_PUBLIC_SERVER_URL`
+4. `https://$VERCEL_PROJECT_PRODUCTION_URL`
 
-Env vars deliberately outrank the request: a deployment is often reachable via
-non-canonical aliases (`*.vercel.app`, internal hostnames), and an SEO artifact should
-emit the canonical domain when one is declared. Set `SITE_URL` (or the option) in
-production if your app answers on more than one host; skip it entirely and the sitemap
-simply mirrors whatever host it was requested on.
+The request deliberately outranks the env vars: with zero configuration, a deployment
+answering on several hosts (`example.com`, `staging.example.com`, `*.vercel.app`) emits
+each sitemap on the host it was requested from. Set the `siteUrl` option when multiple
+public hosts must emit one canonical domain. The env vars cover request-less contexts
+(build steps, background jobs); Vercel's project URL comes last because it is derived —
+and frozen at build time — rather than configured. The `app/robots.ts` helper reads
+`next/headers` when the origin isn't pinned by an option string, which makes that route
+dynamic.
 
 Host headers are client-controlled, so request-derived origins are never written to the
 shared cache — entries are cached as site-relative paths and joined onto the resolved
-origin per request. A forged `Host` can only distort the forger's own response.
+origin per request. A forged `Host` can only distort the forger's own response, provided
+your proxy/CDN **sets** `x-forwarded-host` itself (Vercel does) instead of passing a
+client-supplied value through to a shared HTTP cache.
 
 ## Plugin options
 
@@ -101,7 +107,7 @@ sitemapPlugin({
   },
 
   // String, or a function with full control (multi-tenant, per-request logic).
-  // Default: env chain → incoming request (see “How siteUrl is resolved”).
+  // Default: incoming request → env chain (see “How siteUrl is resolved”).
   siteUrl: ({ request }) => `https://${request.headers.get('host')}`,
   trailingSlash: false,
   chunkSize: 25_000,

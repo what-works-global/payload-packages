@@ -8,6 +8,7 @@ import type {
 
 import { getChunkEntries, getIndexItems } from '../core/chunks.js'
 import { finalizeEntries, getSitemapEntries } from '../core/entries.js'
+import { siteUrlFromConfig } from '../core/siteUrl.js'
 import { buildSitemapIndexXml, buildUrlsetXml } from '../core/xml.js'
 
 const checkAccess = async (
@@ -91,7 +92,7 @@ export const createSitemapEndpoints = (config: ResolvedSitemapConfig): Endpoint[
       }
       const collConfig = config.collections[chunk.group]
       const entries = finalizeEntries(chunk.entries, {
-        siteUrl: config.siteUrl({ request: req }),
+        siteUrl: siteUrlFromConfig(config.siteUrl, { request: req }),
         trailingSlash: config.trailingSlash,
       })
       const xml = buildUrlsetXml(entries, {

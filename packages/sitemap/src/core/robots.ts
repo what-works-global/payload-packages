@@ -4,6 +4,7 @@ import type { RobotsData, RobotsOptions, RobotsRule } from '../types.js'
 import type { SiteUrlContext } from './siteUrl.js'
 
 import { getSitemapConfig } from './resolved.js'
+import { siteUrlFromConfig } from './siteUrl.js'
 
 const toArray = (value: string | string[] | undefined): string[] =>
   value === undefined ? [] : Array.isArray(value) ? [value].flat() : [value]
@@ -105,7 +106,9 @@ export const generateRobotsTxt = async (
   const sitemapConfig = getSitemapConfig(config)
   const { request, ...overrideOptions } = overrides ?? {}
   const options = { ...sitemapConfig.robots, ...overrideOptions }
-  const sitemaps = options.sitemaps ?? [`${sitemapConfig.siteUrl({ request })}/sitemap.xml`]
+  const sitemaps = options.sitemaps ?? [
+    `${siteUrlFromConfig(sitemapConfig.siteUrl, { request })}/sitemap.xml`,
+  ]
 
   return renderRobotsTxt(
     buildRobotsData({

@@ -29,7 +29,7 @@ describe('resolveSiteUrl', () => {
     expect(resolveSiteUrl('https://option.example.com')).toBe('https://option.example.com')
   })
 
-  it('falls back through SITE_URL → NEXT_PUBLIC_SERVER_URL → VERCEL_PROJECT_PRODUCTION_URL', () => {
+  it('falls back through SITE_URL → NEXT_PUBLIC_SERVER_URL → VERCEL_PROJECT_PRODUCTION_URL without a request', () => {
     process.env.VERCEL_PROJECT_PRODUCTION_URL = 'vercel.example.com'
     expect(resolveSiteUrl()).toBe('https://vercel.example.com')
 
@@ -57,12 +57,33 @@ describe('resolveSiteUrl', () => {
     expect(resolveSiteUrl(undefined, { request })).toBe('https://example.com')
   })
 
-  it('lets env vars win over the request (canonical domain beats aliases)', () => {
+  it('prefers the request host over env vars', () => {
     process.env.SITE_URL = 'https://canonical.example.com'
     const request = new Request('https://alias.vercel.app/sitemap.xml', {
       headers: { host: 'alias.vercel.app' },
     })
-    expect(resolveSiteUrl(undefined, { request })).toBe('https://canonical.example.com')
+    expect(resolveSiteUrl(undefined, { request })).toBe('https://alias.vercel.app')
+  })
+
+  it('lets an explicit siteUrl option win over the request', () => {
+    const request = new Request('https://alias.vercel.app/sitemap.xml', {
+      headers: { host: 'alias.vercel.app' },
+    })
+    expect(resolveSiteUrl('https://canonical.example.com', { request })).toBe(
+      'https://canonical.example.com',
+    )
+  })
+
+  it("prefers the request host over Vercel's project alias", () => {
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'project.vercel.app'
+    const request = new Request('https://project.vercel.app/sitemap.xml', {
+      headers: {
+        host: 'project.vercel.app',
+        'x-forwarded-host': 'www.example.com',
+        'x-forwarded-proto': 'https',
+      },
+    })
+    expect(resolveSiteUrl(undefined, { request })).toBe('https://www.example.com')
   })
 
   it('gives a configured siteUrl function full control, passing the request through', () => {
@@ -103,6 +124,15 @@ describe('siteUrlFromRequest', () => {
     expect(
       siteUrlFromRequest({ request: { headers: new Headers({ host: '127.0.0.1:3000' }) } }),
     ).toBe('http://127.0.0.1:3000')
+  })
+
+  it('falls back to the host header when forwarded headers are empty', () => {
+    const headers = new Headers({
+      host: 'example.com',
+      'x-forwarded-host': '',
+      'x-forwarded-proto': '',
+    })
+    expect(siteUrlFromRequest({ request: { headers } })).toBe('https://example.com')
   })
 
   it('falls back to the request URL origin when no host header is present', () => {

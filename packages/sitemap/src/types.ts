@@ -240,10 +240,11 @@ export interface SitemapPluginConfig {
    * Canonical origin of the site frontend, e.g. `https://example.com`, or a
    * function with full control (it receives the incoming request's headers when
    * one is available).
-   * @default SITE_URL → NEXT_PUBLIC_SERVER_URL → https://$VERCEL_PROJECT_PRODUCTION_URL
-   * → derived from the incoming request's `x-forwarded-proto`/`x-forwarded-host`/`host`
-   * headers. Env vars win over headers so deployments reachable via non-canonical
-   * aliases still emit the canonical domain.
+   * @default the incoming request's origin (derived from `x-forwarded-proto`/
+   * `x-forwarded-host`/`host`, then the request URL) → SITE_URL →
+   * NEXT_PUBLIC_SERVER_URL → https://$VERCEL_PROJECT_PRODUCTION_URL. The request
+   * wins whenever one is available so each host mirrors itself; set this option
+   * to pin one canonical domain instead.
    */
   siteUrl?: ((ctx: SiteUrlContext) => string) | string
   /** Append a trailing slash to generated paths. @default false */
@@ -264,9 +265,12 @@ export type ResolvedSitemapConfig = {
   robots: RobotsOptions
   routes?: SitemapRoute[] | SitemapRoutesFn
   /**
-   * Resolves the site origin. Static sources (option, env) are memoized;
-   * otherwise it derives from the request headers passed in `ctx`.
+   * The site origin: a validated string when pinned by an explicit `siteUrl`
+   * option string (so request-less deliveries like the robots metadata route
+   * can stay static), otherwise a resolver: the request in `ctx` →
+   * environment fallbacks, throwing when nothing is available. Collapse with
+   * `siteUrlFromConfig(config.siteUrl, ctx)`.
    */
-  siteUrl: (ctx?: SiteUrlContext) => string
+  siteUrl: ((ctx?: SiteUrlContext) => string) | string
   trailingSlash: boolean
 }

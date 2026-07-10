@@ -32,10 +32,11 @@ const LOCAL_HOST = /^(?:localhost|127\.|0\.0\.0\.0|\[::1\])/
  */
 export const siteUrlFromRequest = (ctx: SiteUrlContext): string | undefined => {
   const headers = ctx.request?.headers
-  const host = headers?.get('x-forwarded-host')?.split(',')[0]?.trim() ?? headers?.get('host')
+  // `||`, not `??`: an empty forwarded header must fall through, not win.
+  const host = headers?.get('x-forwarded-host')?.split(',')[0]?.trim() || headers?.get('host')
   if (host) {
     const proto =
-      headers?.get('x-forwarded-proto')?.split(',')[0]?.trim() ??
+      headers?.get('x-forwarded-proto')?.split(',')[0]?.trim() ||
       (LOCAL_HOST.test(host) ? 'http' : 'https')
     return `${proto}://${host}`
   }
@@ -50,15 +51,21 @@ export const siteUrlFromRequest = (ctx: SiteUrlContext): string | undefined => {
 }
 
 /**
- * Resolves the site origin from explicit configuration or environment variables.
- * Returns `undefined` when neither is set (the caller may then fall back to the
- * request). Env vars win over request headers so that deployments reachable via
- * non-canonical aliases (e.g. *.vercel.app) still emit the canonical domain.
+ * Collapses a resolved config's `siteUrl` — a pinned origin string, or a
+ * per-context resolver — into the origin for the given context.
  */
-export const resolveStaticSiteUrl = (configured?: string): string | undefined => {
-  if (configured) {
-    return validateSiteUrl(configured, 'the siteUrl option')
-  }
+export const siteUrlFromConfig = (
+  siteUrl: ((ctx?: SiteUrlContext) => string) | string,
+  ctx?: SiteUrlContext,
+): string => (typeof siteUrl === 'string' ? siteUrl : siteUrl(ctx))
+
+/**
+ * Site origin from environment variables, for contexts with no usable request:
+ * SITE_URL → NEXT_PUBLIC_SERVER_URL → https://$VERCEL_PROJECT_PRODUCTION_URL.
+ * Vercel's project URL comes last: it is derived (and frozen at build time),
+ * not configured.
+ */
+const siteUrlFromEnv = (): string | undefined => {
   if (process.env.SITE_URL) {
     return validateSiteUrl(process.env.SITE_URL, 'SITE_URL')
   }
@@ -75,9 +82,12 @@ export const resolveStaticSiteUrl = (configured?: string): string | undefined =>
 }
 
 /**
- * Resolves the canonical frontend origin: explicit option → SITE_URL →
- * NEXT_PUBLIC_SERVER_URL → VERCEL_PROJECT_PRODUCTION_URL → the incoming
- * request, when available.
+ * Resolves the canonical frontend origin: explicit option → the incoming
+ * request → SITE_URL → NEXT_PUBLIC_SERVER_URL → VERCEL_PROJECT_PRODUCTION_URL.
+ *
+ * The request outranks environment variables so a zero-config deployment
+ * reachable on several domains mirrors whichever host each sitemap was
+ * requested on; set the `siteUrl` option to pin one canonical domain.
  */
 export const resolveSiteUrl = (
   configured?: ((ctx: SiteUrlContext) => string) | string,
@@ -86,15 +96,18 @@ export const resolveSiteUrl = (
   if (typeof configured === 'function') {
     return validateSiteUrl(configured(ctx ?? {}), 'the siteUrl function')
   }
-
-  const staticUrl = resolveStaticSiteUrl(configured)
-  if (staticUrl) {
-    return staticUrl
+  if (configured) {
+    return validateSiteUrl(configured, 'the siteUrl option')
   }
 
   const fromRequest = ctx && siteUrlFromRequest(ctx)
   if (fromRequest) {
     return validateSiteUrl(fromRequest, 'the incoming request')
+  }
+
+  const fromEnv = siteUrlFromEnv()
+  if (fromEnv) {
+    return fromEnv
   }
 
   throw new Error(

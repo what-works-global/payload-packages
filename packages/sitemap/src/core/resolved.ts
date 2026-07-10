@@ -8,7 +8,7 @@ import type {
 } from '../types.js'
 
 import { resolveCache } from './cache.js'
-import { resolveSiteUrl, resolveStaticSiteUrl } from './siteUrl.js'
+import { resolveSiteUrl } from './siteUrl.js'
 
 /** Reserved group name for entries from the `routes` option. */
 export const ROUTES_GROUP = '_routes'
@@ -53,8 +53,6 @@ export const resolveSitemapConfig = (pluginConfig: SitemapPluginConfig): Resolve
     )
   }
 
-  let memoizedStaticSiteUrl: string | undefined
-
   return {
     cache: resolveCache(pluginConfig.cache),
     chunkSize: pluginConfig.chunkSize ?? DEFAULT_CHUNK_SIZE,
@@ -69,16 +67,10 @@ export const resolveSitemapConfig = (pluginConfig: SitemapPluginConfig): Resolve
     groups: [...Object.keys(collections), ...(pluginConfig.routes ? [ROUTES_GROUP] : [])],
     robots: pluginConfig.robots ?? {},
     routes: pluginConfig.routes,
-    siteUrl: (ctx) => {
-      // A configured function gets full control on every call; only the static
-      // sources (option string, env vars) are safe to memoize.
-      if (typeof pluginConfig.siteUrl === 'function') {
-        return resolveSiteUrl(pluginConfig.siteUrl, ctx)
-      }
-      return (memoizedStaticSiteUrl ??= resolveStaticSiteUrl(pluginConfig.siteUrl)) != null
-        ? memoizedStaticSiteUrl
-        : resolveSiteUrl(undefined, ctx)
-    },
+    siteUrl:
+      typeof pluginConfig.siteUrl === 'string'
+        ? resolveSiteUrl(pluginConfig.siteUrl)
+        : (ctx) => resolveSiteUrl(pluginConfig.siteUrl, ctx),
     trailingSlash: pluginConfig.trailingSlash ?? false,
   }
 }

@@ -9,6 +9,7 @@ import { getChunkEntries, getIndexItems } from '../core/chunks.js'
 import { finalizeEntries } from '../core/entries.js'
 import { DEFAULT_CACHE_CONTROL, getSitemapConfig } from '../core/resolved.js'
 import { buildRobotsData } from '../core/robots.js'
+import { siteUrlFromConfig } from '../core/siteUrl.js'
 import { buildSitemapIndexXml, buildUrlsetXml } from '../core/xml.js'
 
 type PayloadConfigInput = Promise<SanitizedConfig> | SanitizedConfig
@@ -28,22 +29,23 @@ const xmlResponse = (xml: string, cacheControl: string): Response =>
   })
 
 /**
- * Metadata routes receive no request object, so when the site origin isn't
- * statically configured fall back to the request headers via `next/headers`
- * (which makes the route dynamic).
+ * Metadata routes receive no request object. An explicit `siteUrl` string keeps
+ * the route static; otherwise read the public host from `next/headers` (which
+ * makes the route dynamic), letting the env-var chain answer when no request
+ * scope exists (e.g. during build-time prerendering).
  */
 const resolveRobotsSiteUrl = async (
   sitemapConfig: ReturnType<typeof getSitemapConfig>,
 ): Promise<string> => {
+  const { siteUrl } = sitemapConfig
+  if (typeof siteUrl === 'string') {
+    return siteUrl
+  }
   try {
-    return sitemapConfig.siteUrl()
-  } catch (staticError) {
-    try {
-      const { headers } = await import('next/headers')
-      return sitemapConfig.siteUrl({ request: { headers: await headers() } })
-    } catch {
-      throw staticError
-    }
+    const { headers } = await import('next/headers')
+    return siteUrl({ request: { headers: await headers() } })
+  } catch {
+    return siteUrl()
   }
 }
 
@@ -70,7 +72,7 @@ export const createSitemapIndexRoute = ({
   GET: async (request) => {
     const payload = await getPayload({ config: await config })
     const sitemapConfig = getSitemapConfig(payload.config)
-    const base = `${sitemapConfig.siteUrl({ request })}${chunksPath}`
+    const base = `${siteUrlFromConfig(sitemapConfig.siteUrl, { request })}${chunksPath}`
     const items = await getIndexItems({
       chunkUrl: (file) => `${base}/${file}`,
       config: sitemapConfig,
@@ -122,7 +124,7 @@ export const createSitemapChunkRoute = ({
 
     const collConfig = sitemapConfig.collections[chunk.group]
     const entries = finalizeEntries(chunk.entries, {
-      siteUrl: sitemapConfig.siteUrl({ request }),
+      siteUrl: siteUrlFromConfig(sitemapConfig.siteUrl, { request }),
       trailingSlash: sitemapConfig.trailingSlash,
     })
     const xml = buildUrlsetXml(entries, {

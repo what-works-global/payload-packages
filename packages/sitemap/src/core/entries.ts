@@ -7,6 +7,7 @@ import type {
 } from '../types.js'
 
 import { getSitemapConfig, ROUTES_GROUP } from './resolved.js'
+import { siteUrlFromConfig } from './siteUrl.js'
 
 const PAGE_SIZE = 1000
 
@@ -192,7 +193,7 @@ export const getSitemapEntries = async (
 ): Promise<Record<string, SitemapEntry[]>> => {
   const config = getSitemapConfig(payload.config)
   const groups = options?.groups ?? config.groups
-  const siteUrl = config.siteUrl({ request: options?.request ?? options?.req })
+  const siteUrl = siteUrlFromConfig(config.siteUrl, { request: options?.request ?? options?.req })
   const result: Record<string, SitemapEntry[]> = {}
   for (const group of groups) {
     const entries = await getGroupEntries({ config, group, payload, req: options?.req })
