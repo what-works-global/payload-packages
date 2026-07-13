@@ -10,7 +10,7 @@
 Role based access control for Payload where the roles live in the database. Editors manage roles in the admin panel through a per-collection **Create / Read / Update / Delete** checkbox matrix; the plugin enforces those permissions across every collection and global.
 
 - Adds a **roles collection** with a checkbox-matrix permissions editor — one row per collection (CRUD) and per global (Read/Update), plus a **Full access** toggle (`'*'`) that covers everything, including collections added later. Wildcard permissions (`'pages:*'`, `'*:read'`) are supported and render as checked, locked cells in the matrix.
-- **Predefine roles in code** — they are seeded on init when missing, and never overwritten afterwards, so the database stays the source of truth.
+- **Predefine roles in code** — they are seeded on init when missing, and never overwritten afterwards, so the database stays the source of truth. Or mark a role `protected: true` to flip ownership: it stays [code-owned](#code-owned-roles) — locked in the admin panel and synced from code on every restart.
 - Adds a `roles` relationship field to your auth collections (multi-role; a user's permissions are the union of their roles).
 - **Applies access control automatically** to every collection and global. Access you define explicitly on a collection always wins for that operation — the plugin only fills the gaps.
 - **Privilege-escalation protection**: users can only assign roles, and only add permissions to roles, that their own roles already cover.
@@ -145,6 +145,37 @@ The `adminRole` closes that hole: the plugin defines that role itself with `perm
 To change a protected role's permissions, change the code definition and restart. Writes without a user (local API, init scripts) are not restricted, matching the other guards.
 
 Renaming `adminRole` seeds a fresh role under the new name with no holders; your existing administrators still hold full access through the old role, and since the new role has no holders yet, the holder-only rule stands aside and lets them assign it in the admin panel (init logs a warning until someone does). The old role stays in the database as an ordinary, no-longer-protected role — delete it when you're done with it.
+
+### Code-owned roles
+
+Lockout prevention aside, `protected` is also the switch between two ownership models — so it's how you keep a role permanently defined, and updated, in code:
+
+- **Unprotected** (the default): the **database owns the role**. It is seeded once when missing; admin-panel edits stick around, and later changes to the code definition are ignored.
+- **`protected: true`**: the **code owns the role**. The permissions list is enforced on every restart, so a definition derived from your config stays in sync automatically — in exchange, the role is locked in the admin panel and API.
+
+```ts
+const contentSlugs = ['pages', 'posts', 'news'] as const
+
+rbacPlugin({
+  adminRole: 'Super Admin',
+  roles: [
+    // Database-owned: seeded once; edit it in the admin panel from then on.
+    { name: 'Office Manager', permissions: ['pages:*', 'forms:read'] },
+    // Code-owned: adding a slug to contentSlugs updates the role on the
+    // next restart — no migration or admin-panel edit needed.
+    {
+      name: 'Editor',
+      protected: true,
+      permissions: contentSlugs.map((slug) => `${slug}:*`),
+    },
+  ],
+})
+```
+
+Two boundaries to know:
+
+- **Only `permissions` is code-owned.** The `description` is written at first seed and never synced again — the guard locks `name` and `permissions`, so the description stays editable in the admin panel.
+- **`name` is the seeding key.** Renaming a protected role in code does not rename the database role: the next init seeds a fresh role under the new name with no holders, and the old one stays behind as an ordinary, no-longer-protected role that keeps its holders. Reassign users to the new role, then delete the old one — the same flow as renaming `adminRole` above.
 
 ## Self-only credentials
 
