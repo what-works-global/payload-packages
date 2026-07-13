@@ -21,9 +21,12 @@ import {
   createProtectRolesFieldHook,
   createRbacAccess,
   createRolesFieldAccess,
+  findFullAccessRoleIds,
+  fullAccessPermissions,
   getRbacCustomConfig,
   getUserPermissions,
   missingPermissions,
+  permissionCovers,
   permissionsGrant,
   permissionsMatrixFieldPath,
   rbacPlugin,
@@ -1146,5 +1149,81 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     expect(
       await access({ req: makeReq(result, { id: 1, roles: [role(1, ['posts:read'])] }) } as never),
     ).toBe(true)
+  })
+
+  it('grants and covers wildcard permissions', async () => {
+    // '<slug>:*' — every action on one entity; '*:<action>' — one action everywhere.
+    expect(permissionsGrant(new Set(['posts:*']), 'posts', 'delete')).toBe(true)
+    expect(permissionsGrant(new Set(['posts:*']), 'pages', 'read')).toBe(false)
+    expect(permissionsGrant(new Set(['*:read']), 'anything', 'read')).toBe(true)
+    expect(permissionsGrant(new Set(['*:read']), 'posts', 'update')).toBe(false)
+
+    // Escalation coverage: wildcards cover their exact permissions, and holding
+    // every action on an entity covers its '<slug>:*' — but '*:<action>' spans
+    // future entities, so only itself or full access covers it.
+    expect(missingPermissions(new Set(['posts:*']), ['posts:read', 'posts:delete'])).toEqual([])
+    expect(missingPermissions(new Set(['*:read']), ['posts:read', 'tags:read'])).toEqual([])
+    expect(
+      missingPermissions(new Set(['posts:create', 'posts:delete', 'posts:read', 'posts:update']), [
+        'posts:*',
+      ]),
+    ).toEqual([])
+    expect(missingPermissions(new Set(['posts:read', 'tags:read']), ['*:read'])).toEqual(['*:read'])
+    expect(permissionCovers(new Set(['pages:*']), 'pages:read')).toBe(true)
+    expect(permissionCovers(new Set(['pages:read']), 'pages:*')).toBe(false)
+
+    // '*:<action>' for all four actions is equivalent to '*' and counts as full access.
+    const everyActionWildcard = ['*:create', '*:read', '*:update', '*:delete']
+    expect(fullAccessPermissions(new Set(everyActionWildcard))).toBe(true)
+    expect(fullAccessPermissions(new Set(['*:read', '*:update']))).toBe(false)
+    expect(missingPermissions(new Set(everyActionWildcard), ['*', 'posts:*', 'tags:read'])).toEqual(
+      [],
+    )
+    const payload = {
+      find: vi.fn(() =>
+        Promise.resolve({
+          docs: [
+            { id: 1, permissions: ['*'] },
+            { id: 2, permissions: everyActionWildcard },
+            { id: 3, permissions: ['posts:*', '*:read'] },
+          ],
+        }),
+      ),
+    } as unknown as Payload
+    expect(await findFullAccessRoleIds(payload, 'roles')).toEqual([1, 2])
+  })
+
+  it('accepts wildcard permissions in predefined roles, options, and access control', async () => {
+    const result = await rbacPlugin({
+      roles: [{ name: 'Editor', permissions: ['posts:*', '*:read'] }],
+    })(baseConfig())
+
+    const roles = getCollection(result, 'roles')
+    const permissionsField = roles.fields.find(
+      (f) => 'name' in f && f.name === 'permissions',
+    ) as SelectField
+    const values = permissionsField.options.map((o) => (typeof o === 'string' ? o : o.value))
+    expect(values).toEqual(
+      expect.arrayContaining(['posts:*', 'site-settings:*', '*:read', '*:delete']),
+    )
+    expect(values).not.toContain('*:*')
+
+    const read = createRbacAccess({ slug: 'site-settings', action: 'read' })
+    const update = createRbacAccess({ slug: 'site-settings', action: 'update' })
+    const wildcardReader = { id: 1, roles: [role(1, ['*:read'])] }
+    expect(await read({ req: makeReq(result, wildcardReader) } as never)).toBe(true)
+    expect(await update({ req: makeReq(result, wildcardReader) } as never)).toBe(false)
+
+    const req = makeReq(result, { id: 2, roles: [role(2, ['posts:*'])] })
+    const postsDelete = createRbacAccess({ slug: 'posts', action: 'delete' })
+    expect(await postsDelete({ req } as never)).toBe(true)
+
+    // Unknown slugs and actions still fail fast at startup.
+    expect(() =>
+      rbacPlugin({ roles: [{ name: 'X', permissions: ['nonexistent:*'] }] })(baseConfig()),
+    ).toThrow(/unknown permission "nonexistent:\*"/)
+    expect(() =>
+      rbacPlugin({ roles: [{ name: 'X', permissions: ['*:publish'] }] })(baseConfig()),
+    ).toThrow(/unknown permission "\*:publish"/)
   })
 })

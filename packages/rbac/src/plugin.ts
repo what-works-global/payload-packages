@@ -154,15 +154,19 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
 
     const validPermissions = new Set<string>([
       FULL_ACCESS,
-      ...matrixRows.flatMap((row) => row.actions.map((action) => permissionFor(row.slug, action))),
+      ...collectionActions.map((action) => `*:${action}`),
+      ...matrixRows.flatMap((row) => [
+        `${row.slug}:*`,
+        ...row.actions.map((action) => permissionFor(row.slug, action)),
+      ]),
     ])
     for (const role of predefinedRoles) {
       for (const permission of role.permissions) {
         if (!validPermissions.has(permission)) {
           throw new Error(
             `[payload-rbac] Predefined role "${role.name}" grants unknown permission "${permission}". ` +
-              `Permissions must be '*' or '<slug>:<action>' for a controlled collection ` +
-              `(create/read/update/delete) or global (read/update).`,
+              `Permissions must be '*', '<slug>:<action>', '<slug>:*', or '*:<action>' for a ` +
+              `controlled collection (create/read/update/delete) or global (read/update).`,
           )
         }
       }

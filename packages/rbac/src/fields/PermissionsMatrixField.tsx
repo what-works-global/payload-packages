@@ -28,11 +28,16 @@ export type PermissionsMatrixFieldProps = {
   rows?: MatrixRow[]
 } & SelectFieldClientProps
 
+const columnWildcard = (action: RbacAction): string => `*:${action}`
+const rowWildcard = (slug: string): string => `${slug}:*`
+
 /**
  * Renders the roles collection's `permissions` select as a matrix of collections ×
  * Create/Read/Update/Delete checkboxes (globals: Read/Update), with a "full access"
- * master toggle for `'*'`. The stored value stays a plain array of permission
- * strings, so the REST/local APIs are unaffected.
+ * master toggle for `'*'`, an "All collections and globals" row for the
+ * `'*:<action>'` wildcards, and cells granted through a wildcard — `'<slug>:*'`
+ * or `'*:<action>'` — shown checked and locked. The stored value stays a plain
+ * array of permission strings, so the REST/local APIs are unaffected.
  */
 export const PermissionsMatrixField: React.FC<PermissionsMatrixFieldProps> = (props) => {
   const { field, path, protectedRoleNames = [], readOnly, rows = [] } = props
@@ -60,15 +65,22 @@ export const PermissionsMatrixField: React.FC<PermissionsMatrixFieldProps> = (pr
 
   const toggleRow = useCallback(
     (row: MatrixRow) => {
-      const permissions = row.actions.map((action) => permissionFor(row.slug, action))
-      const allSelected = permissions.every((permission) => selected.has(permission))
+      const allSelected = row.actions.every(
+        (action) =>
+          selected.has(rowWildcard(row.slug)) ||
+          selected.has(columnWildcard(action)) ||
+          selected.has(permissionFor(row.slug, action)),
+      )
       const next = new Set(selected)
-      for (const permission of permissions) {
+      for (const action of row.actions) {
         if (allSelected) {
-          next.delete(permission)
+          next.delete(permissionFor(row.slug, action))
         } else {
-          next.add(permission)
+          next.add(permissionFor(row.slug, action))
         }
+      }
+      if (allSelected) {
+        next.delete(rowWildcard(row.slug))
       }
       setValue(Array.from(next).sort())
     },
@@ -82,10 +94,13 @@ export const PermissionsMatrixField: React.FC<PermissionsMatrixFieldProps> = (pr
     rows
       .filter((row) => row.entity === entity)
       .map((row) => {
-        const rowPermissions = row.actions.map((action) => permissionFor(row.slug, action))
-        const allChecked =
-          fullAccess || rowPermissions.every((permission) => selected.has(permission))
-        const someChecked = rowPermissions.some((permission) => selected.has(permission))
+        const hasRowWildcard = selected.has(rowWildcard(row.slug))
+        const actionChecked = (action: RbacAction) =>
+          hasRowWildcard ||
+          selected.has(columnWildcard(action)) ||
+          selected.has(permissionFor(row.slug, action))
+        const allChecked = fullAccess || row.actions.every(actionChecked)
+        const someChecked = row.actions.some(actionChecked)
         return (
           <tr key={`${row.entity}:${row.slug}`}>
             <td style={rowLabelStyle}>{row.label}</td>
@@ -106,13 +121,14 @@ export const PermissionsMatrixField: React.FC<PermissionsMatrixFieldProps> = (pr
             {collectionActions.map((action: RbacAction) => {
               const available = row.actions.includes(action)
               const permission = permissionFor(row.slug, action)
+              const wildcarded = hasRowWildcard || selected.has(columnWildcard(action))
               return (
                 <td key={action} style={cellStyle}>
                   {available ? (
                     <input
                       aria-label={`${row.label}: ${action}`}
-                      checked={fullAccess || selected.has(permission)}
-                      disabled={locked || fullAccess}
+                      checked={fullAccess || wildcarded || selected.has(permission)}
+                      disabled={locked || fullAccess || wildcarded}
                       onChange={() => toggle(permission)}
                       type="checkbox"
                     />
@@ -174,6 +190,26 @@ export const PermissionsMatrixField: React.FC<PermissionsMatrixFieldProps> = (pr
             </tr>
           </thead>
           <tbody>
+            <tr>
+              {/* The `'*:<action>'` wildcards: one action on every collection and
+                  global, present and future. Create/delete only ever match
+                  collections — globals have no such actions. */}
+              <td style={rowLabelStyle}>Everything</td>
+              <td style={cellStyle}>
+                <span aria-hidden>—</span>
+              </td>
+              {collectionActions.map((action) => (
+                <td key={action} style={cellStyle}>
+                  <input
+                    aria-label={`Everything: ${action}`}
+                    checked={fullAccess || selected.has(columnWildcard(action))}
+                    disabled={locked || fullAccess}
+                    onChange={() => toggle(columnWildcard(action))}
+                    type="checkbox"
+                  />
+                </td>
+              ))}
+            </tr>
             {hasCollections && hasGlobals && sectionHeading('Collections')}
             {renderRows('collection')}
             {hasGlobals && sectionHeading('Globals')}

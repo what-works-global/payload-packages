@@ -63,8 +63,13 @@ export default buildDevConfig({
         },
         {
           name: 'Viewer',
-          description: 'Read-only access to content.',
-          permissions: ['posts:read', 'tags:read', 'site-settings:read'],
+          description: 'Read-only access to everything, including future collections.',
+          permissions: ['*:read'],
+        },
+        {
+          name: 'Post Editor',
+          description: 'Every action on posts, read-only elsewhere.',
+          permissions: ['posts:*', '*:read'],
         },
       ],
     }),

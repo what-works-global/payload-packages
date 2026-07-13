@@ -42,7 +42,9 @@ export {
 } from './hooks/protectRolesField.js'
 export {
   FULL_ACCESS,
+  fullAccessPermissions,
   missingPermissions,
+  permissionCovers,
   permissionFor,
   permissionsGrant,
   samePermissions,

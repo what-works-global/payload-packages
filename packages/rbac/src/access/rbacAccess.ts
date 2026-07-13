@@ -2,7 +2,7 @@ import type { Access } from 'payload'
 
 import type { RbacAction } from '../shared.js'
 
-import { permissionsGrant } from '../permissions.js'
+import { permissionCovers, permissionsGrant } from '../permissions.js'
 import { getUserPermissions } from '../utilities/getUserPermissions.js'
 
 export type CreateRbacAccessArgs = {
@@ -56,6 +56,6 @@ export const requirePermission = (permission: string): Access => {
       return false
     }
     const permissions = await getUserPermissions(req)
-    return permissions.has('*') || permissions.has(permission)
+    return permissionCovers(permissions, permission)
   }
 }

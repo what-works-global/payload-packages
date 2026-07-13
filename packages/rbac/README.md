@@ -9,7 +9,7 @@
 
 Role based access control for Payload where the roles live in the database. Editors manage roles in the admin panel through a per-collection **Create / Read / Update / Delete** checkbox matrix; the plugin enforces those permissions across every collection and global.
 
-- Adds a **roles collection** with a checkbox-matrix permissions editor — one row per collection (CRUD) and per global (Read/Update), plus a **Full access** toggle (`'*'`) that covers everything, including collections added later.
+- Adds a **roles collection** with a checkbox-matrix permissions editor — one row per collection (CRUD) and per global (Read/Update), plus a **Full access** toggle (`'*'`) that covers everything, including collections added later. Wildcard permissions (`'pages:*'`, `'*:read'`) are supported and render as checked, locked cells in the matrix.
 - **Predefine roles in code** — they are seeded on init when missing, and never overwritten afterwards, so the database stays the source of truth.
 - Adds a `roles` relationship field to your auth collections (multi-role; a user's permissions are the union of their roles).
 - **Applies access control automatically** to every collection and global. Access you define explicitly on a collection always wins for that operation — the plugin only fills the gaps.
@@ -64,6 +64,8 @@ A permission is a plain string, stored on the role document:
 
 - `'*'` — full access to every controlled collection and global, present and future.
 - `'<slug>:<action>'` — one action on one entity, e.g. `'posts:update'`. Actions are `create`/`read`/`update`/`delete` for collections and `read`/`update` for globals.
+- `'<slug>:*'` — every action on one entity, e.g. `'pages:*'`.
+- `'*:<action>'` — one action on every controlled entity, **present and future**, e.g. `'*:read'`. (`'*:create'` and `'*:delete'` only ever match collections — globals have no such actions.)
 
 A user's permission set is the union of all their roles. Requests without a user are denied wherever the plugin controls access — see [Public access](#public-access-and-custom-rules) below. `readVersions` maps to the entity's `read` permission and `unlock` to `update`.
 
@@ -107,6 +109,7 @@ import { hasPermission, requirePermission } from '@whatworks/payload-rbac'
 Enabled by default (`preventPrivilegeEscalation`):
 
 - Assigning a role to a user requires the assigner's own permissions to cover everything that role grants. Assigning a `'*'` role requires holding `'*'`.
+- Coverage is wildcard-aware: holding `'pages:*'` covers granting `'pages:read'`, and holding every action on an entity covers granting its `'<slug>:*'`. But `'*:<action>'` spans entities added in the future, so nothing short of holding `'*:<action>'` itself (or full access) covers granting it — the same way `'*'` works. A role whose `'*:<action>'` wildcards span all four actions is equivalent to `'*'` and treated as full access everywhere.
 - The `adminRole` is stricter still: it can only be assigned by a user who already holds it — full access through another role is not enough (see [lockout prevention](#the-admin-role-and-protected-roles-lockout-prevention) below).
 - Removing roles from **your own account** mirrors assignment: the roles you keep must cover the removed role's permissions — otherwise you could never assign it back, and one save would have locked you out. Removing a redundant role (e.g. dropping `Viewer` while you keep a `'*'` role) works; removing the role your access comes from is rejected with a 403. Removing roles from _other_ users is not restricted.
 - Adding permissions to a role (or creating a role) is limited to permissions the editor already holds.

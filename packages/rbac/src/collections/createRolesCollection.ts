@@ -3,7 +3,7 @@ import type { CollectionConfig, Option } from 'payload'
 import type { MatrixRow } from '../shared.js'
 
 import { FULL_ACCESS, permissionFor } from '../permissions.js'
-import { permissionsMatrixFieldPath } from '../shared.js'
+import { collectionActions, permissionsMatrixFieldPath } from '../shared.js'
 
 export type CreateRolesCollectionArgs = {
   access: CollectionConfig['access']
@@ -17,9 +17,10 @@ export type CreateRolesCollectionArgs = {
 
 /**
  * Builds the roles collection. Permissions are stored as an array of
- * `'<slug>:<action>'` strings (plus `'*'`) in a `select` field, so every value is
- * validated against the known collections and globals; the admin UI renders them
- * through the plugin's checkbox-matrix field component.
+ * `'<slug>:<action>'` strings (plus `'*'` and the `'<slug>:*'`/`'*:<action>'`
+ * wildcards) in a `select` field, so every value is validated against the known
+ * collections and globals; the admin UI renders them through the plugin's
+ * checkbox-matrix field component.
  */
 export const createRolesCollection = ({
   slug,
@@ -31,12 +32,17 @@ export const createRolesCollection = ({
 }: CreateRolesCollectionArgs): CollectionConfig => {
   const options: Option[] = [
     { label: 'Full access', value: FULL_ACCESS },
-    ...matrixRows.flatMap((row) =>
-      row.actions.map((action) => ({
+    ...collectionActions.map((action) => ({
+      label: `Everything: ${action}`,
+      value: `*:${action}`,
+    })),
+    ...matrixRows.flatMap((row) => [
+      { label: `${row.label}: all actions`, value: `${row.slug}:*` },
+      ...row.actions.map((action) => ({
         label: `${row.label}: ${action}`,
         value: permissionFor(row.slug, action),
       })),
-    ),
+    ]),
   ]
 
   const collection: CollectionConfig = {

@@ -1,6 +1,6 @@
 import type { PayloadRequest } from 'payload'
 
-import { FULL_ACCESS } from '../permissions.js'
+import { permissionCovers } from '../permissions.js'
 import { getRbacCustomConfig } from '../shared.js'
 
 const emptySet: ReadonlySet<string> = new Set()
@@ -103,10 +103,11 @@ export const getUserPermissions = (req: PayloadRequest): Promise<ReadonlySet<str
 }
 
 /**
- * Whether the requesting user holds a permission (or `'*'`), e.g.
+ * Whether the requesting user holds a permission — directly or through a
+ * wildcard (`'posts:*'`, `'*:update'`, `'*'`), e.g.
  * `await hasPermission(req, 'posts:update')`.
  */
 export const hasPermission = async (req: PayloadRequest, permission: string): Promise<boolean> => {
   const permissions = await getUserPermissions(req)
-  return permissions.has(FULL_ACCESS) || permissions.has(permission)
+  return permissionCovers(permissions, permission)
 }

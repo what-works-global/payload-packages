@@ -3,10 +3,14 @@ import type { CollectionConfig, CollectionSlug, GlobalSlug, RelationshipField } 
 import type { RbacAction } from './shared.js'
 
 /**
- * A single grant. Either:
+ * A single grant. One of:
  * - `'*'` — full access to every controlled collection and global, present and future.
  * - `'<slug>:<action>'` — one action on one collection (`create`/`read`/`update`/`delete`)
  *   or global (`read`/`update`), e.g. `'posts:update'`.
+ * - `'<slug>:*'` — every action on one collection or global, e.g. `'pages:*'`.
+ * - `'*:<action>'` — one action on every controlled collection and global, present and
+ *   future, e.g. `'*:read'`. `'*:create'` and `'*:delete'` only ever match collections —
+ *   globals have no such actions.
  */
 export type RbacPermission = string
 

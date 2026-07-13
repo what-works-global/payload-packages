@@ -1,6 +1,6 @@
 import type { Payload } from 'payload'
 
-import { FULL_ACCESS } from '../permissions.js'
+import { fullAccessPermissions } from '../permissions.js'
 
 export type RoleHolderQueryArgs = {
   rolesFieldName: string
@@ -8,7 +8,10 @@ export type RoleHolderQueryArgs = {
   userCollections: string[]
 }
 
-/** IDs of every role that grants full access (`'*'`). */
+/**
+ * IDs of every role that grants full access — `'*'`, or the equivalent
+ * `'*:<action>'` wildcard for every action.
+ */
 export const findFullAccessRoleIds = async (
   payload: Payload,
   rolesCollectionSlug: string,
@@ -21,7 +24,12 @@ export const findFullAccessRoleIds = async (
   return docs
     .filter((doc) => {
       const permissions = (doc as { permissions?: unknown }).permissions
-      return Array.isArray(permissions) && permissions.includes(FULL_ACCESS)
+      return (
+        Array.isArray(permissions) &&
+        fullAccessPermissions(
+          new Set(permissions.filter((entry): entry is string => typeof entry === 'string')),
+        )
+      )
     })
     .map((doc) => (doc as { id: number | string }).id)
 }
