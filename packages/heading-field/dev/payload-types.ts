@@ -149,7 +149,7 @@ export interface User {
 export interface Page {
   id: string;
   heading: {
-    tag: 'h1' | 'h2' | 'h3';
+    tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5';
     value: string;
   };
   subheading: {

@@ -1,0 +1,133 @@
+{
+  "name": "@whatworks/payload-algolia-search",
+  "version": "0.1.0",
+  "description": "Algolia search sync for Payload with draft-aware indexing, a best-effort text extractor that turns any collection into search records with zero per-collection code, admin reindex buttons, and index settings managed as code.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
+    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "dev": "next dev dev --turbo",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "dev:payload": "cd dev && cross-env PAYLOAD_CONFIG_PATH=./payload.config.ts payload",
+    "generate:importmap": "pnpm dev:generate-importmap",
+    "generate:types": "pnpm dev:generate-types",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
+    "test:peer": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/what-works-global/payload-packages",
+    "directory": "packages/algolia-search"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
+        "default": "./dist/exports/client.js"
+      },
+      "./react": {
+        "types": "./dist/exports/react.d.ts",
+        "import": "./dist/exports/react.js",
+        "default": "./dist/exports/react.js"
+      },
+      "./rsc": {
+        "types": "./dist/exports/rsc.d.ts",
+        "import": "./dist/exports/rsc.js",
+        "default": "./dist/exports/rsc.js"
+      }
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    },
+    "./react": {
+      "types": "./src/exports/react.ts",
+      "import": "./src/exports/react.ts",
+      "default": "./src/exports/react.ts"
+    },
+    "./rsc": {
+      "types": "./src/exports/rsc.ts",
+      "import": "./src/exports/rsc.ts",
+      "default": "./src/exports/rsc.ts"
+    }
+  },
+  "dependencies": {
+    "algoliasearch": "^5.52.1"
+  },
+  "peerDependencies": {
+    "@payloadcms/richtext-lexical": ">=3.39.0 <4",
+    "@payloadcms/ui": ">=3.39.0 <4",
+    "payload": ">=3.39.0 <4",
+    "react": ">=18.2.0 <20",
+    "react-dom": ">=18.2.0 <20"
+  },
+  "peerDependenciesMeta": {
+    "@payloadcms/richtext-lexical": {
+      "optional": true
+    }
+  },
+  "whatworks": {
+    "peerMatrix": {
+      "payload": {
+        "min": "3.39.0"
+      }
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
+    "@payloadcms/db-mongodb": "catalog:",
+    "@payloadcms/eslint-config": "catalog:",
+    "@payloadcms/next": "catalog:",
+    "@payloadcms/richtext-lexical": "catalog:",
+    "@payloadcms/translations": "catalog:",
+    "@payloadcms/ui": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "cross-env": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-next": "catalog:",
+    "next": "catalog:",
+    "payload": "catalog:",
+    "publint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "rimraf": "catalog:",
+    "sharp": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

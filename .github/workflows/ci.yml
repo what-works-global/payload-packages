@@ -47,6 +47,7 @@ jobs:
       # Repo-wide checks — cheap and cross-cutting, always run.
       - run: pnpm format:check
       - run: pnpm check:publish-config
+      - run: pnpm check:package-scripts
       # Per-package checks — scoped to the packages this PR affects.
       - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present lint
       - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present typecheck

@@ -26,6 +26,7 @@
     "lint:fix": "eslint --fix",
     "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
     "test": "vitest run",
+    "test:peer": "vitest run",
     "typecheck": "tsc --noEmit",
     "typecheck:dev": "tsc -p dev/tsconfig.json --noEmit"
   },

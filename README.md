@@ -16,6 +16,7 @@ A monorepo of [Payload CMS](https://payloadcms.com) plugins, fields, and utiliti
 | Package <img width="185" height="1" alt="">             | Description                                                                                                 |
 | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | [`activity-log`](./packages/activity-log)               | Chronological activity feed for the whole CMS — who did what, when, across collections and globals.         |
+| [`algolia-search`](./packages/algolia-search)           | Draft-aware Algolia sync with best-effort record extraction, admin reindex buttons, and settings as code.   |
 | [`audit-fields`](./packages/audit-fields)               | Track `createdBy`/`lastModifiedBy` on every collection and global, with a per-version "Modified By" column. |
 | [`block-settings`](./packages/block-settings)           | Hide extra fields for blocks behind a visibility toggle button.                                             |
 | [`heading-field`](./packages/heading-field)             | Let editors choose the rendered heading tag (`h1`–`h6`) for a text, textarea, or richText field.            |

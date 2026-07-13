@@ -1,25 +1,20 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { devUser } from '@whatworks/dev-fixture/credentials'
+import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
 import { sitemapPlugin } from '@whatworks/payload-sitemap'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildConfig } from 'payload'
 
 import { seed } from './seed.js'
 
-const filename = fileURLToPath(import.meta.url)
-const dirname = path.dirname(filename)
-
-if (!process.env.ROOT_DIR) {
-  process.env.ROOT_DIR = dirname
-}
+const dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // SQLite file lives in .dbs/ (gitignored). Delete it to reseed from scratch.
 const dbDir = path.resolve(dirname, '.dbs')
 fs.mkdirSync(dbDir, { recursive: true })
 
-export default buildConfig({
+export default buildDevConfig({
   admin: {
     // prefillOnly keeps requests anonymous until you actually log in, so the
     // JSON endpoint's default access control (403 without a user) is observable.
@@ -28,17 +23,8 @@ export default buildConfig({
       password: devUser.password,
       prefillOnly: true,
     },
-    importMap: {
-      baseDir: path.resolve(dirname),
-    },
-    user: 'users',
   },
   collections: [
-    {
-      slug: 'users',
-      auth: true,
-      fields: [],
-    },
     {
       slug: 'pages',
       admin: {
@@ -66,9 +52,8 @@ export default buildConfig({
     client: { url: `file:${path.join(dbDir, 'dev.db')}` },
     push: true,
   }),
-  onInit: async (payload) => {
-    await seed(payload)
-  },
+  dirname,
+  onInit: seed,
   plugins: [
     sitemapPlugin({
       collections: {
@@ -88,9 +73,4 @@ export default buildConfig({
       // derived from each incoming request (exercises the last-resort default).
     }),
   ],
-  secret: process.env.PAYLOAD_SECRET || 'payload-sitemap-dev-secret',
-  telemetry: false,
-  typescript: {
-    outputFile: path.resolve(dirname, 'payload-types.ts'),
-  },
 })

@@ -1,0 +1,8 @@
+# @whatworks/payload-algolia-search
+
+## 0.1.0
+
+### Minor Changes
+
+- beb2e61: Initial release. Algolia search sync for Payload with draft/autosave-aware indexing, a best-effort text extractor that compresses every text/textarea/richText field (through tabs, groups, arrays, and blocks) into one `content` attribute, automatic `title`/`path`/`breadcrumbs`, global + per-collection + field-level (`custom.algoliaSearch`) exclude controls, per-collection `record` transforms and `getPath` overrides (both receiving a `doc` typed from your generated Payload types), Lexical `convertLexicalToPlaintext` integration with a dependency-free fallback, an admin header icon opening a reindex modal (per-collection runs with record counts, or an atomic full rebuild), an access-controlled reindex endpoint with atomic full rebuilds via `replaceAllObjects`, programmatic `runAlgoliaReindex`, background sync via `awaitSync: false` (auto-attaching to Vercel's `waitUntil`, with a `waitUntil` option for other platforms), and index settings managed as code.
+- c51cd63: Add a headless frontend entry, `@whatworks/payload-algolia-search/react`: `useAlgoliaSearch` (debounced search-as-you-type over the Algolia lite client — typed hits, stale responses dropped, no request for empty queries), `useHitCursor` (wrap-around ArrowUp/ArrowDown keyboard cursor with Enter-to-select and scroll-into-view of the active hit), dependency-free `<Highlight>`/`<Snippet>` components that render Algolia's highlight/snippet results as React nodes without `dangerouslySetInnerHTML`, and the `SearchRecord`/`SearchHit` types — a complete unstyled quick-search UI without `react-instantsearch`.

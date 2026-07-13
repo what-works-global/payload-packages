@@ -1,4 +1,6 @@
 export { devUser } from './credentials.js'
+export { buildDevConfig, devUsersCollection, ensureDevUser } from './dev-config.js'
+export type { DevConfigOptions } from './dev-config.js'
 export { defineDevNextConfig } from './next-config.js'
 export type { DevNextConfigOptions } from './next-config.js'
 export { startMemoryMongo } from './memoryDB.js'

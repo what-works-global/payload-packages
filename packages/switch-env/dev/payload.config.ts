@@ -2,7 +2,7 @@ import { mongooseAdapter, type Args as MongoArgs } from '@payloadcms/db-mongodb'
 import { sqliteAdapter, type SQLiteAdapterArgs as SqliteArgs } from '@payloadcms/db-sqlite'
 import fs from 'fs'
 import path from 'path'
-import { type DatabaseAdapterObj, buildConfig } from 'payload'
+import { type DatabaseAdapterObj } from 'payload'
 import { fileURLToPath } from 'url'
 import {
   switchEnvPlugin,
@@ -10,11 +10,12 @@ import {
   type SwitchEnvPluginArgs,
 } from '@whatworks/payload-switch-env'
 import { s3Storage, type S3StorageOptions } from '@payloadcms/storage-s3'
+import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
+import { devUser } from '@whatworks/dev-fixture/credentials'
 import sharp from 'sharp'
 import { getS3SignedUrl } from './fileUtils'
 
-const filename = fileURLToPath(import.meta.url)
-const dirname = path.dirname(filename)
+const dirname = path.dirname(fileURLToPath(import.meta.url))
 
 type DbAdapter = 'mongo' | 'sqlite'
 const dbAdapter: DbAdapter = process.env.DB_ADAPTER === 'sqlite' ? 'sqlite' : 'mongo'
@@ -87,57 +88,13 @@ const s3StorageCollections: S3StorageOptions['collections'] = {
   },
 }
 
-export default buildConfig({
-  db: dbBlock.db,
-  plugins: [
-    s3Storage({
-      bucket: process.env.S3_BUCKET!,
-      collections: s3StorageCollections,
-      clientUploads: true,
-      config: {
-        credentials: {
-          accessKeyId: process.env.S3_ACCESS_KEY_ID!,
-          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
-        },
-        region: process.env.S3_REGION,
-      },
-    }),
-    switchEnvPlugin({
-      // sqlite dev URLs are `file:./...` which don't contain localhost
-      developmentSafetyMode: dbBlock.adapter !== 'sqlite',
-      db: dbBlock.plugin as SwitchEnvPluginArgs<MongoArgs | SqliteArgs>['db'],
-      buttonMode: 'switch',
-      developmentFileStorage:
-        process.env.APP_ENV === 'staging'
-          ? {
-              mode: 'cloud-storage',
-              prefix: 'staging',
-              collections: s3StorageCollections,
-            }
-          : {
-              mode: 'file-system',
-            },
-      copy: {
-        versions: {
-          default: {
-            mode: 'none',
-          },
-        },
-      },
-    }),
-  ],
+export default buildDevConfig({
   admin: {
     autoLogin: Boolean(isDev && adminEmail) && {
       email: adminEmail,
     },
-    user: 'users',
   },
   collections: [
-    {
-      slug: 'users',
-      auth: true,
-      fields: [],
-    },
     {
       slug: 'pages',
       versions: {
@@ -191,6 +148,8 @@ export default buildConfig({
       },
     },
   ],
+  db: dbBlock.db,
+  dirname,
   globals: [
     {
       slug: 'versionedGlobal',
@@ -205,27 +164,6 @@ export default buildConfig({
       ],
     },
   ],
-  secret: process.env.PAYLOAD_SECRET || 'SOME_SECRET',
-  typescript: {
-    outputFile: path.resolve(dirname, 'payload-types.ts'),
-  },
-  async onInit(payload) {
-    const existingUsers = await payload.find({
-      collection: 'users',
-      limit: 1,
-    })
-
-    if (existingUsers.docs.length === 0) {
-      await payload.create({
-        collection: 'users',
-        data: {
-          email: adminEmail ?? 'dev@payloadcms.com',
-          password: 'test',
-        },
-      })
-    }
-  },
-  sharp,
   logger: {
     options: {
       level: 'debug',
@@ -238,4 +176,63 @@ export default buildConfig({
       },
     },
   },
+  // Seeds `ADMIN_EMAIL` when set (matching the conditional autoLogin above), so the
+  // default dev-user seeding is disabled in favor of this.
+  onInit: async (payload) => {
+    const existingUsers = await payload.find({
+      collection: 'users',
+      limit: 1,
+    })
+
+    if (existingUsers.docs.length === 0) {
+      await payload.create({
+        collection: 'users',
+        data: {
+          ...devUser,
+          email: adminEmail ?? devUser.email,
+        },
+      })
+    }
+  },
+  plugins: [
+    s3Storage({
+      bucket: process.env.S3_BUCKET!,
+      collections: s3StorageCollections,
+      clientUploads: true,
+      config: {
+        credentials: {
+          accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+        },
+        region: process.env.S3_REGION,
+      },
+    }),
+    switchEnvPlugin({
+      // sqlite dev URLs are `file:./...` which don't contain localhost
+      developmentSafetyMode: dbBlock.adapter !== 'sqlite',
+      db: dbBlock.plugin as SwitchEnvPluginArgs<MongoArgs | SqliteArgs>['db'],
+      buttonMode: 'switch',
+      developmentFileStorage:
+        process.env.APP_ENV === 'staging'
+          ? {
+              mode: 'cloud-storage',
+              prefix: 'staging',
+              collections: s3StorageCollections,
+            }
+          : {
+              mode: 'file-system',
+            },
+      copy: {
+        versions: {
+          default: {
+            mode: 'none',
+          },
+        },
+      },
+    }),
+  ],
+  // The custom onInit above seeds `ADMIN_EMAIL` when set (matching the conditional
+  // autoLogin), so the default dev-user seeding is disabled.
+  seedDevUser: false,
+  sharp,
 })

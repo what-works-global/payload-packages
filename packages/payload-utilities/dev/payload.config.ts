@@ -1,6 +1,6 @@
 import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
-import { devUser } from '@whatworks/dev-fixture/credentials'
+import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
 import { startMemoryMongo } from '@whatworks/dev-fixture/memory-db'
 import { testEmailAdapter } from '@whatworks/dev-fixture/test-email'
 import {
@@ -8,33 +8,19 @@ import {
   transformDocument,
 } from '@whatworks/payload-utilities/traverseDocument'
 import path from 'path'
-import { buildConfig } from 'payload'
 import sharp from 'sharp'
 import { fileURLToPath } from 'url'
 
 import { seed } from './seed.js'
 
-const filename = fileURLToPath(import.meta.url)
-const dirname = path.dirname(filename)
-
-if (!process.env.ROOT_DIR) {
-  process.env.ROOT_DIR = dirname
-}
+const dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const buildConfigWithMemoryDB = async () => {
   if (process.env.NODE_ENV === 'test') {
     await startMemoryMongo({ dbName: 'payloadmemory' })
   }
 
-  return buildConfig({
-    admin: {
-      autoLogin: {
-        email: devUser.email,
-      },
-      importMap: {
-        baseDir: path.resolve(dirname),
-      },
-    },
+  return buildDevConfig({
     collections: [
       {
         slug: 'posts',
@@ -105,17 +91,11 @@ const buildConfigWithMemoryDB = async () => {
       ensureIndexes: true,
       url: process.env.DATABASE_URI || '',
     }),
+    dirname,
     editor: lexicalEditor(),
     email: testEmailAdapter,
-    onInit: async (payload) => {
-      await seed(payload)
-    },
-    plugins: [],
-    secret: process.env.PAYLOAD_SECRET || 'test-secret_key',
+    onInit: seed,
     sharp,
-    typescript: {
-      outputFile: path.resolve(dirname, 'payload-types.ts'),
-    },
   })
 }
 

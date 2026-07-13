@@ -1,30 +1,12 @@
-import { mongooseAdapter } from '@payloadcms/db-mongodb'
+import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
 import { auditFieldsPlugin } from '@whatworks/payload-audit-fields'
 import path from 'path'
-import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 
-const filename = fileURLToPath(import.meta.url)
-const dirname = path.dirname(filename)
+const dirname = path.dirname(fileURLToPath(import.meta.url))
 
-const databaseURL = process.env.DATABASE_URI || 'mongodb://127.0.0.1:27017/payload-audit-fields-dev'
-
-export default buildConfig({
-  admin: {
-    autoLogin: {
-      email: 'dev@payloadcms.com',
-    },
-    importMap: {
-      baseDir: path.resolve(dirname),
-    },
-    user: 'users',
-  },
+export default buildDevConfig({
   collections: [
-    {
-      slug: 'users',
-      auth: true,
-      fields: [],
-    },
     {
       slug: 'posts',
       admin: {
@@ -60,9 +42,8 @@ export default buildConfig({
       ],
     },
   ],
-  db: mongooseAdapter({
-    url: databaseURL,
-  }),
+  dbName: 'payload-audit-fields-dev',
+  dirname,
   globals: [
     {
       slug: 'site-settings',
@@ -75,25 +56,5 @@ export default buildConfig({
       versions: true,
     },
   ],
-  onInit: async (payload) => {
-    const existing = await payload.find({
-      collection: 'users',
-      limit: 1,
-    })
-
-    if (existing.docs.length === 0) {
-      await payload.create({
-        collection: 'users',
-        data: {
-          email: 'dev@payloadcms.com',
-          password: 'test',
-        },
-      })
-    }
-  },
   plugins: [auditFieldsPlugin()],
-  secret: process.env.PAYLOAD_SECRET || 'audit-fields-dev-secret',
-  typescript: {
-    outputFile: path.resolve(dirname, 'payload-types.ts'),
-  },
 })
