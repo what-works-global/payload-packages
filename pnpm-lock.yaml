@@ -142,13 +142,13 @@ importers:
         version: 3.28.0(@typescript-eslint/eslint-plugin@8.59.4(@typescript-eslint/parser@8.59.4(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3))(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3))(jiti@1.21.7)(ts-api-utils@2.5.0(typescript@5.7.3))
       '@payloadcms/next':
         specifier: 'catalog:'
-        version: 3.84.1(@types/react@19.2.9)(graphql@16.13.2)(monaco-editor@0.55.1)(next@16.2.6(@playwright/test@1.59.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4))(payload@3.84.1(graphql@16.13.2)(typescript@5.7.3))(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.7.3)
+        version: 3.84.1(@types/react@19.2.9)(graphql@16.13.2)(monaco-editor@0.55.1)(next@16.2.6(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4))(payload@3.84.1(graphql@16.13.2)(typescript@5.7.3))(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.7.3)
       '@payloadcms/translations':
         specifier: 'catalog:'
         version: 3.84.1
       '@payloadcms/ui':
         specifier: 'catalog:'
-        version: 3.84.1(@types/react@19.2.9)(monaco-editor@0.55.1)(next@16.2.6(@playwright/test@1.59.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4))(payload@3.84.1(graphql@16.13.2)(typescript@5.7.3))(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.7.3)
+        version: 3.84.1(@types/react@19.2.9)(monaco-editor@0.55.1)(next@16.2.6(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4))(payload@3.84.1(graphql@16.13.2)(typescript@5.7.3))(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.7.3)
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.9
@@ -661,6 +661,75 @@ importers:
       vite-tsconfig-paths:
         specifier: 'catalog:'
         version: 5.1.4(typescript@5.7.3)(vite@6.4.2(@types/node@22.19.9)(jiti@1.21.7)(sass@1.77.4)(tsx@4.21.0)(yaml@2.8.3))
+      vitest:
+        specifier: 'catalog:'
+        version: 3.1.2(@types/debug@4.1.13)(@types/node@22.19.9)(happy-dom@20.9.0)(jiti@1.21.7)(sass@1.77.4)(tsx@4.21.0)(yaml@2.8.3)
+
+  packages/rbac:
+    devDependencies:
+      '@arethetypeswrong/cli':
+        specifier: 'catalog:'
+        version: 0.18.2
+      '@payloadcms/db-mongodb':
+        specifier: 'catalog:'
+        version: 3.84.1(payload@3.84.1(graphql@16.13.2)(typescript@5.7.3))
+      '@payloadcms/eslint-config':
+        specifier: 'catalog:'
+        version: 3.28.0(@typescript-eslint/eslint-plugin@8.59.4(@typescript-eslint/parser@8.26.1(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3))(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3))(jiti@1.21.7)(ts-api-utils@2.5.0(typescript@5.7.3))
+      '@payloadcms/next':
+        specifier: 'catalog:'
+        version: 3.84.1(@types/react@19.2.9)(graphql@16.13.2)(monaco-editor@0.55.1)(next@16.2.6(@playwright/test@1.59.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4))(payload@3.84.1(graphql@16.13.2)(typescript@5.7.3))(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.7.3)
+      '@payloadcms/ui':
+        specifier: 'catalog:'
+        version: 3.84.1(@types/react@19.2.9)(monaco-editor@0.55.1)(next@16.2.6(@playwright/test@1.59.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4))(payload@3.84.1(graphql@16.13.2)(typescript@5.7.3))(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.7.3)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.9
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.9
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.2.3(@types/react@19.2.9)
+      '@whatworks/dev-fixture':
+        specifier: workspace:*
+        version: link:../../tools/dev-fixture
+      cross-env:
+        specifier: 'catalog:'
+        version: 7.0.3
+      eslint:
+        specifier: 'catalog:'
+        version: 9.23.0(jiti@1.21.7)
+      eslint-config-next:
+        specifier: 'catalog:'
+        version: 16.2.6(@typescript-eslint/parser@8.26.1(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3))(eslint-plugin-import-x@4.6.1(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3))(eslint@9.23.0(jiti@1.21.7))(typescript@5.7.3)
+      next:
+        specifier: 'catalog:'
+        version: 16.2.6(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4)
+      payload:
+        specifier: 'catalog:'
+        version: 3.84.1(graphql@16.13.2)(typescript@5.7.3)
+      publint:
+        specifier: 'catalog:'
+        version: 0.3.12
+      react:
+        specifier: 'catalog:'
+        version: 19.2.1
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.1(react@19.2.1)
+      rimraf:
+        specifier: 'catalog:'
+        version: 6.0.1
+      sharp:
+        specifier: 'catalog:'
+        version: 0.34.2
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.18.0(@arethetypeswrong/core@0.18.2)(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(publint@0.3.12)(typescript@5.7.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.7.3
       vitest:
         specifier: 'catalog:'
         version: 3.1.2(@types/debug@4.1.13)(@types/node@22.19.9)(happy-dom@20.9.0)(jiti@1.21.7)(sass@1.77.4)(tsx@4.21.0)(yaml@2.8.3)
