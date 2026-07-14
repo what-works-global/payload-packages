@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-algolia-search",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Algolia search sync for Payload with draft-aware indexing, a best-effort text extractor that turns any collection into search records with zero per-collection code, admin reindex buttons, and index settings managed as code.",
   "license": "MIT",
   "type": "module",
