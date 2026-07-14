@@ -1,5 +1,11 @@
 # @whatworks/payload-activity-log
 
+## 0.2.0
+
+### Minor Changes
+
+- 3b9b983: Add opt-in request host tracking. Set `requestHost: true` to store the host each request was addressed to (`x-forwarded-host` → `host` by default) on every log entry, or pass a resolver function for full control. Mirrors the existing `ipAddress` option and is handy for attributing activity in multi-tenant / multi-domain deployments.
+
 ## 0.1.1
 
 ### Patch Changes
