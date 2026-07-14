@@ -1,0 +1,9 @@
+# Force contributors to use a structured form instead of a blank issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/what-works-global/payload-packages/discussions
+    about: For usage questions, ideas, and general discussion, please open a Discussion instead of an issue.
+  - name: Payload documentation
+    url: https://payloadcms.com/docs
+    about: For questions about Payload itself (not these packages), see the official Payload docs.

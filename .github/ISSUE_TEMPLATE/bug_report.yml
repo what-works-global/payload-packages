@@ -1,0 +1,99 @@
+name: Bug report
+description: Report a bug in one of the @whatworks packages
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report! Please fill out the fields below so we can reproduce and fix the issue quickly.
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: Which package is this issue about? (Pick one — file separate issues for separate packages.)
+      options:
+        - "@whatworks/payload-activity-log"
+        - "@whatworks/payload-algolia-search"
+        - "@whatworks/analytics"
+        - "@whatworks/payload-audit-fields"
+        - "@whatworks/payload-block-settings"
+        - "@whatworks/payload-heading-field"
+        - "@whatworks/payload-utilities"
+        - "@whatworks/payload-rbac"
+        - "@whatworks/payload-select-search-field"
+        - "@whatworks/payload-sitemap"
+        - "@whatworks/payload-switch-env"
+    validations:
+      required: true
+
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: The version of the package you're using (e.g. `1.2.3`). Find it in your `package.json` or lockfile.
+      placeholder: "1.2.3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug, including what you expected to happen instead.
+      placeholder: When I do X, Y happens. I expected Z.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps (or a link to a minimal reproduction repo) that reproduce the behaviour. Reproductions get fixed far faster.
+      placeholder: |
+        1. Configure the plugin with '...'
+        2. Run '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error output
+      description: Paste any error messages or stack traces. This is automatically formatted as code, so no backticks needed.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: payload-version
+    attributes:
+      label: Payload version
+      description: Which version of `payload` are you running? (N/A for non-Payload packages like `@whatworks/analytics`.)
+      placeholder: "3.x.x"
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, package manager, OS, database (if relevant), and anything else about your setup.
+      placeholder: |
+        - Node: 22.x
+        - Package manager: pnpm 9.x
+        - OS: macOS 15
+        - Database: MongoDB 7
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this hasn't already been reported.
+          required: true
+        - label: I'm using a supported, up-to-date version of the package.
+          required: true
