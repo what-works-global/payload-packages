@@ -1,5 +1,14 @@
 # @whatworks/payload-activity-log
 
+<a href="https://whatworks.com.au/?utm_source=github.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
+    <img alt="Activity Log" src="../../assets/whitebanner.svg">
+  </picture>
+</a>
+
+&nbsp;
+
 Payload plugin that records a chronological activity feed for your whole CMS — who did what, when, across every collection and global. Think WordPress's Simple History, for Payload.
 
 - Logs document **creates, updates, trashes, restores, and deletes**, plus user **logins and logouts** (opt-out, not opt-in).

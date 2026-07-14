@@ -1,5 +1,14 @@
 # @whatworks/payload-algolia-search
 
+<a href="https://whatworks.com.au/?utm_source=github.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
+    <img alt="Algolia Search" src="../../assets/whitebanner.svg">
+  </picture>
+</a>
+
+&nbsp;
+
 Algolia search sync for Payload with defaults that hold up in production: draft-aware indexing, a best-effort text extractor that turns any collection into lean search records with **zero per-collection code**, admin reindex buttons, and index settings managed as code.
 
 - **Best-effort records by default.** The plugin walks each collection's field config alongside the document and compresses every `text`, `textarea`, and `richText` value — through tabs, groups, rows, collapsibles, arrays, and blocks — into a single `content` attribute, in document order. Add a block with a text field and it's searchable the moment an editor saves. `title`, `path`, and `breadcrumbs` come along automatically.
