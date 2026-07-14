@@ -210,6 +210,7 @@ export interface ActivityLog {
   userLabel?: string | null;
   operation?: ('create' | 'update' | 'trash' | 'restore' | 'delete' | 'login' | 'logout') | null;
   ipAddress?: string | null;
+  requestHost?: string | null;
   collectionSlug?: string | null;
   globalSlug?: string | null;
   documentId?: string | null;
@@ -368,6 +369,7 @@ export interface ActivityLogSelect<T extends boolean = true> {
   userLabel?: T;
   operation?: T;
   ipAddress?: T;
+  requestHost?: T;
   collectionSlug?: T;
   globalSlug?: T;
   documentId?: T;

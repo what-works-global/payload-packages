@@ -7,6 +7,7 @@ import type {
   ActivityUserRef,
   ResolveActivityDocumentLabel,
   ResolveActivityIpAddress,
+  ResolveActivityRequestHost,
   ResolveActivityUser,
   ResolveActivityUserLabel,
 } from '../types.js'
@@ -25,6 +26,8 @@ export type ActivityHookContext = {
   resolveDocumentLabel?: ResolveActivityDocumentLabel
   /** Non-null when IP tracking is enabled — applies to every logged operation. */
   resolveIpAddress?: null | ResolveActivityIpAddress
+  /** Non-null when host tracking is enabled — applies to every logged operation. */
+  resolveRequestHost?: null | ResolveActivityRequestHost
   resolveUser?: ResolveActivityUser
   resolveUserLabel?: ResolveActivityUserLabel
   retention: { maxAgeDays: number } | null
@@ -173,6 +176,24 @@ const resolveEventIpAddress = async (
   }
 }
 
+/**
+ * Resolves the request host stored on the entry. Failures (or a resolver
+ * returning nothing) just leave it unset — never block the entry write.
+ */
+const resolveEventRequestHost = async (
+  context: ActivityHookContext,
+  req: PayloadRequest,
+): Promise<null | string> => {
+  if (!context.resolveRequestHost) {
+    return null
+  }
+  try {
+    return (await context.resolveRequestHost({ req })) ?? null
+  } catch {
+    return null
+  }
+}
+
 /** Plain-JSON copy of a document, safe to store in a json field. */
 export const toSnapshot = (doc: JsonObject): JsonObject | null => {
   try {
@@ -218,6 +239,7 @@ export const createActivityEntry = async ({
 }: CreateActivityEntryArgs): Promise<void> => {
   try {
     const ipAddress = await resolveEventIpAddress(context, req)
+    const requestHost = await resolveEventRequestHost(context, req)
 
     await req.payload.create({
       collection: context.logSlug,
@@ -229,6 +251,8 @@ export const createActivityEntry = async ({
         globalSlug: globalSlug ?? null,
         // Only present when IP tracking is enabled — the field only exists then.
         ...(ipAddress == null ? {} : { ipAddress }),
+        // Only present when host tracking is enabled — the field only exists then.
+        ...(requestHost == null ? {} : { requestHost }),
         operation,
         snapshot: snapshot ?? undefined,
         user,

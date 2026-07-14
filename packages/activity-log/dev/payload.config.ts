@@ -59,6 +59,6 @@ export default buildDevConfig({
   ],
   plugins: [
     auditFieldsPlugin(),
-    activityLogPlugin({ ipAddress: true, retention: { maxAgeDays: 90 } }),
+    activityLogPlugin({ ipAddress: true, requestHost: true, retention: { maxAgeDays: 90 } }),
   ],
 })

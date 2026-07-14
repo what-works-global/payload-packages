@@ -10,6 +10,8 @@ import {
 export type GetActivityLogCollectionArgs = {
   /** Adds the `ipAddress` field (and list column) when IP tracking is enabled. */
   ipAddress?: boolean
+  /** Adds the `requestHost` field (and list column) when host tracking is enabled. */
+  requestHost?: boolean
   slug: string
   userCollections: string[]
 }
@@ -23,6 +25,7 @@ export type GetActivityLogCollectionArgs = {
 export const getActivityLogCollection = ({
   slug,
   ipAddress = false,
+  requestHost = false,
   userCollections,
 }: GetActivityLogCollectionArgs): CollectionConfig => ({
   slug,
@@ -40,6 +43,7 @@ export const getActivityLogCollection = ({
       'documentTitle',
       'versionId',
       ...(ipAddress ? ['ipAddress'] : []),
+      ...(requestHost ? ['requestHost'] : []),
     ],
     useAsTitle: 'documentTitle',
   },
@@ -101,6 +105,22 @@ export const getActivityLogCollection = ({
             },
             index: true,
             label: 'IP Address',
+          },
+        ] satisfies CollectionConfig['fields'])
+      : []),
+    ...(requestHost
+      ? ([
+          {
+            // The host the request was addressed to, captured for every logged
+            // operation when the plugin's opt-in `requestHost` option is enabled.
+            name: 'requestHost',
+            type: 'text',
+            admin: {
+              condition: (data) => Boolean(data?.requestHost),
+              readOnly: true,
+            },
+            index: true,
+            label: 'Request Host',
           },
         ] satisfies CollectionConfig['fields'])
       : []),

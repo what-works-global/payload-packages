@@ -97,6 +97,15 @@ export type ResolveActivityIpAddress = (args: {
 }) => (null | string | undefined) | Promise<null | string | undefined>
 
 /**
+ * Resolves the request host stored on log entries when the `requestHost` option
+ * is enabled. May be async. Return `null`/`undefined` to store nothing for that
+ * event.
+ */
+export type ResolveActivityRequestHost = (args: {
+  req: PayloadRequest
+}) => (null | string | undefined) | Promise<null | string | undefined>
+
+/**
  * Per-event toggles. Anything not listed here (reads, autosaves unless enabled) is
  * never logged.
  */
@@ -204,6 +213,19 @@ export type ActivityLogPluginConfig = {
    * @default false
    */
   ipAddress?: boolean | ResolveActivityIpAddress
+  /**
+   * Opt-in request host tracking. When enabled, a `requestHost` field is added
+   * to the log collection and every log entry stores the host the request was
+   * addressed to.
+   *
+   * - `false` (default) — nothing is stored.
+   * - `true` — read from the standard headers (`x-forwarded-host` → `host`).
+   * - a function — resolve it yourself (see {@link ResolveActivityRequestHost}),
+   *   e.g. when your proxy chain makes those headers untrustworthy.
+   *
+   * @default false
+   */
+  requestHost?: boolean | ResolveActivityRequestHost
   /**
    * Custom label for the affected document, stored on the log entry at event time.
    * See {@link ResolveActivityDocumentLabel}.

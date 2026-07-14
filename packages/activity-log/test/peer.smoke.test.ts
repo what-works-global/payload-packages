@@ -91,6 +91,7 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       collectionSlug: 'activity-log',
       events: defaultEvents,
       ipAddress: false,
+      requestHost: false,
       resolveUserLabel: null,
       retention: null,
       snapshot: 'delete',
@@ -324,6 +325,55 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       req: custom.req,
     } as never)
     expect(custom.created[0].data.ipAddress).toBe('custom-ip')
+  })
+
+  it('stores the request host for every operation when requestHost is enabled', async () => {
+    const clientHeaders = new Headers({
+      'x-forwarded-host': 'tenant-a.example.com, proxy.internal',
+    })
+    const changeArgs = {
+      collection: { slug: 'posts' } as never,
+      context: {},
+      doc: { id: 'post-1', title: 'Hello' },
+      operation: 'create',
+    }
+
+    // Off by default: no field, no column, nothing stored even with headers present.
+    const offResult = await activityLogPlugin()(baseConfig() as Config)
+    const offLog = getCollection(offResult, 'activity-log')
+    expect(offLog.fields.some((f) => 'name' in f && f.name === 'requestHost')).toBe(false)
+    expect(offLog.admin?.defaultColumns).not.toContain('requestHost')
+    const off = buildReq({ headers: clientHeaders })
+    await getCollection(offResult, 'posts').hooks?.afterChange?.[0]?.({
+      ...changeArgs,
+      req: off.req,
+    } as never)
+    expect('requestHost' in off.created[0].data).toBe(false)
+
+    // Enabled: schema gains the field/column and a plain document write carries
+    // the first x-forwarded-host hop — tracking covers all operations.
+    const onResult = await activityLogPlugin({ requestHost: true })(baseConfig() as Config)
+    const onLog = getCollection(onResult, 'activity-log')
+    expect(onLog.fields.some((f) => 'name' in f && f.name === 'requestHost')).toBe(true)
+    expect(onLog.admin?.defaultColumns).toContain('requestHost')
+    expect(getActivityLogCustomConfig(onResult)?.requestHost).toBe(true)
+    const on = buildReq({ headers: clientHeaders })
+    await getCollection(onResult, 'posts').hooks?.afterChange?.[0]?.({
+      ...changeArgs,
+      req: on.req,
+    } as never)
+    expect(on.created[0].data.requestHost).toBe('tenant-a.example.com')
+
+    // A custom resolver replaces header parsing entirely.
+    const customResult = await activityLogPlugin({ requestHost: () => 'custom-host' })(
+      baseConfig() as Config,
+    )
+    const custom = buildReq()
+    await getCollection(customResult, 'posts').hooks?.afterChange?.[0]?.({
+      ...changeArgs,
+      req: custom.req,
+    } as never)
+    expect(custom.created[0].data.requestHost).toBe('custom-host')
   })
 
   it('getChangedFields ignores bookkeeping keys and compares deeply', () => {

@@ -9,6 +9,7 @@ import {
   defaultCollectionSlug,
   defaultEvents,
   defaultResolveIpAddress,
+  defaultResolveRequestHost,
   defaultSnapshotMode,
 } from './defaults.js'
 import { logAfterLogin, logAfterLogout } from './hooks/logAuthActivity.js'
@@ -78,12 +79,19 @@ export const activityLogPlugin = (pluginConfig: ActivityLogPluginConfig = {}): P
         : pluginConfig.ipAddress
           ? defaultResolveIpAddress
           : null
+    const resolveRequestHost =
+      typeof pluginConfig.requestHost === 'function'
+        ? pluginConfig.requestHost
+        : pluginConfig.requestHost
+          ? defaultResolveRequestHost
+          : null
 
     const context: ActivityHookContext = {
       events,
       logSlug,
       resolveDocumentLabel: pluginConfig.resolveDocumentLabel,
       resolveIpAddress,
+      resolveRequestHost,
       resolveUser: pluginConfig.resolveUser,
       resolveUserLabel: pluginConfig.resolveUserLabel,
       retention,
@@ -153,6 +161,7 @@ export const activityLogPlugin = (pluginConfig: ActivityLogPluginConfig = {}): P
     let logCollection = getActivityLogCollection({
       slug: logSlug,
       ipAddress: resolveIpAddress !== null,
+      requestHost: resolveRequestHost !== null,
       userCollections,
     })
     if (pluginConfig.collectionOverride) {
@@ -164,6 +173,7 @@ export const activityLogPlugin = (pluginConfig: ActivityLogPluginConfig = {}): P
       collectionSlug: logSlug,
       events,
       ipAddress: resolveIpAddress !== null,
+      requestHost: resolveRequestHost !== null,
       resolveUserLabel: pluginConfig.resolveUserLabel ?? null,
       retention,
       snapshot,

@@ -33,6 +33,8 @@ export type ActivityLogCustomConfig = {
   events: Required<ActivityLogEvents>
   /** Whether opt-in IP address tracking is enabled. */
   ipAddress: boolean
+  /** Whether opt-in request host tracking is enabled. */
+  requestHost: boolean
   resolveUserLabel: null | ResolveActivityUserLabel
   retention: { maxAgeDays: number } | null
   snapshot: ActivitySnapshotMode

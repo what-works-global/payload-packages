@@ -2,6 +2,7 @@ import type {
   ActivityLogEvents,
   ResolveActivityDocumentLabel,
   ResolveActivityIpAddress,
+  ResolveActivityRequestHost,
   ResolveActivityUserLabel,
 } from './types.js'
 
@@ -32,6 +33,23 @@ export const defaultResolveIpAddress: ResolveActivityIpAddress = ({ req }) => {
     req.headers.get('x-real-ip'),
     req.headers.get('x-forwarded-for')?.split(',')[0],
   ]
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+  return null
+}
+
+/**
+ * Default host resolution when `requestHost: true`: the forwarded host set by a
+ * reverse proxy, falling back to the request's own `host` header. Whether
+ * `x-forwarded-host` can be trusted depends on your proxy chain — pass a custom
+ * `requestHost` resolver when in doubt.
+ */
+export const defaultResolveRequestHost: ResolveActivityRequestHost = ({ req }) => {
+  const candidates = [req.headers.get('x-forwarded-host')?.split(',')[0], req.headers.get('host')]
   for (const candidate of candidates) {
     const trimmed = candidate?.trim()
     if (trimmed) {

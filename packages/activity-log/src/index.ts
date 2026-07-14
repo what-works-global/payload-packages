@@ -7,6 +7,7 @@ export {
   defaultEvents,
   defaultResolveDocumentLabel,
   defaultResolveIpAddress,
+  defaultResolveRequestHost,
   defaultResolveUserLabel,
   defaultSnapshotMode,
 } from './defaults.js'
@@ -41,6 +42,7 @@ export type {
   ActivityUserRef,
   ResolveActivityDocumentLabel,
   ResolveActivityIpAddress,
+  ResolveActivityRequestHost,
   ResolveActivityUser,
   ResolveActivityUserLabel,
 } from './types.js'

@@ -86,6 +86,13 @@ activityLogPlugin({
   // personal data under most privacy regimes — consider pairing with `retention`.
   ipAddress: false,
 
+  // Opt-in request host tracking. When enabled, a `requestHost` field is added
+  // to the log collection and every entry stores the host the request was
+  // addressed to. `true` reads the standard headers (`x-forwarded-host` →
+  // `host`); pass a function to resolve it yourself when your proxy chain makes
+  // those untrustworthy. Handy for multi-tenant / multi-domain deployments.
+  requestHost: false,
+
   // Delete entries older than this. Off by default — nothing is pruned unless
   // you opt in. Pruning runs after log writes, at most once per hour.
   retention: { maxAgeDays: 90 },
@@ -128,6 +135,7 @@ activityLogPlugin({
 - **Trash.** On collections with `trash: true`, moving to the trash logs `trash` (linked to the document under the trash route), restoring logs `restore`, and emptying the trash logs `delete` with a snapshot. Payload introduced trash in 3.49 — on older versions within the supported peer range these events simply never occur (there is no trash), and everything else works as described.
 - **Autosave.** Skipped by default; manual draft saves and publishes are logged. Set `events.autosave: true` to log every autosave.
 - **IP addresses.** Nothing is stored unless you opt in with `ipAddress`. When enabled, every entry (all operations, not just logins) records the requesting client's address; resolution failures simply leave it unset. Which proxy headers can be trusted depends on your deployment — pass a resolver function if the defaults pick up spoofable values.
+- **Request host.** Nothing is stored unless you opt in with `requestHost`. When enabled, every entry records the host the request was addressed to (`x-forwarded-host` → `host` by default), which is useful for attributing activity across multi-tenant or multi-domain deployments. As with `ipAddress`, resolution failures leave it unset and forwarded headers are only as trustworthy as your proxy chain — pass a resolver function if the defaults pick up spoofable values.
 - **The log is append-only.** All mutating access on the log collection is disabled; entries are written exclusively by the plugin's hooks. Reads default to any authenticated user — tighten via `collectionOverride`. Note that stored labels/titles are visible to anyone who can read the log, regardless of their access to the source documents.
 - **Log writes never break the operation** that caused them: failures are logged and swallowed. Entries are written on the operation's request, so they commit and roll back with it.
 - The plugin does not touch Payload's internal collections (they are created after plugins run).
