@@ -87,6 +87,9 @@ catalogs:
     rimraf:
       specifier: 6.0.1
       version: 6.0.1
+    search-insights:
+      specifier: 2.17.3
+      version: 2.17.3
     sharp:
       specifier: 0.34.2
       version: 0.34.2
@@ -270,6 +273,9 @@ importers:
       rimraf:
         specifier: 'catalog:'
         version: 6.0.1
+      search-insights:
+        specifier: 'catalog:'
+        version: 2.17.3
       sharp:
         specifier: 'catalog:'
         version: 0.34.2
@@ -6133,6 +6139,9 @@ packages:
   scslre@0.3.0:
     resolution: {integrity: sha512-3A6sD0WYP7+QrjbfNA2FN3FsOaGGFoekCVgTyypy53gPxhbkCIjtO6YWgdrfM+n/8sI8JeXZOIxsHjMTNxQ4nQ==}
     engines: {node: ^14.0.0 || >=16.0.0}
+
+  search-insights@2.17.3:
+    resolution: {integrity: sha512-RQPdCYTa8A68uM2jwxoY842xDhvx3E5LFL1LxvxCNMev4o5mLuokczhzjAgGwUZBAmOKZknArSxLKmXtIi2AxQ==}
 
   secure-json-parse@4.1.0:
     resolution: {integrity: sha512-l4KnYfEyqYJxDwlNVyRfO2E4NTHfMKAWdUuA8J0yve2Dz/E/PdBepY03RvyJpssIpRFwJoCD55wA+mEDs6ByWA==}
@@ -13127,6 +13136,8 @@ snapshots:
       '@eslint-community/regexpp': 4.12.2
       refa: 0.12.1
       regexp-ast-analysis: 0.7.1
+
+  search-insights@2.17.3: {}
 
   secure-json-parse@4.1.0: {}
 

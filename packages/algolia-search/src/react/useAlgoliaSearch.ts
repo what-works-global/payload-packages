@@ -12,6 +12,12 @@ import { highlightPostTag, highlightPreTag } from './highlight.js'
 export interface UseAlgoliaSearchOptions {
   /** Algolia application ID (`NEXT_PUBLIC_…` — this runs in the browser). */
   appId: string
+  /**
+   * Request click-analytics metadata: a `queryID` for the search and a
+   * `__queryID`/`__position` on every hit, so `useInsights` can report clicks
+   * as `clickedObjectIDsAfterSearch`. Default `false`.
+   */
+  clickAnalytics?: boolean
   /** Milliseconds to wait after the last keystroke before searching. Default 100. */
   debounceMs?: number
   /** `false` pauses searching (e.g. while the search modal is closed). Default `true`. */
@@ -42,6 +48,11 @@ export interface UseAlgoliaSearchResult<THit extends SearchHit = SearchHit> {
   /** `true` from the keystroke until the response for the latest query lands. */
   loading: boolean
   query: string
+  /**
+   * `queryID` of the latest results — only populated when `clickAnalytics` is
+   * on, `undefined` otherwise. Also available per hit as `__queryID`.
+   */
+  queryID: string | undefined
   setQuery: (query: string) => void
 }
 
@@ -56,6 +67,7 @@ export function useAlgoliaSearch<THit extends SearchHit = SearchHit>(
 ): UseAlgoliaSearchResult<THit> {
   const {
     appId,
+    clickAnalytics = false,
     debounceMs = 100,
     enabled = true,
     filters,
@@ -69,6 +81,7 @@ export function useAlgoliaSearch<THit extends SearchHit = SearchHit>(
   const [hits, setHits] = useState<THit[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const [queryID, setQueryID] = useState<string | undefined>(undefined)
 
   const client = useMemo<LiteClient | null>(
     () => (appId && searchApiKey ? liteClient(appId, searchApiKey) : null),
@@ -92,6 +105,7 @@ export function useAlgoliaSearch<THit extends SearchHit = SearchHit>(
 
     if (!client || !indexName || !query.trim()) {
       setHits([])
+      setQueryID(undefined)
       setLoading(false)
       setError(null)
       return undefined
@@ -104,6 +118,7 @@ export function useAlgoliaSearch<THit extends SearchHit = SearchHit>(
         .searchForHits<THit>({
           requests: [
             {
+              clickAnalytics,
               filters,
               highlightPostTag,
               highlightPreTag,
@@ -120,7 +135,21 @@ export function useAlgoliaSearch<THit extends SearchHit = SearchHit>(
           if (requestId.current !== current) {
             return
           }
-          setHits(results[0]?.hits ?? [])
+          const result = results[0]
+          const rawHits = result?.hits ?? []
+          const resultQueryID = result?.queryID
+          // Stamp the ranking metadata the Insights API needs so a consumer's
+          // `sendClick(hit)` can report `clickedObjectIDsAfterSearch` without
+          // threading the queryID/position through itself.
+          const nextHits =
+            clickAnalytics && resultQueryID
+              ? rawHits.map(
+                  (hit, index) =>
+                    ({ ...hit, __position: index + 1, __queryID: resultQueryID }) as THit,
+                )
+              : rawHits
+          setHits(nextHits)
+          setQueryID(resultQueryID)
           setError(null)
           setLoading(false)
         })
@@ -134,7 +163,17 @@ export function useAlgoliaSearch<THit extends SearchHit = SearchHit>(
     }, debounceMs)
 
     return () => clearTimeout(timer)
-  }, [client, debounceMs, enabled, filters, hitsPerPage, indexName, query, searchParamsKey])
+  }, [
+    clickAnalytics,
+    client,
+    debounceMs,
+    enabled,
+    filters,
+    hitsPerPage,
+    indexName,
+    query,
+    searchParamsKey,
+  ])
 
-  return { error, hits, loading, query, setQuery }
+  return { error, hits, loading, query, queryID, setQuery }
 }

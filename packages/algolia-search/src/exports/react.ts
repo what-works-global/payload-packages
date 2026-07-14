@@ -20,4 +20,9 @@ export {
   type UseHitCursorOptions,
   type UseHitCursorResult,
 } from '../react/useHitCursor.js'
+export {
+  useInsights,
+  type UseInsightsOptions,
+  type UseInsightsResult,
+} from '../react/useInsights.js'
 export type { SearchRecord } from '../shared.js'

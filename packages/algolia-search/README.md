@@ -15,7 +15,7 @@ Algolia search sync for Payload with defaults that hold up in production: draft-
 - **Draft- and autosave-aware.** First drafts are never indexed, autosaves on top of a published doc don't overwrite the published record, unpublishing/trashing/deleting removes the record. Safe with `autosave` intervals in the hundreds of milliseconds.
 - **Reindex from the admin.** An icon in the admin header opens a modal to rebuild the whole index or a single collection, plus an access-controlled endpoint and a programmatic `runAlgoliaReindex(payload)` for scripts and cron. Full reindexes are **atomic** (`replaceAllObjects`) — search keeps working mid-rebuild and stale records are pruned.
 - **Index settings live in code.** `searchableAttributes`, snippeting, and faceting are pushed to Algolia on every reindex, so relevance config is reviewable and reproducible instead of hand-edited in the dashboard.
-- **Headless frontend search.** A `/react` entry ships `useAlgoliaSearch` (debounced search-as-you-type, typed to the record shape), `useHitCursor` (keyboard navigation), and dependency-free `<Highlight>`/`<Snippet>` components — a complete quick-search UI without `react-instantsearch`, with zero styling imposed.
+- **Headless frontend search.** A `/react` entry ships `useAlgoliaSearch` (debounced search-as-you-type, typed to the record shape), `useHitCursor` (keyboard navigation), `useInsights` (click/conversion analytics), and dependency-free `<Highlight>`/`<Snippet>` components — a complete quick-search UI without `react-instantsearch`, with zero styling imposed.
 - **Serverless-safe.** Algolia writes are awaited inside hooks by default, so they aren't frozen when the response is sent.
 
 ## Installation
@@ -106,21 +106,34 @@ import {
   Snippet,
   useAlgoliaSearch,
   useHitCursor,
+  useInsights,
 } from '@whatworks/payload-algolia-search/react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+
+const appId = process.env.NEXT_PUBLIC_ALGOLIA_APP_ID ?? ''
+const indexName = process.env.NEXT_PUBLIC_ALGOLIA_INDEX ?? ''
+const searchApiKey = process.env.NEXT_PUBLIC_ALGOLIA_SEARCH_KEY ?? '' // search-only key — never the admin key
 
 export const Search: React.FC = () => {
   const router = useRouter()
 
   const { query, setQuery, hits } = useAlgoliaSearch({
-    appId: process.env.NEXT_PUBLIC_ALGOLIA_APP_ID ?? '',
-    indexName: process.env.NEXT_PUBLIC_ALGOLIA_INDEX ?? '',
-    searchApiKey: process.env.NEXT_PUBLIC_ALGOLIA_SEARCH_KEY ?? '', // search-only key — never the admin key
+    appId,
+    clickAnalytics: true, // stamp __queryID/__position so clicks are attributable
+    indexName,
+    searchApiKey,
   })
 
+  const { sendClick } = useInsights({ appId, indexName, searchApiKey })
+
   const { activeItemRef, cursor, onKeyDown, setCursor } = useHitCursor(hits, {
-    onSelect: (hit) => hit.path && router.push(hit.path),
+    onSelect: (hit) => {
+      if (hit.path) {
+        sendClick(hit)
+        router.push(hit.path)
+      }
+    },
   })
 
   return (
@@ -131,6 +144,7 @@ export const Search: React.FC = () => {
           data-active={hit.objectID === cursor || undefined}
           href={hit.path ?? ''}
           key={hit.objectID}
+          onClick={() => sendClick(hit)}
           onMouseEnter={() => setCursor(hit.objectID)}
           ref={hit.objectID === cursor ? activeItemRef : undefined}
         >
@@ -144,11 +158,12 @@ export const Search: React.FC = () => {
 }
 ```
 
-- **`useAlgoliaSearch`** — debounced search-as-you-type: typed hits, out-of-order responses dropped, no request for an empty query. Options: `filters` (e.g. `'collection:news'`), `hitsPerPage`, `debounceMs`, `enabled` (pause while a modal is closed), and raw `searchParams`. Extra attributes added by a `record` transform are typed via the generic: `useAlgoliaSearch<SearchHit & { section: string }>({ … })`.
+- **`useAlgoliaSearch`** — debounced search-as-you-type: typed hits, out-of-order responses dropped, no request for an empty query. Options: `filters` (e.g. `'collection:news'`), `hitsPerPage`, `debounceMs`, `enabled` (pause while a modal is closed), `clickAnalytics` (see `useInsights`), and raw `searchParams`. Extra attributes added by a `record` transform are typed via the generic: `useAlgoliaSearch<SearchHit & { section: string }>({ … })`.
 - **`useHitCursor`** — wrap-around ArrowUp/ArrowDown keyboard cursor, Enter-to-select, and an `activeItemRef` that keeps the active hit scrolled into view (attach it to the active element only, as above).
+- **`useInsights`** — Algolia [Insights](https://www.algolia.com/doc/guides/sending-events/getting-started/) click/conversion tracking, built on the official `search-insights` client (an **optional peer dependency**, loaded lazily the first time the hook runs, so it stays out of bundles that never track — install it only in apps that call `useInsights`). Returns `sendClick(hit)` / `sendConversion(hit)`; attach `onClick={() => sendClick(hit)}` to each result. Combine with `useAlgoliaSearch({ clickAnalytics: true })` so hits carry the `__queryID`/`__position` that make clicks `clickedObjectIDsAfterSearch`. `search-insights` manages the anonymous cookie token (override with a logged-in id via `userToken`); `enabled` gates loading and sending on consent.
 - **`<Highlight>` / `<Snippet>`** — render `_highlightResult`/`_snippetResult` as React nodes, matches wrapped in `<mark>` — no `dangerouslySetInnerHTML`. Style via `className`/`highlightedTag`; array attributes like `breadcrumbs` are joined with `separator`. Snippeting `content` works out of the box because the plugin's default index settings request it.
 
-Everything is unstyled — the components render a single `<span>` and you own all surrounding markup. If you need facets, pagination, or Algolia Insights, reach for `react-instantsearch` instead; the records and index settings work with it as-is.
+Everything is unstyled — the components render a single `<span>` and you own all surrounding markup. If you need facets or pagination, reach for `react-instantsearch` instead; the records and index settings work with it as-is.
 
 ## Controlling what gets indexed
 

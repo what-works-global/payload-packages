@@ -90,10 +90,14 @@
     "@payloadcms/ui": ">=3.39.0 <4",
     "payload": ">=3.39.0 <4",
     "react": ">=18.2.0 <20",
-    "react-dom": ">=18.2.0 <20"
+    "react-dom": ">=18.2.0 <20",
+    "search-insights": ">=2.0.0 <3"
   },
   "peerDependenciesMeta": {
     "@payloadcms/richtext-lexical": {
+      "optional": true
+    },
+    "search-insights": {
       "optional": true
     }
   },
@@ -125,6 +129,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "rimraf": "catalog:",
+    "search-insights": "catalog:",
     "sharp": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
