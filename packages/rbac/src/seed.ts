@@ -3,6 +3,8 @@ import type { Payload } from 'payload'
 import type { PredefinedRole } from './types.js'
 
 import { samePermissions } from './permissions.js'
+import { ensureRolesIndexes } from './utilities/ensureRolesIndexes.js'
+import { isUniqueViolation } from './utilities/isUniqueViolation.js'
 
 export type SeedPredefinedRolesArgs = {
   roles: PredefinedRole[]
@@ -22,6 +24,12 @@ export const seedPredefinedRoles = async (
   payload: Payload,
   { roles, rolesCollectionSlug }: SeedPredefinedRolesArgs,
 ): Promise<void> => {
+  // Guarantee the unique constraint on `name` is enforced before the first
+  // `create`, so a concurrent-boot race can't slip duplicate roles past the
+  // non-atomic find-then-create below. See `ensureRolesIndexes` for why this is
+  // only needed (and only possible) on MongoDB.
+  await ensureRolesIndexes(payload, rolesCollectionSlug)
+
   for (const role of roles) {
     const existing = await payload.find({
       collection: rolesCollectionSlug,
@@ -45,14 +53,29 @@ export const seedPredefinedRoles = async (
       continue
     }
 
-    await payload.create({
-      collection: rolesCollectionSlug,
-      data: {
-        name: role.name,
-        description: role.description,
-        permissions: role.permissions,
-      },
-    })
-    payload.logger.info(`[payload-rbac] Seeded role "${role.name}"`)
+    try {
+      await payload.create({
+        collection: rolesCollectionSlug,
+        data: {
+          name: role.name,
+          description: role.description,
+          permissions: role.permissions,
+        },
+      })
+      payload.logger.info(`[payload-rbac] Seeded role "${role.name}"`)
+    } catch (error) {
+      // `onInit` runs on every serverless cold boot, so several instances can
+      // seed concurrently: each `find` above returns nothing, then each tries
+      // to `create` the same role. The unique constraint on `name` makes all
+      // but one create fail with a unique-violation — treat that as "already
+      // seeded" so a boot race can't crash init or leave duplicate docs.
+      if (isUniqueViolation(error)) {
+        payload.logger.info(
+          `[payload-rbac] Role "${role.name}" already created concurrently — skipping`,
+        )
+        continue
+      }
+      throw error
+    }
   }
 }

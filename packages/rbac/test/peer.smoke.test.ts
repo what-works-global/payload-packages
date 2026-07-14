@@ -34,6 +34,9 @@ import {
   seedPredefinedRoles,
   warnIfAdminRoleUnheld,
 } from '../src/index.js'
+// Internal utilities — not part of the public API, so imported by path.
+import { ensureRolesIndexes } from '../src/utilities/ensureRolesIndexes.js'
+import { isUniqueViolation } from '../src/utilities/isUniqueViolation.js'
 
 const baseConfig = (): Config =>
   ({
@@ -427,6 +430,7 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     const create = vi.fn()
     const payload = {
       create,
+      db: { name: 'postgres' },
       find: vi.fn(() => Promise.resolve({ docs: [] })),
       logger: { info: vi.fn(), warn: vi.fn() },
     } as unknown as Payload
@@ -455,6 +459,7 @@ describe('@whatworks/payload-rbac peer smoke', () => {
       .mockResolvedValueOnce({ docs: [{ id: 2, name: 'editor', permissions: ['posts:read'] }] })
     const payload = {
       create,
+      db: { name: 'postgres' },
       find,
       logger: { info: vi.fn(), warn: vi.fn() },
       update,
@@ -1078,7 +1083,12 @@ describe('@whatworks/payload-rbac peer smoke', () => {
       .fn()
       .mockResolvedValueOnce({ docs: [{ id: 1, name: 'admin' }] })
       .mockResolvedValueOnce({ docs: [] })
-    const payload = { create, find, logger: { info: vi.fn(), warn: vi.fn() } } as unknown as Payload
+    const payload = {
+      create,
+      db: { name: 'postgres' },
+      find,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as unknown as Payload
 
     await seedPredefinedRoles(payload, {
       roles: [
@@ -1108,6 +1118,7 @@ describe('@whatworks/payload-rbac peer smoke', () => {
         order.push('seed')
         return Promise.resolve({})
       }),
+      db: { name: 'postgres' },
       find: vi.fn(() => Promise.resolve({ docs: [] })),
       logger: { info: vi.fn(), warn: vi.fn() },
     } as unknown as Payload
@@ -1225,5 +1236,101 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     expect(() =>
       rbacPlugin({ roles: [{ name: 'X', permissions: ['*:publish'] }] })(baseConfig()),
     ).toThrow(/unknown permission "\*:publish"/)
+  })
+
+  it('skips the runtime index build on non-mongoose adapters', async () => {
+    const createIndexes = vi.fn(() => Promise.resolve())
+    const payload = {
+      db: { name: 'postgres', collections: { roles: { createIndexes } } },
+      logger: { error: vi.fn() },
+    } as unknown as Payload
+
+    await ensureRolesIndexes(payload, 'roles')
+    expect(createIndexes).not.toHaveBeenCalled()
+  })
+
+  it('builds the roles indexes on mongoose before seeding', async () => {
+    const createIndexes = vi.fn(() => Promise.resolve())
+    const payload = {
+      db: { name: 'mongoose', collections: { roles: { createIndexes } } },
+      logger: { error: vi.fn() },
+    } as unknown as Payload
+
+    await ensureRolesIndexes(payload, 'roles')
+    expect(createIndexes).toHaveBeenCalledTimes(1)
+  })
+
+  it('logs (does not throw) when existing duplicates block the unique index build', async () => {
+    const error = vi.fn()
+    const duplicateKey = Object.assign(new Error('E11000 duplicate key'), { code: 11000 })
+    const payload = {
+      db: {
+        name: 'mongoose',
+        collections: { roles: { createIndexes: () => Promise.reject(duplicateKey) } },
+      },
+      logger: { error },
+    } as unknown as Payload
+
+    await expect(ensureRolesIndexes(payload, 'roles')).resolves.toBeUndefined()
+    expect(error).toHaveBeenCalledTimes(1)
+  })
+
+  it('rethrows index build errors that are not unique violations', async () => {
+    const boom = new Error('disk full')
+    const payload = {
+      db: {
+        name: 'mongoose',
+        collections: { roles: { createIndexes: () => Promise.reject(boom) } },
+      },
+      logger: { error: vi.fn() },
+    } as unknown as Payload
+
+    await expect(ensureRolesIndexes(payload, 'roles')).rejects.toBe(boom)
+  })
+
+  it('treats a unique violation during seed create as already-seeded (concurrent boot)', async () => {
+    const uniqueViolation = Object.assign(new Error('duplicate key value'), { code: '23505' })
+    const create = vi.fn(() => Promise.reject(uniqueViolation))
+    const payload = {
+      create,
+      db: { name: 'postgres' },
+      find: vi.fn(() => Promise.resolve({ docs: [] })),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as unknown as Payload
+
+    await expect(
+      seedPredefinedRoles(payload, {
+        roles: [{ name: 'admin', permissions: ['*'] }],
+        rolesCollectionSlug: 'roles',
+      }),
+    ).resolves.toBeUndefined()
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('rethrows non-unique create errors during seed', async () => {
+    const boom = new Error('connection refused')
+    const payload = {
+      create: vi.fn(() => Promise.reject(boom)),
+      db: { name: 'postgres' },
+      find: vi.fn(() => Promise.resolve({ docs: [] })),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as unknown as Payload
+
+    await expect(
+      seedPredefinedRoles(payload, {
+        roles: [{ name: 'admin', permissions: ['*'] }],
+        rolesCollectionSlug: 'roles',
+      }),
+    ).rejects.toBe(boom)
+  })
+
+  it('detects unique-constraint violations across adapters (including wrapped causes)', () => {
+    expect(isUniqueViolation({ code: 11000 })).toBe(true) // MongoDB
+    expect(isUniqueViolation({ code: '23505' })).toBe(true) // Postgres
+    expect(isUniqueViolation({ code: 'SQLITE_CONSTRAINT_UNIQUE' })).toBe(true) // SQLite
+    expect(isUniqueViolation({ cause: { code: 11000 } })).toBe(true) // Drizzle-wrapped
+    expect(isUniqueViolation({ code: 'ETIMEDOUT' })).toBe(false)
+    expect(isUniqueViolation(new Error('boom'))).toBe(false)
+    expect(isUniqueViolation(null)).toBe(false)
   })
 })
