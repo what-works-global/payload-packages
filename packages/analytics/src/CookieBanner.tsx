@@ -16,20 +16,20 @@ export interface CookieBannerProps {
 }
 
 export function CookieBanner({
-  acceptText = 'Accept',
+  acceptText = 'Accept all',
   description = (
     <>
-      We use essential cookies to ensure the site functions properly, and optional cookies to
-      improve your experience. By clicking “Accept”, you consent to the use of non-essential
-      cookies. To learn more, please view our{' '}
+      We use cookies and similar technologies to enhance your experience, analyse site traffic, and
+      run targeted advertising campaigns. You can choose to accept all cookies or only those that
+      are strictly necessary for site functionality. For more details, see our{' '}
       <Link className="underline" href="/privacy-policy">
         Privacy Policy
       </Link>
       .
     </>
   ),
-  rejectText = 'Reject',
-  title = 'Cookies',
+  rejectText = 'Accept essential only',
+  title = 'We use cookies',
 }: CookieBannerProps) {
   const { accept, reject, shouldShowBanner } = useCookieBanner()
 
@@ -39,33 +39,31 @@ export function CookieBanner({
 
   return (
     <CookieBannerPortal>
-      <div className="ww max-w-xl">
-        <div className="fixed bottom-4 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-5xl -translate-x-1/2 border border-gray-200 rounded-lg bg-white px-4 py-3 sm:py-8 shadow">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-            <div className="space-y-2">
-              <h3 className="text-base font-medium">{title}</h3>
-              <p className="text-sm text-gray-600">{description}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-4">
-              <button
-                className="py-3 px-6 bg-black text-white rounded-md hover:bg-stone-800"
-                onClick={() => {
-                  reject()
-                }}
-                type="button"
-              >
-                {rejectText}
-              </button>
-              <button
-                className="py-3 px-6 bg-black text-white rounded-md hover:bg-stone-800"
-                onClick={() => {
-                  accept()
-                }}
-                type="button"
-              >
-                {acceptText}
-              </button>
-            </div>
+      <div className="ww">
+        <div className="fixed inset-x-0 bottom-0 z-50 flex w-full flex-col items-start justify-center gap-4 rounded-t-lg border-[0.5px] border-deep-works-300 bg-white px-6 py-8 shadow sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[calc(100vw-2rem)] sm:max-w-[443px] sm:rounded-lg">
+          <div className="flex flex-col gap-3 text-deep-works-900">
+            <h3 className="text-2xl font-light leading-7">{title}</h3>
+            <p className="text-base leading-6">{description}</p>
+          </div>
+          <div className="flex w-full flex-col gap-4 sm:flex-row">
+            <button
+              className="flex h-9 w-full items-center justify-center rounded-full bg-cyan-works px-[17px] py-2 text-base leading-4 text-deep-works-900 shadow-sm hover:brightness-95 sm:flex-1"
+              onClick={() => {
+                accept()
+              }}
+              type="button"
+            >
+              {acceptText}
+            </button>
+            <button
+              className="flex h-9 w-full items-center justify-center rounded-full border-[0.5px] border-deep-works-900 bg-white px-[17px] py-2 text-base leading-4 text-deep-works-700 drop-shadow-sm hover:bg-gray-50 sm:flex-1"
+              onClick={() => {
+                reject()
+              }}
+              type="button"
+            >
+              {rejectText}
+            </button>
           </div>
         </div>
       </div>
