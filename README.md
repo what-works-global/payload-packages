@@ -3,7 +3,7 @@
 <a href="https://whatworks.com.au/?utm_source=github.com">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="./assets/blackbanner.svg">
-    <img alt="Whatworks Payload Packages" src="./assets/whitebanner.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/whitebanner.svg">
   </picture>
 </a>
 
