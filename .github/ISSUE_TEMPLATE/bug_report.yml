@@ -21,6 +21,7 @@ body:
         - "@whatworks/payload-heading-field"
         - "@whatworks/payload-utilities"
         - "@whatworks/payload-rbac"
+        - "@whatworks/payload-redirects"
         - "@whatworks/payload-select-search-field"
         - "@whatworks/payload-sitemap"
         - "@whatworks/payload-switch-env"

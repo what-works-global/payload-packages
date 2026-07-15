@@ -15,3 +15,13 @@
 
 - `scripts/sync-package-scripts.mjs` keeps every package's `scripts` block on the shared conventions (build/lint/typecheck/dev:payload/etc. values are enforced; `dev` and `test:peer` must exist but may vary). Run `pnpm sync:package-scripts` after adding a package or changing scripts; CI's `check:package-scripts` fails on drift. Note `test:peer` is what CI runs (check job + pinned-payload peer matrix) — a package whose tests only live under a `test` script is invisible to CI.
 - Dev sandboxes (`dev/payload.config.ts`) build on `buildDevConfig` from `@whatworks/dev-fixture/dev-config`, which supplies the shared boilerplate: autoLogin dev user, `users` auth collection, dev-user seeding, local-Mongo fallback (`dbName`), import map + generated types rooted in `dev/`, and disabled telemetry. Pass regular Payload config keys to override any of it (see `packages/sitemap` for a custom-db example, `packages/switch-env` for heavy overrides).
+
+## Adding a package: places that enumerate every package
+
+Most tooling auto-discovers `packages/*`, but these files list packages by name and must be updated by hand when a package is added (or renamed/removed):
+
+- `README.md` — the Packages table.
+- `.github/ISSUE_TEMPLATE/bug_report.yml` — the package dropdown `options`.
+- `.github/ISSUE_TEMPLATE/feature_request.yml` — the package dropdown `options`.
+
+If you introduce a new file that enumerates package names, add it to this list.

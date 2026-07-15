@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tools/dev-fixture/tsconfig.dev.json",
+  "compilerOptions": {
+    "paths": {
+      "@payload-config": ["./payload.config.ts"],
+      "@whatworks/payload-redirects": ["../src/index.ts"],
+      "@whatworks/payload-redirects/cache": ["../src/exports/cache.ts"],
+      "@whatworks/payload-redirects/middleware": ["../src/exports/middleware.ts"],
+      "@whatworks/payload-redirects/vercel": ["../src/exports/vercel.ts"]
+    }
+  }
+}

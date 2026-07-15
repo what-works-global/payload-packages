@@ -1,0 +1,131 @@
+{
+  "name": "@whatworks/payload-redirects",
+  "version": "0.0.0",
+  "description": "Managed redirects for Payload with a cache-backed Next.js middleware matcher — orderable redirects collection, regex + capture groups, scroll-to anchors, hit tracking, and pluggable caches (Vercel Runtime Cache, file, memory).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsdown",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
+    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "dev": "next dev dev",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "dev:payload": "cd dev && cross-env PAYLOAD_CONFIG_PATH=./payload.config.ts payload",
+    "generate:importmap": "pnpm dev:generate-importmap",
+    "generate:types": "pnpm dev:generate-types",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
+    "test": "vitest run",
+    "test:peer": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typecheck:dev": "tsc -p dev/tsconfig.json --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/what-works-global/payload-packages",
+    "directory": "packages/redirects"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./cache": {
+      "types": "./src/exports/cache.ts",
+      "import": "./src/exports/cache.ts",
+      "default": "./src/exports/cache.ts"
+    },
+    "./middleware": {
+      "types": "./src/exports/middleware.ts",
+      "import": "./src/exports/middleware.ts",
+      "default": "./src/exports/middleware.ts"
+    },
+    "./vercel": {
+      "types": "./src/exports/vercel.ts",
+      "import": "./src/exports/vercel.ts",
+      "default": "./src/exports/vercel.ts"
+    }
+  },
+  "peerDependencies": {
+    "@vercel/functions": ">=2.2.0 <4",
+    "next": ">=15.0.0 <17",
+    "payload": ">=3.32.0 <4"
+  },
+  "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    }
+  },
+  "whatworks": {
+    "peerMatrix": {
+      "payload": {
+        "min": "3.32.0"
+      }
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
+    "@payloadcms/db-sqlite": "catalog:",
+    "@payloadcms/eslint-config": "catalog:",
+    "@payloadcms/next": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vercel/functions": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "cross-env": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-next": "catalog:",
+    "next": "catalog:",
+    "payload": "catalog:",
+    "publint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "rimraf": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./cache": {
+        "types": "./dist/exports/cache.d.ts",
+        "import": "./dist/exports/cache.js",
+        "default": "./dist/exports/cache.js"
+      },
+      "./middleware": {
+        "types": "./dist/exports/middleware.d.ts",
+        "import": "./dist/exports/middleware.js",
+        "default": "./dist/exports/middleware.js"
+      },
+      "./vercel": {
+        "types": "./dist/exports/vercel.d.ts",
+        "import": "./dist/exports/vercel.js",
+        "default": "./dist/exports/vercel.js"
+      }
+    }
+  }
+}
