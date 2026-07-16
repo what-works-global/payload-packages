@@ -1290,6 +1290,28 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     await expect(ensureRolesIndexes(payload, 'roles')).rejects.toBe(boom)
   })
 
+  it('calls createIndexes bound to its model (mongoose needs `this`)', async () => {
+    // Mongoose's real `Model.createIndexes()` throws when invoked without the
+    // model as `this` ("cannot run without a model as `this`"). A bare mock
+    // would not catch a lost binding, so this model asserts its own identity.
+    const rolesModel: { createIndexes: () => Promise<void> } = {
+      createIndexes(this: unknown) {
+        if (this !== rolesModel) {
+          return Promise.reject(
+            new Error('`Model.createIndexes()` cannot run without a model as `this`'),
+          )
+        }
+        return Promise.resolve()
+      },
+    }
+    const payload = {
+      db: { name: 'mongoose', collections: { roles: rolesModel } },
+      logger: { error: vi.fn() },
+    } as unknown as Payload
+
+    await expect(ensureRolesIndexes(payload, 'roles')).resolves.toBeUndefined()
+  })
+
   it('retries a WriteConflict while building the roles indexes', async () => {
     const writeConflict = Object.assign(new Error('WriteConflict'), {
       code: 112,
