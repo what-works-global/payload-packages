@@ -3,5 +3,5 @@ export { buildDevConfig, devUsersCollection, ensureDevUser } from './dev-config.
 export type { DevConfigOptions } from './dev-config.js'
 export { defineDevNextConfig } from './next-config.js'
 export type { DevNextConfigOptions } from './next-config.js'
-export { startMemoryMongo } from './memoryDB.js'
+export { createMemoryReplSet, type MemoryReplSet, startMemoryMongo } from './memoryDB.js'
 export { testEmailAdapter } from './testEmailAdapter.js'

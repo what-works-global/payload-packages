@@ -12,6 +12,22 @@ export type SeedPredefinedRolesArgs = {
   rolesCollectionSlug: string
 }
 
+type ExistingRole = { id: number | string; permissions?: unknown }
+
+const findRoleByName = async (
+  payload: Payload,
+  rolesCollectionSlug: string,
+  name: string,
+): Promise<ExistingRole | undefined> => {
+  const result = await payload.find({
+    collection: rolesCollectionSlug,
+    depth: 0,
+    limit: 1,
+    where: { name: { equals: name } },
+  })
+  return result.docs[0] as ExistingRole | undefined
+}
+
 /**
  * Creates each predefined role that does not exist yet, keyed by `name`. Existing
  * roles are never updated or overwritten — the database is the source of truth once
@@ -20,27 +36,31 @@ export type SeedPredefinedRolesArgs = {
  * protected full-access role recovers even from direct database edits. Runs in
  * `onInit` before any `onInit` defined on the config, so init seeds can rely on the
  * roles being present.
+ *
+ * `onInit` runs on every cold boot, and `next build` collects page data across
+ * several worker processes at once, so many instances can seed the same fresh
+ * database concurrently. Two things make that safe: the unique index on `name`
+ * (see `ensureRolesIndexes`) turns a lost create race into a duplicate-key error,
+ * and every write runs with `disableTransaction: true`. The latter matters
+ * because on a replica set (Atlas) Payload otherwise wraps each write in a
+ * transaction, and a transactional write against a not-yet-created collection is
+ * aborted with a transient `WriteConflict` (112) or, when it must create the
+ * collection itself, `OperationNotSupportedInTransaction` (263) — which can fail
+ * every concurrent boot at once and leave the build with no seeded roles. Seeding
+ * is a set of independent single-document inserts that need no atomic guarantee,
+ * so dropping the transaction is safe and removes the whole class of failure.
  */
 export const seedPredefinedRoles = async (
   payload: Payload,
   { roles, rolesCollectionSlug }: SeedPredefinedRolesArgs,
 ): Promise<void> => {
-  // Guarantee the unique constraint on `name` is enforced before the first
-  // `create`, so a concurrent-boot race can't slip duplicate roles past the
-  // non-atomic find-then-create below. See `ensureRolesIndexes` for why this is
-  // only needed (and only possible) on MongoDB.
+  // Force the unique index on `name` to exist before the first create, so a
+  // concurrent-boot race resolves to a duplicate-key error (handled below)
+  // rather than duplicate role documents. Best-effort — see `ensureRolesIndexes`.
   await ensureRolesIndexes(payload, rolesCollectionSlug)
 
   for (const role of roles) {
-    const existing = await payload.find({
-      collection: rolesCollectionSlug,
-      depth: 0,
-      limit: 1,
-      where: { name: { equals: role.name } },
-    })
-    const existingDoc = existing.docs[0] as
-      | { id: number | string; permissions?: unknown }
-      | undefined
+    const existingDoc = await findRoleByName(payload, rolesCollectionSlug, role.name)
     if (existingDoc) {
       if (role.protected && !samePermissions(existingDoc.permissions, role.permissions)) {
         await retryOnWriteConflict(() =>
@@ -49,6 +69,7 @@ export const seedPredefinedRoles = async (
             collection: rolesCollectionSlug,
             data: { permissions: role.permissions },
             depth: 0,
+            disableTransaction: true,
           }),
         )
         payload.logger.info(`[payload-rbac] Restored permissions of protected role "${role.name}"`)
@@ -57,11 +78,9 @@ export const seedPredefinedRoles = async (
     }
 
     try {
-      // First boot only: the roles collection's unique `name` index is still
-      // being built (see `ensureRolesIndexes`), and a transactional create
-      // against a collection with an in-progress index build is aborted with a
-      // transient `WriteConflict`. Retry it. A retry that then loses to another
-      // writer surfaces as the unique-violation handled below, not a conflict.
+      // `retryOnWriteConflict` still covers a non-transactional write racing the
+      // background index build; `disableTransaction` (see the function docstring)
+      // covers the transaction-abort failures on a fresh replica-set database.
       await retryOnWriteConflict(() =>
         payload.create({
           collection: rolesCollectionSlug,
@@ -70,16 +89,21 @@ export const seedPredefinedRoles = async (
             description: role.description,
             permissions: role.permissions,
           },
+          disableTransaction: true,
         }),
       )
       payload.logger.info(`[payload-rbac] Seeded role "${role.name}"`)
     } catch (error) {
-      // `onInit` runs on every serverless cold boot, so several instances can
-      // seed concurrently: each `find` above returns nothing, then each tries
-      // to `create` the same role. The unique constraint on `name` makes all
-      // but one create fail with a unique-violation — treat that as "already
-      // seeded" so a boot race can't crash init or leave duplicate docs.
-      if (isUniqueViolation(error)) {
+      // A concurrent boot may have created this role between our find and create.
+      // The failure is not always recognizable from the error object — Payload's
+      // mongoose adapter rewraps Mongo's duplicate-key (11000) into a
+      // `ValidationError` that drops the code — so instead of matching error
+      // shapes we confirm the postcondition: if the role now exists, another boot
+      // won the race and we continue; otherwise the failure is real and rethrows.
+      const alreadySeeded =
+        isUniqueViolation(error) ||
+        Boolean(await findRoleByName(payload, rolesCollectionSlug, role.name))
+      if (alreadySeeded) {
         payload.logger.info(
           `[payload-rbac] Role "${role.name}" already created concurrently — skipping`,
         )

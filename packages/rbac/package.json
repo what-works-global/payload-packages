@@ -24,6 +24,7 @@
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
+    "test:mongo": "vitest run --config vitest.config.mongo.ts",
     "test:peer": "vitest run",
     "typecheck": "tsc --noEmit"
   },

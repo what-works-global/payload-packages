@@ -1101,10 +1101,69 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     })
 
     expect(create).toHaveBeenCalledTimes(1)
+    // Writes run without a transaction so a fresh replica-set boot can't abort on
+    // WriteConflict (112) / OperationNotSupportedInTransaction (263).
     expect(create).toHaveBeenCalledWith({
       collection: 'roles',
       data: { name: 'editor', description: 'Editors', permissions: ['posts:read'] },
+      disableTransaction: true,
     })
+  })
+
+  it('treats an adapter-wrapped unique violation as already-seeded (Mongo ValidationError)', async () => {
+    // Payload's mongoose adapter rewraps Mongo's duplicate-key (11000) into a
+    // ValidationError that drops the `code`, so `isUniqueViolation` cannot see the
+    // race. Seeding must instead confirm the role now exists and move on — without
+    // this, every concurrent boot but the winner crashes `onInit`.
+    const validationError = Object.assign(new Error('The following field is invalid: name'), {
+      name: 'ValidationError',
+      data: { collection: 'roles', errors: [{ message: 'Value must be unique', path: 'name' }] },
+      status: 400,
+    })
+    const create = vi.fn(() => Promise.reject(validationError))
+    const find = vi
+      .fn()
+      .mockResolvedValueOnce({ docs: [] }) // initial check: not present yet
+      .mockResolvedValueOnce({ docs: [{ id: 'x', name: 'admin' }] }) // re-check: another boot won
+    const payload = {
+      create,
+      db: { name: 'mongoose' },
+      find,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as unknown as Payload
+
+    await expect(
+      seedPredefinedRoles(payload, {
+        roles: [{ name: 'admin', permissions: ['*'] }],
+        rolesCollectionSlug: 'roles',
+      }),
+    ).resolves.toBeUndefined()
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(find).toHaveBeenCalledTimes(2) // initial check + post-failure re-check
+  })
+
+  it('rethrows a seed create failure when the role still does not exist', async () => {
+    // A real create failure (not a lost race) must still surface: the re-check
+    // finds no role, so the error propagates instead of being swallowed.
+    const boom = Object.assign(new Error('The following field is invalid: name'), {
+      name: 'ValidationError',
+      status: 400,
+    })
+    const create = vi.fn(() => Promise.reject(boom))
+    const find = vi.fn(() => Promise.resolve({ docs: [] }))
+    const payload = {
+      create,
+      db: { name: 'mongoose' },
+      find,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as unknown as Payload
+
+    await expect(
+      seedPredefinedRoles(payload, {
+        roles: [{ name: 'admin', permissions: ['*'] }],
+        rolesCollectionSlug: 'roles',
+      }),
+    ).rejects.toBe(boom)
   })
 
   it('runs seeding before the original onInit', async () => {
@@ -1367,12 +1426,10 @@ describe('@whatworks/payload-rbac peer smoke', () => {
   })
 
   it('retries a WriteConflict during seed create instead of failing init', async () => {
-    // On a replica set (Atlas), Payload runs the seed `create` in a transaction.
-    // On the first boot the roles collection's index is still being built, and a
-    // transactional write to a collection with an in-progress index build is
+    // A write against a fresh collection whose index is still building can be
     // aborted with a transient WriteConflict (code 112) — which is NOT a unique
-    // violation, so before the fix it propagated out of `onInit` and failed the
-    // build ("payloadInitError: true").
+    // violation, so without the retry it would propagate out of `onInit` and fail
+    // the build ("payloadInitError: true").
     const writeConflict = Object.assign(new Error('WriteConflict'), {
       code: 112,
       codeName: 'WriteConflict',
