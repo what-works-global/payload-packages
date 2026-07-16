@@ -346,6 +346,46 @@ runCopyScenarios(
           await target.query(`DROP EXTENSION IF EXISTS pg_stat_statements`)
         }
       })
+
+      it('preserves the target schema grants and default privileges across a copy', async () => {
+        const { runCopy, targetPayload } = getContext()
+        const target = pgPool(targetPayload)
+
+        // Simulate a managed target (e.g. Supabase) whose `public` schema
+        // carries a grant for an API role plus a default privilege — the state
+        // a bare DROP SCHEMA + CREATE SCHEMA silently destroys.
+        await target.query(
+          `DO $$ BEGIN CREATE ROLE switch_env_api NOLOGIN;
+             EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+        )
+        await target.query(`GRANT USAGE ON SCHEMA public TO switch_env_api`)
+        await target.query(
+          `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO switch_env_api`,
+        )
+
+        try {
+          await runCopy()
+
+          // Schema USAGE survived the drop/recreate — this is exactly what
+          // Supabase's PostgREST exposed-schema check depends on (its loss is
+          // the `3F000 pg_pgrst_no_exposed_schemas` failure).
+          const usage = await target.query(
+            `SELECT has_schema_privilege('switch_env_api', 'public', 'USAGE') AS ok`,
+          )
+          expect(usage.rows[0]?.ok).toBe(true)
+
+          // The default privilege survived AND applied to a table the restore
+          // recreated (payload_migrations always exists after a copy), proving
+          // the ALTER DEFAULT PRIVILEGES replay runs before the table DDL.
+          const tableGrant = await target.query(
+            `SELECT has_table_privilege('switch_env_api', 'public.payload_migrations', 'SELECT') AS ok`,
+          )
+          expect(tableGrant.rows[0]?.ok).toBe(true)
+        } finally {
+          await target.query(`DROP OWNED BY switch_env_api`).catch(() => {})
+          await target.query(`DROP ROLE IF EXISTS switch_env_api`).catch(() => {})
+        }
+      })
     },
   },
 )

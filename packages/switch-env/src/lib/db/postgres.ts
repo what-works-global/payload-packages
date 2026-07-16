@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 
 import type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } from './sqlShared.js'
 
-import { capturePostgresDdl, EXTENSION_DDL_PREFIX } from './postgresDdl.js'
+import { capturePostgresDdl, captureSchemaPrivileges, EXTENSION_DDL_PREFIX } from './postgresDdl.js'
 import {
   applyDevSchema,
   filterLatestXPerParent,
@@ -273,17 +273,30 @@ export const restorePostgres = async ({
     // Requires a sufficiently privileged role (the local development user).
     await client.query("SET LOCAL session_replication_role = 'replica'")
 
+    // Capture the target schema's OWN privileges before the drop discards them:
+    // the schema-level ACL + default privileges. A managed target (Supabase,
+    // Neon) grants its API roles here, and DROP SCHEMA would silently break its
+    // data API — see captureSchemaPrivileges. Replayed below, before the table
+    // DDL, so the recreated tables inherit the default privileges.
+    const schemaPrivileges = await captureSchemaPrivileges(client, schema)
+
     // Rebuild the target as the SOURCE's schema, not the local code schema:
     // dropping the whole Postgres schema and replaying the captured DDL means
     // the source rows always fit, even when the local code schema has
     // progressed (renamed/removed columns, new NOT NULL fields, new tables).
     // Postgres DDL is transactional, so a failure anywhere rolls the target
-    // back untouched. The recreated schema is owned by the connecting role;
-    // that role is the only user of a development database.
+    // back untouched. The recreated schema is owned by the connecting role; its
+    // schema-level grants + default privileges are re-applied from the capture
+    // above so a managed target keeps its API-role access.
     await client.query(`DROP SCHEMA IF EXISTS ${quoteIdent(schema)} CASCADE`)
     await client.query(`CREATE SCHEMA ${quoteIdent(schema)}`)
     // The captured DDL is unqualified — aim it at the recreated schema.
     await client.query(`SET LOCAL search_path TO ${quoteIdent(schema)}`)
+    // Re-apply the schema's grants + default privileges FIRST, so every table
+    // the DDL replay recreates picks up the default privileges as it is created.
+    for (const statement of schemaPrivileges) {
+      await client.query(statement)
+    }
     for (const statement of backupData.schema) {
       await replayDdlStatement(client, statement, logger)
     }
