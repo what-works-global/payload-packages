@@ -172,12 +172,13 @@ With `hits: true` (default), each match reports to `POST /hit/:id` in the backgr
 ```ts
 createRedirectsMiddleware({
   cache, // required — same backing store as the plugin
-  apiBasePath: '/api', // Payload REST base path as seen by the browser
+  apiBasePath: '/api', // Payload REST base path, relative to any Next.js basePath
   endpointsPath: '/payload-redirects',
   trackHits: true, // report matches to the hit endpoint (disable with hits: false)
   refreshOnMiss: true, // rebuild the cache in the background on a miss
   secret: process.env.REDIRECTS_SECRET, // sent as x-payload-redirects-secret on background calls
   debug: false, // console.debug('[payload-redirects] …') for misses, matches, skips
+  trailingSlash: false, // match your next.config trailingSlash: true
   cacheMemoMs: undefined, // in-memory memo of the cache read + compiled regexes
   onRedirect: ({ destination, redirect, request }) => {
     // Called for every issued redirect via event.waitUntil when available, else
@@ -188,9 +189,14 @@ createRedirectsMiddleware({
 
 - **`cacheMemoMs`** — micro-memo (per middleware instance) of the last successful cache read and its compiled per-entry regexes, so bursts of requests don't each hit the backing store or recompile patterns. Defaults to `5000` when `NODE_ENV === 'production'`, otherwise `0` (off). A miss is never memoized, so a background refresh is picked up on the very next request.
 - **`debug`** — opt-in diagnostics for cache misses, matches (`from → destination` + status), open-redirect rejections, and self-redirect skips. Never logs request bodies.
+- **`trailingSlash`** — set to `true` when your `next.config` uses `trailingSlash: true`. Relative destinations then get a trailing slash on the path part (`/about` → `/about/`), so we redirect straight to the canonical URL instead of letting Next 308 the slashless one — a wasteful double hop. The slash is skipped when the path is `/`, already ends with `/`, or its last segment looks like a file (`/logo.png`), mirroring Next's own exemption; query and fragment are preserved (`/a?x=1#f` → `/a/?x=1#f`). Absolute/external destinations are never touched. Not auto-detected — `NextRequest` exposes no reliable view of the app's `trailingSlash` config — so set it explicitly.
 - **`onRedirect`** — a side-effect hook (custom analytics, logging) that runs off the hot path.
 
 The returned function takes `(request, event?)` and resolves to a `NextResponse` redirect or `undefined`. Background work runs through `event.waitUntil` when an event is passed.
+
+### Next.js `basePath`
+
+Apps with a [`basePath`](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) just work — no configuration needed. Redirect entries are authored **without** the basePath (`/old`, not `/base/old`): matching runs against the basePath-stripped request path, and the basePath is re-applied to relative destinations, so `/base/old` → `/base/new`. Absolute/external destinations are left as-is. The background refresh and hit-tracking calls also target the basePath-prefixed Payload API, so leave `apiBasePath` as its plain value (e.g. `/api`) — the basePath is prepended for you.
 
 ## Framework-agnostic matcher (`resolveRedirect`)
 

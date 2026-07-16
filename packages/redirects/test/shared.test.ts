@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import type { CachedRedirect } from '../src/index.js'
+import type { CachedRedirect, ResolveRedirectSkipEvent } from '../src/index.js'
 
 import {
+  appendTrailingSlash,
   applyScrollTo,
   canonicalizeSearch,
   getNormalizedRequestTargets,
@@ -216,6 +217,52 @@ describe('resolveRedirect', () => {
     expect(
       resolveRedirect([{ ...base, from: '/old', to: '/new' }], 'https://site.com/x'),
     ).toBeNull()
+  })
+
+  it('reports skipped matches via onSkip with the final destination and reason', () => {
+    const events: ResolveRedirectSkipEvent[] = []
+    const onSkip = (event: ResolveRedirectSkipEvent) => events.push(event)
+
+    const openRedirect: CachedRedirect[] = [
+      { ...base, from: '^/r/(.+)$', match: 'regex', to: '/$1' },
+    ]
+    expect(resolveRedirect(openRedirect, 'https://site.com/r//evil.com', { onSkip })).toBeNull()
+    expect(events).toEqual([
+      { destination: '//evil.com', reason: 'open-redirect', redirect: openRedirect[0] },
+    ])
+
+    events.length = 0
+    const selfRedirect: CachedRedirect[] = [{ ...base, from: '/pricing', to: '/pricing#plans' }]
+    expect(resolveRedirect(selfRedirect, 'https://site.com/pricing', { onSkip })).toBeNull()
+    expect(events).toEqual([
+      { destination: '/pricing#plans', reason: 'self-redirect', redirect: selfRedirect[0] },
+    ])
+  })
+
+  it('does not call onSkip for plain non-matches', () => {
+    const onSkip = vi.fn()
+    expect(
+      resolveRedirect([{ ...base, from: '/old', to: '/new' }], 'https://site.com/x', { onSkip }),
+    ).toBeNull()
+    expect(onSkip).not.toHaveBeenCalled()
+  })
+})
+
+describe('appendTrailingSlash', () => {
+  it('appends a slash to the path, preserving query and fragment', () => {
+    expect(appendTrailingSlash('/about')).toBe('/about/')
+    expect(appendTrailingSlash('/a/b')).toBe('/a/b/')
+    expect(appendTrailingSlash('/about?x=1')).toBe('/about/?x=1')
+    expect(appendTrailingSlash('/about#team')).toBe('/about/#team')
+    expect(appendTrailingSlash('/about?x=1#team')).toBe('/about/?x=1#team')
+  })
+
+  it('is a no-op for root, already-slashed, or file-like paths', () => {
+    expect(appendTrailingSlash('/')).toBe('/')
+    expect(appendTrailingSlash('/about/')).toBe('/about/')
+    expect(appendTrailingSlash('/about/?x=1')).toBe('/about/?x=1')
+    expect(appendTrailingSlash('/logo.png')).toBe('/logo.png')
+    expect(appendTrailingSlash('/files/logo.png?v=2')).toBe('/files/logo.png?v=2')
   })
 })
 

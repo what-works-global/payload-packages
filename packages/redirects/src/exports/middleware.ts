@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server'
 import type { CachedRedirect, RedirectsCache } from '../core/shared.js'
 
 import {
+  appendTrailingSlash,
   DEFAULT_ENDPOINTS_PATH,
   isCachedRedirect,
   mergeForwardedQuery,
@@ -21,7 +22,10 @@ export type { CachedRedirect, RedirectsCache } from '../core/shared.js'
 
 export type RedirectsMiddlewareOptions = {
   /**
-   * Base path the Payload REST API is served under, as seen by the browser.
+   * Base path the Payload REST API is served under, RELATIVE to any Next.js
+   * `basePath`. When the app has a `basePath`, it is detected from the request
+   * and prepended automatically — set this to just `/api` (the default), not
+   * `/<basePath>/api`.
    * @default '/api'
    */
   apiBasePath?: string
@@ -76,6 +80,20 @@ export type RedirectsMiddlewareOptions = {
    * @default true
    */
   trackHits?: boolean
+  /**
+   * Match your Next.js `trailingSlash: true` config. When enabled, relative
+   * destinations get a trailing slash on the path part (before query/fragment),
+   * so we redirect straight to `/about/` instead of `/about` — which Next would
+   * otherwise 308 to `/about/`, a wasteful double hop. Skipped when the path is
+   * `/`, already ends with `/`, or its last segment looks like a file
+   * (`/logo.png`), mirroring Next's own exemption. Absolute/external
+   * destinations are never touched.
+   *
+   * Not auto-detected: `NextRequest` exposes no reliable view of the app's
+   * `trailingSlash` config, so set this explicitly when your app uses it.
+   * @default false
+   */
+  trailingSlash?: boolean
 }
 
 export type RedirectsMiddleware = (
@@ -120,6 +138,7 @@ export const createRedirectsMiddleware = (
     refreshOnMiss = true,
     secret,
     trackHits = true,
+    trailingSlash = false,
   } = options
 
   const log = (message: string) => {
@@ -130,7 +149,13 @@ export const createRedirectsMiddleware = (
   }
 
   const endpointUrl = (request: NextRequest, path: string) =>
-    new URL(`${apiBasePath}${endpointsPath}${path}`, request.url)
+    // `basePath` prefixes the Payload API too — the plugin's endpoints live at
+    // `/<basePath>/api/...`. Empty when the app has no basePath. Resolved
+    // against the origin so the request's own path never leaks in.
+    new URL(
+      `${request.nextUrl.basePath}${apiBasePath}${endpointsPath}${path}`,
+      request.nextUrl.origin,
+    )
 
   const postEndpoint = async (request: NextRequest, path: string) => {
     const response = await fetch(endpointUrl(request, path), {
@@ -199,20 +224,47 @@ export const createRedirectsMiddleware = (
       return undefined
     }
 
-    const resolved = resolveRedirect(entries, request.nextUrl.toString())
+    // Match against the basePath-STRIPPED path. `nextUrl.pathname` already has
+    // any Next.js `basePath` removed, so redirect entries are authored (and
+    // compared) without it. Passing `nextUrl.toString()` would re-add basePath
+    // and never match.
+    const resolved = resolveRedirect(
+      entries,
+      `${request.nextUrl.pathname}${request.nextUrl.search}`,
+      debug
+        ? {
+            onSkip: ({ destination, reason, redirect }) => {
+              log(`skipped "${redirect.from}" -> "${destination}": ${reason}`)
+            },
+          }
+        : undefined,
+    )
     if (!resolved) {
       return undefined
     }
 
     const { redirect } = resolved
-    const destination = redirect.forwardQuery
+    let destination = redirect.forwardQuery
       ? mergeForwardedQuery(resolved.destination, request.nextUrl.search)
       : resolved.destination
+
+    // A relative destination begins with a single `/` (the open-redirect guard
+    // in `resolveRedirect` rejects `//`); everything else is an absolute URL to
+    // another origin and passes through untouched.
+    const isRelative = destination.startsWith('/')
+
+    if (isRelative && trailingSlash) {
+      destination = appendTrailingSlash(destination)
+    }
 
     const status = toStatusCode(redirect.type)
     log(`match ${redirect.from} -> ${destination} (${status})`)
 
-    const destinationUrl = new URL(destination, request.url)
+    // Re-apply basePath to relative destinations (authored without it) and
+    // resolve against the origin. Absolute destinations keep their own origin.
+    const destinationUrl = isRelative
+      ? new URL(`${request.nextUrl.basePath}${destination}`, request.nextUrl.origin)
+      : new URL(destination, request.url)
 
     if (trackHits) {
       runInBackground(event, () => postEndpoint(request, `/hit/${redirect.id}`))

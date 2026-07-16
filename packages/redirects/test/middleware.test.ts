@@ -38,6 +38,12 @@ const asEvent = (event: FakeEvent) => event as unknown as NextFetchEvent
 
 const request = (url: string) => new NextRequest(url)
 
+const baseRequest = (url: string, nextConfig: { basePath?: string; trailingSlash?: boolean }) =>
+  new NextRequest(url, { nextConfig })
+
+const firstUrl = (fetchMock: ReturnType<typeof okFetch>) =>
+  String((fetchMock.mock.calls[0] as unknown as [URL])[0])
+
 const okFetch = () =>
   vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
     Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
@@ -353,5 +359,140 @@ describe('createRedirectsMiddleware', () => {
       },
     })
     expect(await broken(request('https://site.com/old'))).toBeUndefined()
+  })
+
+  it('logs skip diagnostics for open-redirect and self-redirect when debug is enabled', async () => {
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
+
+    const openMw = createRedirectsMiddleware({
+      cache: await primedCache([entry({ from: '^/r/(.+)$', match: 'regex', to: '/$1' })]),
+      debug: true,
+      refreshOnMiss: false,
+      trackHits: false,
+    })
+    expect(await openMw(request('https://site.com/r//evil.com'))).toBeUndefined()
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[payload-redirects] skipped "^/r/(.+)$" -> "//evil.com": open-redirect',
+    )
+
+    debugSpy.mockClear()
+    const selfMw = createRedirectsMiddleware({
+      cache: await primedCache([entry({ from: '/pricing', to: '/pricing#plans' })]),
+      debug: true,
+      refreshOnMiss: false,
+      trackHits: false,
+    })
+    expect(await selfMw(request('https://site.com/pricing'))).toBeUndefined()
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[payload-redirects] skipped "/pricing" -> "/pricing#plans": self-redirect',
+    )
+
+    // No skip line when debug is off.
+    debugSpy.mockClear()
+    const quiet = createRedirectsMiddleware({
+      cache: await primedCache([entry({ from: '/pricing', to: '/pricing#plans' })]),
+      refreshOnMiss: false,
+      trackHits: false,
+    })
+    expect(await quiet(request('https://site.com/pricing'))).toBeUndefined()
+    expect(debugSpy).not.toHaveBeenCalled()
+  })
+
+  it('matches basePath-stripped paths and re-applies basePath to relative destinations', async () => {
+    const middleware = createRedirectsMiddleware({
+      cache: await primedCache([entry()]),
+      trackHits: false,
+    })
+
+    const res = await middleware(baseRequest('https://site.com/base/old', { basePath: '/base' }))
+    expect(res?.status).toBe(301)
+    expect(res?.headers.get('location')).toBe('https://site.com/base/new')
+
+    // The same entry does not match a path that lacks the (stripped) prefix.
+    expect(
+      await middleware(baseRequest('https://site.com/base/other', { basePath: '/base' })),
+    ).toBeUndefined()
+  })
+
+  it('leaves absolute destinations untouched under basePath', async () => {
+    const middleware = createRedirectsMiddleware({
+      cache: await primedCache([entry({ from: '/ext', to: 'https://elsewhere.com/page' })]),
+      trackHits: false,
+    })
+
+    const res = await middleware(baseRequest('https://site.com/base/ext', { basePath: '/base' }))
+    expect(res?.headers.get('location')).toBe('https://elsewhere.com/page')
+  })
+
+  it('includes basePath in background refresh and hit URLs', async () => {
+    const fetchMock = okFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const hitMw = createRedirectsMiddleware({ cache: await primedCache([entry({ id: 'abc' })]) })
+    const hitEvent = fakeEvent()
+    await hitMw(baseRequest('https://site.com/base/old', { basePath: '/base' }), asEvent(hitEvent))
+    await Promise.all(hitEvent.tasks)
+    expect(firstUrl(fetchMock)).toBe('https://site.com/base/api/payload-redirects/hit/abc')
+
+    fetchMock.mockClear()
+
+    const missMw = createRedirectsMiddleware({ cache: memoryCache() })
+    const missEvent = fakeEvent()
+    await missMw(
+      baseRequest('https://site.com/base/old', { basePath: '/base' }),
+      asEvent(missEvent),
+    )
+    await Promise.all(missEvent.tasks)
+    expect(firstUrl(fetchMock)).toBe('https://site.com/base/api/payload-redirects/refresh-cache')
+  })
+
+  it('does not append trailing slashes by default', async () => {
+    const middleware = createRedirectsMiddleware({
+      cache: await primedCache([entry({ from: '/old', to: '/about' })]),
+      trackHits: false,
+    })
+    expect((await middleware(request('https://site.com/old')))?.headers.get('location')).toBe(
+      'https://site.com/about',
+    )
+  })
+
+  it('appends trailing slashes to relative destinations when trailingSlash is set', async () => {
+    const middleware = createRedirectsMiddleware({
+      cache: await primedCache([
+        entry({ from: '/old', to: '/about' }),
+        entry({ id: '2', from: '/q', to: '/dest?x=1' }),
+        entry({ id: '3', from: '/frag', to: '/dest#team' }),
+        entry({ id: '4', from: '/root', to: '/' }),
+        entry({ id: '5', from: '/file', to: '/logo.png' }),
+        entry({ id: '6', from: '/ext', to: 'https://elsewhere.com/page' }),
+      ]),
+      trackHits: false,
+      trailingSlash: true,
+    })
+
+    const loc = async (url: string) => (await middleware(request(url)))?.headers.get('location')
+
+    expect(await loc('https://site.com/old')).toBe('https://site.com/about/')
+    // Query and fragment survive, with the slash on the path part.
+    expect(await loc('https://site.com/q')).toBe('https://site.com/dest/?x=1')
+    expect(await loc('https://site.com/frag')).toBe('https://site.com/dest/#team')
+    // Root, and file-like last segments, are exempt.
+    expect(await loc('https://site.com/root')).toBe('https://site.com/')
+    expect(await loc('https://site.com/file')).toBe('https://site.com/logo.png')
+    // Absolute destinations are never touched.
+    expect(await loc('https://site.com/ext')).toBe('https://elsewhere.com/page')
+  })
+
+  it('combines basePath with trailingSlash', async () => {
+    const middleware = createRedirectsMiddleware({
+      cache: await primedCache([entry({ from: '/old', to: '/about' })]),
+      trackHits: false,
+      trailingSlash: true,
+    })
+
+    const res = await middleware(
+      baseRequest('https://site.com/base/old', { basePath: '/base', trailingSlash: true }),
+    )
+    expect(res?.headers.get('location')).toBe('https://site.com/base/about/')
   })
 })

@@ -11,6 +11,7 @@ export {
 } from './core/migrate.js'
 export { getRedirectsConfig } from './core/resolved.js'
 export {
+  appendTrailingSlash,
   applyScrollTo,
   type CachedRedirect,
   canonicalizePathname,
@@ -29,6 +30,9 @@ export {
   type RedirectType,
   type ResolvedRedirect,
   resolveRedirect,
+  type ResolveRedirectOptions,
+  type ResolveRedirectSkipEvent,
+  type ResolveRedirectSkipReason,
   stripFragment,
 } from './core/shared.js'
 export { redirectsPlugin } from './plugin.js'

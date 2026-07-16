@@ -273,15 +273,40 @@ const destinationPathSearch = (destination: string): string => {
   }
 }
 
+/** Why a MATCHED redirect was skipped instead of being issued. */
+export type ResolveRedirectSkipReason = 'open-redirect' | 'self-redirect'
+
+/**
+ * Diagnostic emitted when `resolveRedirect` matches an entry but then skips it.
+ * Framework-neutral by design (no request objects) so non-Next adapters can
+ * reuse it: `destination` is the FINAL destination (after regex substitution),
+ * `redirect` is the offending entry, `reason` says which guard rejected it.
+ */
+export type ResolveRedirectSkipEvent = {
+  destination: string
+  reason: ResolveRedirectSkipReason
+  redirect: CachedRedirect
+}
+
+export type ResolveRedirectOptions = {
+  /** Invoked for every MATCHED entry that is skipped; scanning then continues. */
+  onSkip?: (event: ResolveRedirectSkipEvent) => void
+}
+
 /**
  * Framework-agnostic redirect resolution — usable from Express, Hono, Next.js
  * middleware, or anything with a request URL. Scans the ordered list, returns
  * the first safe, non-looping match, or `null`. Does NOT apply `forwardQuery`
  * (that needs the full request URL to join against — see `mergeForwardedQuery`).
+ *
+ * `options.onSkip` is called whenever a matched entry is skipped (open-redirect
+ * guard or self-redirect), so callers can explain "why didn't my redirect
+ * fire?" without duplicating the guard logic. Plain non-matches never fire it.
  */
 export const resolveRedirect = (
   redirects: CachedRedirect[],
   url: string | URL,
+  options?: ResolveRedirectOptions,
 ): null | ResolvedRedirect => {
   let parsed: URL
   try {
@@ -304,12 +329,14 @@ export const resolveRedirect = (
 
     // Security: reject destinations that would escape to another origin.
     if (!isSafeDestination(redirect.to, destination)) {
+      options?.onSkip?.({ destination, reason: 'open-redirect', redirect })
       continue
     }
 
     // Self-redirect skip. Fragments are ignored on purpose: they are never
     // sent to the server, so `/pricing` → `/pricing#plans` would loop.
     if (destinationPathSearch(destination) === requestPathSearch) {
+      options?.onSkip?.({ destination, reason: 'self-redirect', redirect })
       continue
     }
 
@@ -349,4 +376,38 @@ export const mergeForwardedQuery = (destination: string, requestSearch: string):
 
   const merged = params.toString()
   return `${path}${merged ? `?${merged}` : ''}${fragment}`
+}
+
+/**
+ * Appends a trailing slash to the PATH part of a relative destination
+ * (`/about?x=1#f` → `/about/?x=1#f`), preserving query and fragment. No-op when
+ * the path is `/`, already ends with `/`, or its last segment contains a `.`
+ * (mirrors Next's file-extension exemption — `/logo.png` stays slashless).
+ * Intended for paths only; pass a `path(?search)(#hash)` string.
+ */
+export const appendTrailingSlash = (destination: string): string => {
+  const queryIndex = destination.indexOf('?')
+  const hashIndex = destination.indexOf('#')
+
+  let splitAt = destination.length
+  if (queryIndex !== -1) {
+    splitAt = Math.min(splitAt, queryIndex)
+  }
+  if (hashIndex !== -1) {
+    splitAt = Math.min(splitAt, hashIndex)
+  }
+
+  const path = destination.slice(0, splitAt)
+  const rest = destination.slice(splitAt)
+
+  if (path === '/' || path.endsWith('/')) {
+    return destination
+  }
+
+  const lastSegment = path.slice(path.lastIndexOf('/') + 1)
+  if (lastSegment.includes('.')) {
+    return destination
+  }
+
+  return `${path}/${rest}`
 }
