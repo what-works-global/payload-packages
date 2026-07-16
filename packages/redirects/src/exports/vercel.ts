@@ -12,18 +12,10 @@ import { getCache } from '@vercel/functions'
 import type { RedirectsCache } from '../core/shared.js'
 
 import { isCachedRedirect } from '../core/shared.js'
-import { fileCache } from './cache.js'
 
 export type { CachedRedirect, RedirectsCache } from '../core/shared.js'
 
 export type VercelRuntimeCacheOptions = {
-  /**
-   * Cache used instead of the runtime cache while `NODE_ENV === 'development'`,
-   * where the Vercel Runtime Cache is unavailable. Pass `false` to always use
-   * the runtime cache.
-   * @default fileCache()
-   */
-  development?: false | RedirectsCache
   /**
    * Runtime-cache key the redirect list is stored under. Change it when one
    * Vercel project hosts several Payload instances sharing a cache.
@@ -46,23 +38,20 @@ export type VercelRuntimeCacheOptions = {
 }
 
 /**
- * Vercel Runtime Cache (`getCache()` from `@vercel/functions`) — shared
- * across function and middleware invocations in one region, readable from
- * Vercel's middleware without invoking a function. In development it
- * delegates to the `development` cache (a `fileCache()` unless overridden),
- * since the runtime cache only exists on Vercel's infrastructure.
+ * Vercel Runtime Cache (`getCache()` from `@vercel/functions`) — shared across
+ * function and middleware invocations in one region, readable from Vercel's
+ * middleware without invoking a function. This adapter is environment-dumb: it
+ * always talks to the runtime cache, which only exists on Vercel's
+ * infrastructure. For a local `next dev` fallback, compose it with `envCache`
+ * from `@whatworks/payload-redirects/cache`:
+ * `envCache({ development: fileCache(), production: vercelRuntimeCache() })`.
  */
 export const vercelRuntimeCache = (options: VercelRuntimeCacheOptions = {}): RedirectsCache => {
   const {
-    development,
     key = 'payload-redirects',
     tags = ['payload-redirects'],
     ttl = 60 * 60 * 24 * 365,
   } = options
-
-  const developmentCache = development === false ? undefined : (development ?? fileCache())
-  const pickDevelopment = () =>
-    process.env.NODE_ENV === 'development' ? developmentCache : undefined
 
   let runtimeCache: ReturnType<typeof getCache> | undefined
   const getRuntimeCache = () => {
@@ -72,10 +61,6 @@ export const vercelRuntimeCache = (options: VercelRuntimeCacheOptions = {}): Red
 
   return {
     get: async () => {
-      const dev = pickDevelopment()
-      if (dev) {
-        return dev.get()
-      }
       const value = await getRuntimeCache().get(key)
       if (!Array.isArray(value)) {
         return null
@@ -83,10 +68,6 @@ export const vercelRuntimeCache = (options: VercelRuntimeCacheOptions = {}): Red
       return value.filter(isCachedRedirect)
     },
     set: async (redirects) => {
-      const dev = pickDevelopment()
-      if (dev) {
-        return dev.set(redirects)
-      }
       await getRuntimeCache().set(key, redirects, { tags, ttl })
     },
   }

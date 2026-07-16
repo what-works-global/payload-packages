@@ -17,7 +17,6 @@ import { createClient } from '@vercel/edge-config'
 import type { RedirectsCache } from '../core/shared.js'
 
 import { isCachedRedirect } from '../core/shared.js'
-import { fileCache } from './cache.js'
 
 export type { CachedRedirect, RedirectsCache } from '../core/shared.js'
 
@@ -27,13 +26,6 @@ export type EdgeConfigCacheOptions = {
    * @default process.env.EDGE_CONFIG
    */
   connectionString?: string
-  /**
-   * Cache used instead of Edge Config while `NODE_ENV === 'development'`, where
-   * writing through the Vercel API on every save is undesirable. Pass `false`
-   * to always use Edge Config.
-   * @default fileCache()
-   */
-  development?: false | RedirectsCache
   /** Edge Config store id (`ecfg_…`), used in the write URL. */
   edgeConfigId: string
   /**
@@ -50,23 +42,20 @@ export type EdgeConfigCacheOptions = {
 /**
  * Vercel Edge Config cache. Reads use the memoized `@vercel/edge-config`
  * client; writes PATCH the Vercel REST API and throw on failure so a redirect
- * save fails loudly (matching the plugin's other cache-write hooks). In
- * development it delegates to the `development` cache (a `fileCache()` unless
- * overridden), since writing through the API on every local save is wasteful.
+ * save fails loudly (matching the plugin's other cache-write hooks). This
+ * adapter is environment-dumb: it always reads/writes Edge Config. To avoid
+ * burning API writes on every local save, compose it with `envCache` from
+ * `@whatworks/payload-redirects/cache`:
+ * `envCache({ development: fileCache(), production: edgeConfigCache({ … }) })`.
  */
 export const edgeConfigCache = (options: EdgeConfigCacheOptions): RedirectsCache => {
   const {
     connectionString = process.env.EDGE_CONFIG,
-    development,
     edgeConfigId,
     itemKey = 'payload-redirects',
     teamId,
     token,
   } = options
-
-  const developmentCache = development === false ? undefined : (development ?? fileCache())
-  const pickDevelopment = () =>
-    process.env.NODE_ENV === 'development' ? developmentCache : undefined
 
   let client: ReturnType<typeof createClient> | undefined
   const getClient = () => {
@@ -76,10 +65,6 @@ export const edgeConfigCache = (options: EdgeConfigCacheOptions): RedirectsCache
 
   return {
     get: async () => {
-      const dev = pickDevelopment()
-      if (dev) {
-        return dev.get()
-      }
       const value = await getClient().get(itemKey)
       if (!Array.isArray(value)) {
         return null
@@ -87,11 +72,6 @@ export const edgeConfigCache = (options: EdgeConfigCacheOptions): RedirectsCache
       return value.filter(isCachedRedirect)
     },
     set: async (redirects) => {
-      const dev = pickDevelopment()
-      if (dev) {
-        return dev.set(redirects)
-      }
-
       const url = new URL(`https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`)
       if (teamId) {
         url.searchParams.set('teamId', teamId)

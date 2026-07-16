@@ -105,6 +105,70 @@ export const fileCache = (options: FileCacheOptions = {}): RedirectsCache => {
   }
 }
 
+/**
+ * A cache branch for {@link envCache}: either a ready `RedirectsCache` instance
+ * or a thunk that builds one. Passing a thunk keeps the branch lazy — it is only
+ * invoked if it's the selected branch, so an unused branch's construction cost
+ * (opening a Redis connection, reading `process.env`, …) is never paid.
+ */
+export type EnvCacheBranch = (() => RedirectsCache) | RedirectsCache
+
+export type EnvCacheOptions = {
+  /**
+   * Cache used when `select()` returns `'development'` — the explicit stand-in
+   * for the runtime/edge cache while `next dev` runs, where those backends don't
+   * exist. Given as an instance or a thunk (only built if selected).
+   * @default fileCache()
+   */
+  development?: EnvCacheBranch
+  /**
+   * Cache used when `select()` returns `'production'`. Given as an instance or a
+   * thunk (only built if selected), so e.g.
+   * `production: () => redisCache({ client: makeRedis() })` never opens a
+   * connection during local development.
+   */
+  production: EnvCacheBranch
+  /**
+   * Chooses the branch, evaluated once at construction.
+   * @default () => (process.env.NODE_ENV === 'development' ? 'development' : 'production')
+   */
+  select?: () => 'development' | 'production'
+}
+
+const resolveEnvCacheBranch = (branch: EnvCacheBranch): RedirectsCache =>
+  typeof branch === 'function' ? branch() : branch
+
+/**
+ * Composes two caches and picks one **once, at construction**, based on the
+ * environment — the explicit, call-site replacement for the old per-adapter
+ * `development` option. Only the chosen branch is resolved: pass the other as a
+ * thunk and its cache is never constructed (no stray Redis connection or Vercel
+ * client in dev). When the development branch engages it logs a one-line notice
+ * so the switch is discoverable; production is silent.
+ *
+ * `select` defaults to `NODE_ENV`, but override it for cases where that lies —
+ * e.g. Vercel preview deployments run with `NODE_ENV === 'production'` yet you
+ * may want the file cache: `select: () => process.env.VERCEL_ENV === 'production'
+ * ? 'production' : 'development'`.
+ */
+export const envCache = (options: EnvCacheOptions): RedirectsCache => {
+  const {
+    development,
+    production,
+    select = () => (process.env.NODE_ENV === 'development' ? 'development' : 'production'),
+  } = options
+
+  if (select() === 'development') {
+    // eslint-disable-next-line no-console -- surface the dev-cache switch so it's discoverable
+    console.info(
+      '[payload-redirects] development environment detected — using the development cache (default: file cache)',
+    )
+    return resolveEnvCacheBranch(development ?? fileCache())
+  }
+
+  return resolveEnvCacheBranch(production)
+}
+
 /** Minimal structural view of a Redis client — the subset the adapter uses. */
 export type RedisCacheClient = {
   get: (key: string) => Promise<unknown>

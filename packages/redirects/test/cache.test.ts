@@ -5,7 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CachedRedirect, RedirectsCache } from '../src/exports/cache.js'
 
-import { cloudflareKVCache, fileCache, memoryCache, redisCache } from '../src/exports/cache.js'
+import {
+  cloudflareKVCache,
+  envCache,
+  fileCache,
+  memoryCache,
+  redisCache,
+} from '../src/exports/cache.js'
 import { edgeConfigCache } from '../src/exports/edge-config.js'
 import { vercelRuntimeCache } from '../src/exports/vercel.js'
 
@@ -95,31 +101,6 @@ describe('vercelRuntimeCache', () => {
     expect(await cache.get()).toEqual([entry()])
     runtimeStore.set('custom-key', 'not-an-array')
     expect(await cache.get()).toBeNull()
-  })
-
-  it('delegates to the development cache while NODE_ENV is development', async () => {
-    vi.stubEnv('NODE_ENV', 'development')
-    const store: { entries: CachedRedirect[] | null } = { entries: null }
-    const development: RedirectsCache = {
-      get: () => Promise.resolve(store.entries),
-      set: (redirects) => {
-        store.entries = redirects
-        return Promise.resolve()
-      },
-    }
-
-    const cache = vercelRuntimeCache({ development })
-    await cache.set([entry()])
-    expect(store.entries).toEqual([entry()])
-    expect(runtimeStore.size).toBe(0)
-    expect(await cache.get()).toEqual([entry()])
-  })
-
-  it('ignores NODE_ENV when the development cache is disabled', async () => {
-    vi.stubEnv('NODE_ENV', 'development')
-    const cache = vercelRuntimeCache({ development: false })
-    await cache.set([entry()])
-    expect(runtimeStore.get('payload-redirects')).toEqual([entry()])
   })
 })
 
@@ -252,24 +233,94 @@ describe('edgeConfigCache', () => {
     const cache = edgeConfigCache({ edgeConfigId: 'ecfg_1', token: 't' })
     await expect(cache.set([entry()])).rejects.toThrow(/401/)
   })
+})
 
-  it('delegates to the development cache while NODE_ENV is development', async () => {
+describe('envCache', () => {
+  const seeded = async (id: string): Promise<RedirectsCache> => {
+    const cache = memoryCache()
+    await cache.set([entry({ id })])
+    return cache
+  }
+
+  it('selects the development branch under NODE_ENV=development', async () => {
     vi.stubEnv('NODE_ENV', 'development')
-    const store: { entries: CachedRedirect[] | null } = { entries: null }
-    const development: RedirectsCache = {
-      get: () => Promise.resolve(store.entries),
-      set: (redirects) => {
-        store.entries = redirects
-        return Promise.resolve()
-      },
-    }
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
 
-    const cache = edgeConfigCache({ development, edgeConfigId: 'ecfg_1', token: 't' })
-    await cache.set([entry()])
-    expect(store.entries).toEqual([entry()])
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(await cache.get()).toEqual([entry()])
+    const cache = envCache({
+      development: await seeded('dev'),
+      production: await seeded('prod'),
+    })
+    expect(await cache.get()).toEqual([entry({ id: 'dev' })])
+  })
+
+  it('selects the production branch otherwise', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+
+    const cache = envCache({
+      development: await seeded('dev'),
+      production: await seeded('prod'),
+    })
+    expect(await cache.get()).toEqual([entry({ id: 'prod' })])
+  })
+
+  it('honours a custom select (e.g. Vercel preview → development)', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    const cache = envCache({
+      development: await seeded('dev'),
+      production: await seeded('prod'),
+      select: () => 'development',
+    })
+    expect(await cache.get()).toEqual([entry({ id: 'dev' })])
+  })
+
+  it('accepts plain cache instances and round-trips through the chosen one', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const production = memoryCache()
+
+    const cache = envCache({ development: memoryCache(), production })
+    await cache.set([entry({ id: 'written' })])
+    expect(await production.get()).toEqual([entry({ id: 'written' })])
+    expect(await cache.get()).toEqual([entry({ id: 'written' })])
+  })
+
+  it('invokes only the chosen branch thunk, exactly once', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const developmentThunk = vi.fn(() => memoryCache())
+    const productionThunk = vi.fn(() => memoryCache())
+
+    envCache({ development: developmentThunk, production: productionThunk })
+    expect(productionThunk).toHaveBeenCalledTimes(1)
+    expect(developmentThunk).not.toHaveBeenCalled()
+  })
+
+  it('logs once when the development branch engages, and is silent in production', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    vi.stubEnv('NODE_ENV', 'development')
+    envCache({ development: memoryCache(), production: memoryCache() })
+    expect(info).toHaveBeenCalledTimes(1)
+    expect(String(info.mock.calls[0]?.[0])).toContain('development environment detected')
+
+    info.mockClear()
+    vi.stubEnv('NODE_ENV', 'production')
+    envCache({ development: memoryCache(), production: memoryCache() })
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it('defaults the development branch to a file cache without writing on read', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    // No `development` branch given → defaults to `fileCache()`. Reading a fresh
+    // default file cache is a miss and writes nothing to `.next/cache`; the
+    // production thunk must never run in development.
+    const cache = envCache({
+      production: () => {
+        throw new Error('production branch must not be constructed in development')
+      },
+    })
+    expect(await cache.get()).toBeNull()
   })
 })

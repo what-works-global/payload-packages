@@ -31,12 +31,16 @@ Define the cache once, in a module imported by **both** your Payload config and 
 
 ```ts
 // redirects-cache.ts
+import { envCache, fileCache } from '@whatworks/payload-redirects/cache'
 import { vercelRuntimeCache } from '@whatworks/payload-redirects/vercel'
 
-export const cache = vercelRuntimeCache()
-// In development the adapter delegates to a JSON file cache
-// (.next/cache/payload-redirects.json) — configurable:
-//   vercelRuntimeCache({ development: fileCache({ path: '...' }) })
+// The Vercel Runtime Cache only exists on Vercel's infrastructure, so `envCache`
+// falls back to a JSON file cache (.next/cache/payload-redirects.json) locally —
+// which is what makes `next dev` work. See "Development fallback" below.
+export const cache = envCache({
+  development: fileCache(),
+  production: vercelRuntimeCache(),
+})
 ```
 
 ```ts
@@ -248,26 +252,62 @@ interface RedirectsCache {
 
 | Adapter                        | Import                                     | Use                                                                                                                                                                            |
 | ------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `vercelRuntimeCache(options?)` | `@whatworks/payload-redirects/vercel`      | Vercel deployments. Region-shared runtime cache, readable from middleware. Delegates to `options.development` (default `fileCache()`) while `NODE_ENV === 'development'`.      |
-| `edgeConfigCache(options)`     | `@whatworks/payload-redirects/edge-config` | Vercel deployments wanting the lowest-latency read path — see below. Reads via `@vercel/edge-config`; writes go through the Vercel REST API. Delegates in development.         |
+| `vercelRuntimeCache(options?)` | `@whatworks/payload-redirects/vercel`      | Vercel deployments. Region-shared runtime cache, readable from middleware. Only exists on Vercel — wrap it with `envCache` for a local `next dev` fallback.                    |
+| `edgeConfigCache(options)`     | `@whatworks/payload-redirects/edge-config` | Vercel deployments wanting the lowest-latency read path — see below. Reads via `@vercel/edge-config`; writes go through the Vercel REST API. Wrap with `envCache` for dev.     |
 | `redisCache(options)`          | `@whatworks/payload-redirects/cache`       | Any Redis — ioredis, node-redis v4, or `@upstash/redis`. Pass your existing client; no dependency is added.                                                                    |
 | `cloudflareKVCache(options)`   | `@whatworks/payload-redirects/cache`       | Cloudflare Workers/Pages. Pass the KV namespace binding.                                                                                                                       |
 | `fileCache({ path? })`         | `@whatworks/payload-redirects/cache`       | Development and single-server self-hosting. Atomic JSON file writes; bridges the separate module graphs `next dev` runs the middleware and server in. Requires a Node runtime. |
 | `memoryCache()`                | `@whatworks/payload-redirects/cache`       | Tests, or a single long-lived process serving both sides. Writes are invisible across processes — not for serverless or `next dev`.                                            |
+| `envCache(options)`            | `@whatworks/payload-redirects/cache`       | Not a store — composes two caches and picks one per environment (e.g. file cache in dev, runtime/edge cache in prod). See "Development fallback".                              |
 
 Any object with `get`/`set` works as an adapter — plug in your own store.
+
+### Development fallback (`envCache`)
+
+Cloud read paths like the Vercel Runtime Cache and Edge Config don't exist on your machine, so a `next dev` session needs a local stand-in (typically a `fileCache()`, which bridges the separate module graphs `next dev` runs the proxy and server in). `envCache` makes that fallback **explicit at the call site** — it composes two caches and selects one **once, at construction**:
+
+```ts
+import { envCache, fileCache } from '@whatworks/payload-redirects/cache'
+import { vercelRuntimeCache } from '@whatworks/payload-redirects/vercel'
+
+export const cache = envCache({
+  development: fileCache(), // default when omitted; used when select() → 'development'
+  production: vercelRuntimeCache(), // used when select() → 'production'
+})
+```
+
+Previously each Vercel adapter carried a hidden `development` option and silently swapped stores based on `NODE_ENV`. `envCache` replaces that: the fallback lives where you define the cache, not inside the adapter.
+
+- **Lazy branches** — pass a branch as a thunk and it's only built if selected, so `production: () => redisCache({ client: makeRedis() })` never opens a Redis connection during local dev. Plain instances (as above) also work.
+- **`select`** — defaults to `NODE_ENV === 'development' ? 'development' : 'production'`. Override it when `NODE_ENV` lies — e.g. Vercel preview deployments run with `NODE_ENV === 'production'` but you may still want the file cache:
+
+  ```ts
+  envCache({
+    development: fileCache(),
+    production: edgeConfigCache({ edgeConfigId: 'ecfg_xxx', token: process.env.VERCEL_API_TOKEN! }),
+    select: () => (process.env.VERCEL_ENV === 'production' ? 'production' : 'development'),
+  })
+  ```
+
+When the development branch engages it logs a one-line notice so the switch is discoverable; production is silent.
 
 ### Vercel Runtime Cache
 
 ```ts
-import { fileCache } from '@whatworks/payload-redirects/cache'
+import { envCache, fileCache } from '@whatworks/payload-redirects/cache'
 import { vercelRuntimeCache } from '@whatworks/payload-redirects/vercel'
 
-export const cache = vercelRuntimeCache({
-  development: fileCache({ path: '.next/cache/payload-redirects.json' }), // or false
+const runtimeCache = vercelRuntimeCache({
   key: 'payload-redirects',
   tags: ['payload-redirects'],
   ttl: 60 * 60 * 24 * 365, // the runtime cache treats entries without a TTL as never fresh
+})
+
+// The runtime cache only exists on Vercel — compose with `envCache` for a local
+// `next dev` fallback (see "Development fallback").
+export const cache = envCache({
+  development: fileCache({ path: '.next/cache/payload-redirects.json' }),
+  production: runtimeCache,
 })
 ```
 
@@ -275,18 +315,21 @@ The TTL defaults to a year on purpose — hooks re-sync on every change, so expi
 
 ### Vercel Edge Config
 
-Edge Config is the ideal read path on Vercel: reads are ultra-low-latency and available in middleware without invoking a function. Writes go through the Vercel REST API (they need an API token and are rate-limited), which is exactly right for write-rarely data like a redirect list. In development the adapter delegates to a `fileCache()` (unless overridden or set to `false`), so you don't burn API writes on every local save.
+Edge Config is the ideal read path on Vercel: reads are ultra-low-latency and available in middleware without invoking a function. Writes go through the Vercel REST API (they need an API token and are rate-limited), which is exactly right for write-rarely data like a redirect list. To avoid burning an API write on every local save, wrap it with `envCache` so development uses a `fileCache()` (see "Development fallback").
 
 ```ts
+import { envCache, fileCache } from '@whatworks/payload-redirects/cache'
 import { edgeConfigCache } from '@whatworks/payload-redirects/edge-config'
 
-export const cache = edgeConfigCache({
-  connectionString: process.env.EDGE_CONFIG, // default: process.env.EDGE_CONFIG (used for reads)
-  edgeConfigId: 'ecfg_xxx', // used in the write URL
-  token: process.env.VERCEL_API_TOKEN!, // Vercel API token with write access
-  teamId: process.env.VERCEL_TEAM_ID, // required when the store belongs to a team
-  itemKey: 'payload-redirects',
-  // development: false,  // always use Edge Config instead of the file cache
+export const cache = envCache({
+  development: fileCache(),
+  production: edgeConfigCache({
+    connectionString: process.env.EDGE_CONFIG, // default: process.env.EDGE_CONFIG (used for reads)
+    edgeConfigId: 'ecfg_xxx', // used in the write URL
+    token: process.env.VERCEL_API_TOKEN!, // Vercel API token with write access
+    teamId: process.env.VERCEL_TEAM_ID, // required when the store belongs to a team
+    itemKey: 'payload-redirects',
+  }),
 })
 ```
 
