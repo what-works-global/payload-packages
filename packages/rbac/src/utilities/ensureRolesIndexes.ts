@@ -36,7 +36,9 @@ export const ensureRolesIndexes = async (
     }
   ).collections?.[rolesCollectionSlug]
 
-  const createIndexes = model?.createIndexes
+  // `.bind(model)` matters: `createIndexes` is a mongoose model method that
+  // needs `this` to be the model, so it must not be called as a bare function.
+  const createIndexes = model?.createIndexes?.bind(model)
   if (!createIndexes) {
     return
   }
