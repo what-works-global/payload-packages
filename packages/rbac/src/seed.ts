@@ -5,6 +5,7 @@ import type { PredefinedRole } from './types.js'
 import { samePermissions } from './permissions.js'
 import { ensureRolesIndexes } from './utilities/ensureRolesIndexes.js'
 import { isUniqueViolation } from './utilities/isUniqueViolation.js'
+import { retryOnWriteConflict } from './utilities/retryOnWriteConflict.js'
 
 export type SeedPredefinedRolesArgs = {
   roles: PredefinedRole[]
@@ -42,26 +43,35 @@ export const seedPredefinedRoles = async (
       | undefined
     if (existingDoc) {
       if (role.protected && !samePermissions(existingDoc.permissions, role.permissions)) {
-        await payload.update({
-          id: existingDoc.id,
-          collection: rolesCollectionSlug,
-          data: { permissions: role.permissions },
-          depth: 0,
-        })
+        await retryOnWriteConflict(() =>
+          payload.update({
+            id: existingDoc.id,
+            collection: rolesCollectionSlug,
+            data: { permissions: role.permissions },
+            depth: 0,
+          }),
+        )
         payload.logger.info(`[payload-rbac] Restored permissions of protected role "${role.name}"`)
       }
       continue
     }
 
     try {
-      await payload.create({
-        collection: rolesCollectionSlug,
-        data: {
-          name: role.name,
-          description: role.description,
-          permissions: role.permissions,
-        },
-      })
+      // First boot only: the roles collection's unique `name` index is still
+      // being built (see `ensureRolesIndexes`), and a transactional create
+      // against a collection with an in-progress index build is aborted with a
+      // transient `WriteConflict`. Retry it. A retry that then loses to another
+      // writer surfaces as the unique-violation handled below, not a conflict.
+      await retryOnWriteConflict(() =>
+        payload.create({
+          collection: rolesCollectionSlug,
+          data: {
+            name: role.name,
+            description: role.description,
+            permissions: role.permissions,
+          },
+        }),
+      )
       payload.logger.info(`[payload-rbac] Seeded role "${role.name}"`)
     } catch (error) {
       // `onInit` runs on every serverless cold boot, so several instances can

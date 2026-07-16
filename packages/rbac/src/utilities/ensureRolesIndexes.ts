@@ -1,6 +1,7 @@
 import type { Payload } from 'payload'
 
 import { isUniqueViolation } from './isUniqueViolation.js'
+import { retryOnWriteConflict } from './retryOnWriteConflict.js'
 
 /**
  * Builds the roles collection's indexes on MongoDB before seeding runs.
@@ -35,14 +36,16 @@ export const ensureRolesIndexes = async (
     }
   ).collections?.[rolesCollectionSlug]
 
-  if (!model?.createIndexes) {
+  const createIndexes = model?.createIndexes
+  if (!createIndexes) {
     return
   }
 
   try {
     // Idempotent: creates any missing indexes (including the unique `name`
-    // index) and is a no-op once they exist.
-    await model.createIndexes()
+    // index) and is a no-op once they exist. Retry a transient `WriteConflict`
+    // from another boot building the same index concurrently.
+    await retryOnWriteConflict(() => createIndexes())
   } catch (error) {
     if (isUniqueViolation(error)) {
       payload.logger.error(

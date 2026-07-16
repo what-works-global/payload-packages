@@ -25,12 +25,14 @@ import {
   fullAccessPermissions,
   getRbacCustomConfig,
   getUserPermissions,
+  isWriteConflict,
   missingPermissions,
   permissionCovers,
   permissionsGrant,
   permissionsMatrixFieldPath,
   rbacPlugin,
   requirePermission,
+  retryOnWriteConflict,
   seedPredefinedRoles,
   warnIfAdminRoleUnheld,
 } from '../src/index.js'
@@ -1288,6 +1290,24 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     await expect(ensureRolesIndexes(payload, 'roles')).rejects.toBe(boom)
   })
 
+  it('retries a WriteConflict while building the roles indexes', async () => {
+    const writeConflict = Object.assign(new Error('WriteConflict'), {
+      code: 112,
+      codeName: 'WriteConflict',
+    })
+    const createIndexes = vi
+      .fn()
+      .mockRejectedValueOnce(writeConflict)
+      .mockResolvedValueOnce(undefined)
+    const payload = {
+      db: { name: 'mongoose', collections: { roles: { createIndexes } } },
+      logger: { error: vi.fn() },
+    } as unknown as Payload
+
+    await expect(ensureRolesIndexes(payload, 'roles')).resolves.toBeUndefined()
+    expect(createIndexes).toHaveBeenCalledTimes(2)
+  })
+
   it('treats a unique violation during seed create as already-seeded (concurrent boot)', async () => {
     const uniqueViolation = Object.assign(new Error('duplicate key value'), { code: '23505' })
     const create = vi.fn(() => Promise.reject(uniqueViolation))
@@ -1324,6 +1344,34 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     ).rejects.toBe(boom)
   })
 
+  it('retries a WriteConflict during seed create instead of failing init', async () => {
+    // On a replica set (Atlas), Payload runs the seed `create` in a transaction.
+    // On the first boot the roles collection's index is still being built, and a
+    // transactional write to a collection with an in-progress index build is
+    // aborted with a transient WriteConflict (code 112) — which is NOT a unique
+    // violation, so before the fix it propagated out of `onInit` and failed the
+    // build ("payloadInitError: true").
+    const writeConflict = Object.assign(new Error('WriteConflict'), {
+      code: 112,
+      codeName: 'WriteConflict',
+    })
+    const create = vi.fn().mockRejectedValueOnce(writeConflict).mockResolvedValueOnce({})
+    const payload = {
+      create,
+      db: { name: 'mongoose' },
+      find: vi.fn(() => Promise.resolve({ docs: [] })),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as unknown as Payload
+
+    await expect(
+      seedPredefinedRoles(payload, {
+        roles: [{ name: 'admin', permissions: ['*'] }],
+        rolesCollectionSlug: 'roles',
+      }),
+    ).resolves.toBeUndefined()
+    expect(create).toHaveBeenCalledTimes(2)
+  })
+
   it('detects unique-constraint violations across adapters (including wrapped causes)', () => {
     expect(isUniqueViolation({ code: 11000 })).toBe(true) // MongoDB
     expect(isUniqueViolation({ code: '23505' })).toBe(true) // Postgres
@@ -1332,5 +1380,46 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     expect(isUniqueViolation({ code: 'ETIMEDOUT' })).toBe(false)
     expect(isUniqueViolation(new Error('boom'))).toBe(false)
     expect(isUniqueViolation(null)).toBe(false)
+  })
+
+  it('detects transient WriteConflict errors but not unique violations', () => {
+    expect(isWriteConflict({ code: 112 })).toBe(true)
+    expect(isWriteConflict({ codeName: 'WriteConflict' })).toBe(true)
+    expect(
+      isWriteConflict(Object.assign(new Error('x'), { code: 112, payloadInitError: true })),
+    ).toBe(true)
+    expect(isWriteConflict({ cause: { codeName: 'WriteConflict' } })).toBe(true) // wrapped
+    // A unique violation is a permanent "already seeded" signal, not a conflict.
+    expect(isWriteConflict({ code: 11000 })).toBe(false)
+    expect(isWriteConflict(new Error('boom'))).toBe(false)
+    expect(isWriteConflict(null)).toBe(false)
+  })
+
+  it('retries write conflicts and rethrows every other error', async () => {
+    const conflict = Object.assign(new Error('WriteConflict'), {
+      code: 112,
+      codeName: 'WriteConflict',
+    })
+
+    // Succeeds once the conflict clears.
+    const flaky = vi
+      .fn()
+      .mockRejectedValueOnce(conflict)
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce('ok')
+    await expect(retryOnWriteConflict(flaky, { delayMs: 0 })).resolves.toBe('ok')
+    expect(flaky).toHaveBeenCalledTimes(3)
+
+    // Gives up after exhausting the retries, rethrowing the last conflict rather
+    // than swallowing it, so a genuinely stuck write still surfaces.
+    const stuck = vi.fn().mockRejectedValue(conflict)
+    await expect(retryOnWriteConflict(stuck, { delayMs: 0, retries: 2 })).rejects.toBe(conflict)
+    expect(stuck).toHaveBeenCalledTimes(3) // 1 initial attempt + 2 retries
+
+    // Non-conflict errors are thrown immediately, never retried.
+    const boom = new Error('connection refused')
+    const failing = vi.fn().mockRejectedValue(boom)
+    await expect(retryOnWriteConflict(failing, { delayMs: 0 })).rejects.toBe(boom)
+    expect(failing).toHaveBeenCalledTimes(1)
   })
 })
