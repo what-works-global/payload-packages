@@ -7,6 +7,7 @@ import type {
   SelectType,
 } from 'payload'
 
+import type { SharedRedirectsConfig } from './core/config.js'
 import type { RedirectsCache } from './core/shared.js'
 
 export type RedirectsCollectionConfig<TSlug extends CollectionSlug = CollectionSlug> = {
@@ -47,14 +48,13 @@ export type InternalRedirectsCollectionConfig = {
   select?: SelectType
 }
 
-export interface RedirectsPluginConfig {
-  /**
-   * Cache the middleware reads redirects from and the plugin writes to on
-   * every change. Both sides must be constructed with the same adapter —
-   * define it once in a shared module. Adapters live in
-   * `@whatworks/payload-redirects/cache`.
-   */
-  cache: RedirectsCache
+/**
+ * Options for `redirectsPlugin`. Extends {@link SharedRedirectsConfig}
+ * (`cache`, `endpointsPath`, `secret`, and the serving-only `api`) so one
+ * object spreads into both the plugin and the middleware/resolver — the plugin
+ * simply ignores `api`.
+ */
+export interface RedirectsPluginConfig extends SharedRedirectsConfig {
   /**
    * Collections editors can pick as internal redirect destinations. Each
    * entry resolves a referenced doc to its path when the cache is built; a
@@ -63,25 +63,12 @@ export interface RedirectsPluginConfig {
    */
   collections?: RedirectsCollections
   /**
-   * Disables endpoints, hooks, and cache syncing while keeping the redirects
-   * collection registered so the database schema stays consistent for
-   * migrations.
+   * Disables endpoints, hooks, cache syncing, and the init-time cache sync
+   * while keeping the redirects collection registered so the database schema
+   * stays consistent for migrations.
    * @default false
    */
   disabled?: boolean
-  /**
-   * Base path of the plugin's endpoints under the Payload API route. Must
-   * match the middleware's `endpointsPath` option.
-   * @default '/payload-redirects' → `/api/payload-redirects/refresh-cache`
-   */
-  endpointsPath?: string
-  /**
-   * Track how often (and when last) each redirect was hit: adds read-only
-   * `hits`/`lastAccess` sidebar fields and the hit endpoint the middleware
-   * reports to.
-   * @default true
-   */
-  hits?: boolean
   /**
    * Localize `from` and the `to` destination so redirects can differ per
    * locale. Requires `localization` on the Payload config — if absent, the
@@ -93,25 +80,33 @@ export interface RedirectsPluginConfig {
   /** Final say over the generated collection — receives it fully built, returns what ships. */
   overrides?: (args: { collection: CollectionConfig }) => CollectionConfig
   /**
-   * When set, the `refresh-cache` and `hit/:id` endpoints require either the
-   * `x-payload-redirects-secret` header to equal this value or an
-   * authenticated `req.user`; unauthorized requests get a 403. Leave unset for
-   * zero-config open endpoints. The middleware sends this as the header.
-   */
-  secret?: string
-  /**
    * Slug of the redirects collection.
    * @default 'redirects'
    */
   slug?: string
+  /**
+   * Rebuild the cache from the database once on boot (`onInit`), so a freshly
+   * started instance serves redirects immediately — without waiting for the
+   * first content change or cache-miss refresh. Any existing `onInit` runs
+   * first; a sync failure is logged, never fatal. Skipped when `disabled`.
+   * @default true
+   */
+  syncOnInit?: boolean
+  /**
+   * Track how often (and when last) each redirect was hit: adds read-only
+   * `hits`/`lastAccess` sidebar fields and the hit endpoint the middleware
+   * reports to.
+   * @default true
+   */
+  trackHits?: boolean
 }
 
 export type ResolvedRedirectsConfig = {
   cache: RedirectsCache
   collections: Record<string, InternalRedirectsCollectionConfig>
   endpointsPath: string
-  hits: boolean
   localized: boolean
   secret?: string
   slug: string
+  trackHits: boolean
 }

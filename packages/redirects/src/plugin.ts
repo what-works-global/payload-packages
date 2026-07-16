@@ -2,6 +2,7 @@ import type { Config, Plugin } from 'payload'
 
 import type { RedirectsPluginConfig } from './types.js'
 
+import { syncRedirectsCache } from './core/build.js'
 import { buildRedirectsCollection } from './core/collection.js'
 import { resolveRedirectsConfig } from './core/resolved.js'
 import {
@@ -96,6 +97,39 @@ export const redirectsPlugin =
     })
 
     config.endpoints = [...(config.endpoints ?? []), ...createRedirectsEndpoints(resolved)]
+
+    /**
+     * Compose `onInit`: run any prior `onInit` first, warn (in production) when
+     * the endpoints are left open, then prime the cache from the database so a
+     * freshly booted instance serves redirects without waiting for the first
+     * content change or cache-miss refresh. Neither step may crash boot. Skipped
+     * entirely when the plugin is `disabled` (handled by the early return above).
+     */
+    const priorOnInit = config.onInit
+    config.onInit = async (payload) => {
+      if (priorOnInit) {
+        await priorOnInit(payload)
+      }
+
+      // An unset `secret` leaves the `refresh-cache` and `hit/:id` endpoints
+      // publicly reachable — warn once on boot, even when `syncOnInit` is false.
+      if (process.env.NODE_ENV === 'production' && !resolved.secret) {
+        payload.logger.warn(
+          '[payload-redirects] Running in production without a `secret`: the `refresh-cache` and `hit/:id` endpoints are publicly reachable. Set the `secret` plugin option (and pass the same value to the middleware/resolver) to require the `x-payload-redirects-secret` header or an authenticated user.',
+        )
+      }
+
+      if (pluginConfig.syncOnInit !== false) {
+        try {
+          await syncRedirectsCache(payload)
+        } catch (error) {
+          payload.logger.error(
+            error,
+            '[payload-redirects] Failed to sync the redirects cache on init',
+          )
+        }
+      }
+    }
 
     return config
   }

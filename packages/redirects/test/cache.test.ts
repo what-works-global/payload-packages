@@ -17,8 +17,8 @@ import { vercelRuntimeCache } from '../src/exports/vercel.js'
 
 const entry = (overrides: Partial<CachedRedirect> = {}): CachedRedirect => ({
   id: '1',
-  type: '301',
   from: '/old',
+  status: 301,
   to: '/new',
   ...overrides,
 })

@@ -9,7 +9,8 @@ export const DEFAULT_ENDPOINTS_PATH = '/payload-redirects'
 
 export const DEFAULT_COLLECTION_SLUG = 'redirects'
 
-export type RedirectType = '301' | '302'
+/** HTTP redirect status of a cached redirect: 301 permanent or 302 temporary. */
+export type RedirectStatus = 301 | 302
 
 /** How a request path is compared against a redirect's `from`. */
 export type RedirectMatchType = 'contains' | 'endsWith' | 'exact' | 'regex' | 'startsWith'
@@ -29,9 +30,10 @@ export type CachedRedirect = {
   locale?: string
   /** Absent means an exact-path match; otherwise how `from` is compared. */
   match?: 'contains' | 'endsWith' | 'regex' | 'startsWith'
+  /** HTTP redirect status to issue: 301 permanent or 302 temporary. */
+  status: RedirectStatus
   /** Resolved destination: path or absolute URL, with any `scrollTo` fragment applied. */
   to: string
-  type: RedirectType
 }
 
 /** The result of resolving a request against the cached redirect list. */
@@ -64,7 +66,7 @@ export const isCachedRedirect = (value: unknown): value is CachedRedirect => {
     typeof candidate.id === 'string' &&
     typeof candidate.from === 'string' &&
     typeof candidate.to === 'string' &&
-    (candidate.type === '301' || candidate.type === '302') &&
+    (candidate.status === 301 || candidate.status === 302) &&
     (candidate.match === undefined ||
       (NON_EXACT_MATCH_TYPES as readonly string[]).includes(candidate.match)) &&
     (candidate.caseInsensitive === undefined || candidate.caseInsensitive === true) &&

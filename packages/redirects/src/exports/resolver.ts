@@ -17,8 +17,10 @@
  *   frameworks that speak the fetch API directly (Hono, Cloudflare Workers,
  *   SvelteKit, Astro, …).
  */
-import type { CachedRedirect, RedirectsCache } from '../core/shared.js'
+import type { SharedRedirectsConfig } from '../core/config.js'
+import type { CachedRedirect, RedirectStatus } from '../core/shared.js'
 
+import { isAbsoluteApiBase } from '../core/config.js'
 import {
   appendTrailingSlash,
   DEFAULT_ENDPOINTS_PATH,
@@ -27,21 +29,10 @@ import {
   resolveRedirect,
 } from '../core/shared.js'
 
-export type { CachedRedirect, RedirectsCache } from '../core/shared.js'
+export { defineRedirectsConfig, type SharedRedirectsConfig } from '../core/config.js'
+export type { CachedRedirect, RedirectsCache, RedirectStatus } from '../core/shared.js'
 
 export type RedirectsResolverOptions = {
-  /**
-   * Base path the Payload REST API is served under, used with the request URL's
-   * origin when `endpointsBaseUrl` is unset. In a Next app with a `basePath`,
-   * prefix it yourself — the middleware wrapper does this automatically.
-   * @default '/api'
-   */
-  apiBasePath?: string
-  /**
-   * The same cache adapter (same backing store) the plugin was configured
-   * with — define it once in a shared module and import it on both sides.
-   */
-  cache: RedirectsCache
   /**
    * In-memory micro-memo (per resolver instance) of the last successful cache
    * read, so bursts of requests don't each hit the backing store. The window is
@@ -56,19 +47,6 @@ export type RedirectsResolverOptions = {
    * @default false
    */
   debug?: boolean
-  /**
-   * Absolute base URL of the Payload API for split-origin deployments — where
-   * the CMS lives on a different origin than the app serving redirects (e.g.
-   * `'https://cms.example.com/api'`). When set, background refresh and
-   * hit-tracking requests target `<endpointsBaseUrl><endpointsPath>/…`, ignoring
-   * the request origin and `apiBasePath`. Leave unset for same-origin apps.
-   */
-  endpointsBaseUrl?: string
-  /**
-   * Must match the plugin's `endpointsPath` option.
-   * @default '/payload-redirects'
-   */
-  endpointsPath?: string
   /**
    * Called for every issued redirect via `ctx.waitUntil` when available, else
    * fire-and-forget. Errors are swallowed — a failing hook never breaks routing.
@@ -86,14 +64,8 @@ export type RedirectsResolverOptions = {
    */
   refreshOnMiss?: boolean
   /**
-   * Shared secret sent as the `x-payload-redirects-secret` header on the
-   * background refresh and hit-tracking requests. Set it to match the plugin's
-   * `secret` option when the endpoints are locked down.
-   */
-  secret?: string
-  /**
    * Report matched redirects to the hit endpoint in the background. Disable
-   * when the plugin runs with `hits: false`.
+   * when the plugin runs with `trackHits: false`.
    * @default true
    */
   trackHits?: boolean
@@ -106,7 +78,7 @@ export type RedirectsResolverOptions = {
    * @default false
    */
   trailingSlash?: boolean
-}
+} & SharedRedirectsConfig
 
 /**
  * A resolved redirect, ready for an adapter to turn into a response. The
@@ -117,7 +89,7 @@ export type RedirectsResolverOptions = {
 export type ResolvedRedirectResult = {
   destination: string
   redirect: CachedRedirect
-  status: 301 | 302
+  status: RedirectStatus
 }
 
 /**
@@ -142,8 +114,6 @@ export type RedirectsRequestHandler = (
 
 const SECRET_HEADER = 'x-payload-redirects-secret'
 
-const toStatusCode = (type: CachedRedirect['type']) => Number(type) as 301 | 302
-
 type Memo = { at: number; entries: CachedRedirect[] }
 
 // `process` is a Node global, not a module import — reading it keeps the
@@ -160,11 +130,10 @@ const defaultCacheMemoMs =
  */
 export const createRedirectsResolver = (options: RedirectsResolverOptions): RedirectsResolver => {
   const {
-    apiBasePath = '/api',
+    api = '/api',
     cache,
     cacheMemoMs = defaultCacheMemoMs,
     debug = false,
-    endpointsBaseUrl,
     endpointsPath = DEFAULT_ENDPOINTS_PATH,
     onRedirect,
     refreshOnMiss = true,
@@ -172,6 +141,8 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
     trackHits = true,
     trailingSlash = false,
   } = options
+
+  const apiIsAbsolute = isAbsoluteApiBase(api)
 
   const log = (message: string) => {
     if (debug) {
@@ -181,12 +152,12 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
   }
 
   const endpointUrl = (requestUrl: URL, path: string): URL =>
-    // Split-origin: target the absolute API base verbatim. Same-origin: resolve
-    // `apiBasePath + endpointsPath + path` against the request's own origin so
-    // the request's path never leaks in.
-    endpointsBaseUrl
-      ? new URL(`${endpointsBaseUrl}${endpointsPath}${path}`)
-      : new URL(`${apiBasePath}${endpointsPath}${path}`, requestUrl.origin)
+    // Absolute `api` (split-origin): target it verbatim. Relative `api`: resolve
+    // `api + endpointsPath + path` against the request's own origin so the
+    // request's path never leaks in.
+    apiIsAbsolute
+      ? new URL(`${api}${endpointsPath}${path}`)
+      : new URL(`${api}${endpointsPath}${path}`, requestUrl.origin)
 
   const postEndpoint = async (requestUrl: URL, path: string) => {
     const response = await fetch(endpointUrl(requestUrl, path), {
@@ -294,7 +265,7 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
       destination = appendTrailingSlash(destination)
     }
 
-    const status = toStatusCode(redirect.type)
+    const status = redirect.status
     log(`match ${redirect.from} -> ${destination} (${status})`)
 
     if (trackHits) {

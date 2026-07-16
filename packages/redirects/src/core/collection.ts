@@ -12,7 +12,7 @@ import type { ResolvedRedirectsConfig } from '../types.js'
 
 import { normalizeRedirectFrom, normalizeScrollTo } from './shared.js'
 
-const redirectTypeOptions = [
+const redirectStatusOptions = [
   {
     label: '301 - Permanent',
     value: '301',
@@ -372,7 +372,7 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
         'from',
         hasReferences ? 'to.type' : 'to.url',
         'enabled',
-        ...(config.hits ? ['hits', 'lastAccess'] : []),
+        ...(config.trackHits ? ['hits', 'lastAccess'] : []),
         'createdAt',
       ],
       group: 'Plugin',
@@ -422,14 +422,14 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
         ...(localized ? { localized: true } : {}),
       },
       {
-        name: 'type',
+        name: 'status',
         type: 'select',
         admin: {
-          condition: showWhenAdvancedOr((data) => data.type === '302'),
+          condition: showWhenAdvancedOr((data) => data.status === '302'),
         },
         defaultValue: '301',
         label: 'Redirect Type',
-        options: [...redirectTypeOptions],
+        options: [...redirectStatusOptions],
         required: true,
       },
       notesField,
@@ -444,7 +444,7 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
         defaultValue: true,
         label: 'Enabled',
       },
-      ...(config.hits
+      ...(config.trackHits
         ? ([
             {
               name: 'hits',

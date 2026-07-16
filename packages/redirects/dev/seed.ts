@@ -30,8 +30,8 @@ export const seed = async (payload: Payload): Promise<void> => {
       await payload.create({
         collection: 'redirects' as never,
         data: {
-          type: '301',
           from: '/legacy-about',
+          status: '301',
           to: {
             type: 'reference',
             reference: { relationTo: 'pages', value: aboutId },
@@ -43,8 +43,8 @@ export const seed = async (payload: Payload): Promise<void> => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '302',
         from: '/search-engine',
+        status: '302',
         to: { type: 'custom', url: 'https://www.google.com' },
       } as never,
     })
@@ -52,9 +52,9 @@ export const seed = async (payload: Payload): Promise<void> => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '302',
         from: '^/posts/(.+)$',
         matchType: 'regex',
+        status: '302',
         to: { type: 'custom', url: '/$1' },
       } as never,
     })
@@ -62,9 +62,9 @@ export const seed = async (payload: Payload): Promise<void> => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         from: '/section',
         matchType: 'startsWith',
+        status: '301',
         to: { type: 'custom', url: '/new-section' },
       } as never,
     })
@@ -72,9 +72,9 @@ export const seed = async (payload: Payload): Promise<void> => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         caseInsensitive: true,
         from: '/Docs-Legacy',
+        status: '301',
         to: { type: 'custom', url: '/docs' },
       } as never,
     })
@@ -82,9 +82,9 @@ export const seed = async (payload: Payload): Promise<void> => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         forwardQuery: true,
         from: '/promo',
+        status: '301',
         to: { type: 'custom', url: '/campaign' },
       } as never,
     })
@@ -93,9 +93,9 @@ export const seed = async (payload: Payload): Promise<void> => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         enabled: false,
         from: '/disabled-redirect',
+        status: '301',
         to: { type: 'custom', url: '/should-not-fire' },
       } as never,
     })

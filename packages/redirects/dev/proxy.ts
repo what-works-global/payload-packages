@@ -3,9 +3,9 @@ import type { NextFetchEvent, NextRequest } from 'next/server'
 import { createRedirectsMiddleware } from '@whatworks/payload-redirects/middleware'
 import { NextResponse } from 'next/server'
 
-import { cache } from './redirectsCache.js'
+import { redirectsConfig } from './redirects.config.js'
 
-const redirects = createRedirectsMiddleware({ cache })
+const redirects = createRedirectsMiddleware(redirectsConfig)
 
 export default async function proxy(
   request: NextRequest,

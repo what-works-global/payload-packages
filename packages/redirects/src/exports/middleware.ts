@@ -10,27 +10,17 @@ import type { NextFetchEvent, NextRequest } from 'next/server'
 
 import { NextResponse } from 'next/server'
 
-import type { CachedRedirect, RedirectsCache } from '../core/shared.js'
+import type { SharedRedirectsConfig } from '../core/config.js'
+import type { CachedRedirect } from '../core/shared.js'
 import type { RedirectsResolver } from './resolver.js'
 
+import { isAbsoluteApiBase } from '../core/config.js'
 import { createRedirectsResolver } from './resolver.js'
 
+export { defineRedirectsConfig, type SharedRedirectsConfig } from '../core/config.js'
 export type { CachedRedirect, RedirectsCache } from '../core/shared.js'
 
 export type RedirectsMiddlewareOptions = {
-  /**
-   * Base path the Payload REST API is served under, RELATIVE to any Next.js
-   * `basePath`. When the app has a `basePath`, it is detected from the request
-   * and prepended automatically — set this to just `/api` (the default), not
-   * `/<basePath>/api`. Ignored when `endpointsBaseUrl` is set.
-   * @default '/api'
-   */
-  apiBasePath?: string
-  /**
-   * The same cache adapter (same backing store) the plugin was configured
-   * with — define it once in a shared module and import it on both sides.
-   */
-  cache: RedirectsCache
   /**
    * In-memory micro-memo (per middleware instance) of the last successful cache
    * read, so bursts of requests don't each hit the backing store. The window is
@@ -45,19 +35,6 @@ export type RedirectsMiddlewareOptions = {
    * @default false
    */
   debug?: boolean
-  /**
-   * Absolute base URL of the Payload API for split-origin deployments — where
-   * the CMS lives on a different origin than this Next app (e.g.
-   * `'https://cms.example.com/api'`). When set, background refresh and
-   * hit-tracking requests target it verbatim, ignoring the request origin,
-   * `apiBasePath`, and the Next `basePath`. Leave unset for same-origin apps.
-   */
-  endpointsBaseUrl?: string
-  /**
-   * Must match the plugin's `endpointsPath` option.
-   * @default '/payload-redirects'
-   */
-  endpointsPath?: string
   /**
    * Called for every issued redirect via `event.waitUntil` when available, else
    * fire-and-forget. Errors are swallowed — a failing hook never breaks routing.
@@ -74,14 +51,8 @@ export type RedirectsMiddlewareOptions = {
    */
   refreshOnMiss?: boolean
   /**
-   * Shared secret sent as the `x-payload-redirects-secret` header on the
-   * background refresh and hit-tracking requests. Set it to match the plugin's
-   * `secret` option when the endpoints are locked down.
-   */
-  secret?: string
-  /**
    * Report matched redirects to the hit endpoint in the background. Disable
-   * when the plugin runs with `hits: false`.
+   * when the plugin runs with `trackHits: false`.
    * @default true
    */
   trackHits?: boolean
@@ -99,7 +70,7 @@ export type RedirectsMiddlewareOptions = {
    * @default false
    */
   trailingSlash?: boolean
-}
+} & SharedRedirectsConfig
 
 export type RedirectsMiddleware = (
   request: NextRequest,
@@ -128,11 +99,10 @@ export const createRedirectsMiddleware = (
   options: RedirectsMiddlewareOptions,
 ): RedirectsMiddleware => {
   const {
-    apiBasePath = '/api',
+    api = '/api',
     cache,
     cacheMemoMs,
     debug,
-    endpointsBaseUrl,
     endpointsPath,
     onRedirect,
     refreshOnMiss,
@@ -140,6 +110,8 @@ export const createRedirectsMiddleware = (
     trackHits,
     trailingSlash,
   } = options
+
+  const apiIsAbsolute = isAbsoluteApiBase(api)
 
   // The resolver is built lazily on the first request so it can fold the Next
   // `basePath` into the endpoint URLs (the Payload API also lives under it).
@@ -151,13 +123,12 @@ export const createRedirectsMiddleware = (
     const { nextUrl } = request
 
     resolver ??= createRedirectsResolver({
-      // `basePath` prefixes the Payload API too; skip it when a split-origin
-      // `endpointsBaseUrl` already points at the absolute API.
-      apiBasePath: endpointsBaseUrl ? apiBasePath : `${nextUrl.basePath}${apiBasePath}`,
+      // A relative `api` is prefixed with the Next `basePath` (the Payload API
+      // lives under it too); an absolute `api` (split-origin) is used verbatim.
+      api: apiIsAbsolute ? api : `${nextUrl.basePath}${api}`,
       cache,
       cacheMemoMs,
       debug,
-      endpointsBaseUrl,
       endpointsPath,
       refreshOnMiss,
       secret,

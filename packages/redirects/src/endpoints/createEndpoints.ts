@@ -142,5 +142,5 @@ const createRefreshCacheEndpoint = (config: ResolvedRedirectsConfig): Endpoint =
 
 export const createRedirectsEndpoints = (config: ResolvedRedirectsConfig): Endpoint[] => [
   createRefreshCacheEndpoint(config),
-  ...(config.hits ? [createHitEndpoint(config)] : []),
+  ...(config.trackHits ? [createHitEndpoint(config)] : []),
 ]

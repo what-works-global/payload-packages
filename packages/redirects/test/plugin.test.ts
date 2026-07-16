@@ -99,8 +99,8 @@ describe('redirectsPlugin config shaping', () => {
     expect(fieldByName(toGroup.fields, 'url')).toBeDefined()
   })
 
-  it('drops hit tracking with hits: false', async () => {
-    const result = await redirectsPlugin(pluginConfig({ hits: false }))(baseConfig())
+  it('drops hit tracking with trackHits: false', async () => {
+    const result = await redirectsPlugin(pluginConfig({ trackHits: false }))(baseConfig())
     const redirects = getCollection(result, 'redirects')
     expect(fieldByName(redirects.fields, 'hits')).toBeUndefined()
     expect(fieldByName(redirects.fields, 'lastAccess')).toBeUndefined()
@@ -222,14 +222,14 @@ describe('buildRedirectsCacheEntries', () => {
     const entries = await build([
       {
         id: 1,
-        type: '301',
         from: 'https://example.com/old/',
+        status: '301',
         to: { type: 'custom', url: '/landing' },
       },
       {
         id: 2,
-        type: '302',
         from: '/team',
+        status: '302',
         to: {
           type: 'reference',
           reference: { relationTo: 'pages', value: { id: 9, slug: 'about' } },
@@ -239,8 +239,8 @@ describe('buildRedirectsCacheEntries', () => {
     ])
 
     expect(entries).toEqual([
-      { id: '1', type: '301', from: '/old', to: '/landing' },
-      { id: '2', type: '302', from: '/team', to: '/about#team' },
+      { id: '1', from: '/old', status: 301, to: '/landing' },
+      { id: '2', from: '/team', status: 302, to: '/about#team' },
     ])
   })
 
@@ -248,14 +248,14 @@ describe('buildRedirectsCacheEntries', () => {
     const entries = await build([
       {
         id: 1,
-        type: '301',
         from: '^/blog/(.*)$',
         matchType: 'regex',
+        status: '301',
         to: { type: 'custom', url: '/news/$1' },
       },
     ])
     expect(entries).toEqual([
-      { id: '1', type: '301', from: '^/blog/(.*)$', match: 'regex', to: '/news/$1' },
+      { id: '1', from: '^/blog/(.*)$', match: 'regex', status: 301, to: '/news/$1' },
     ])
   })
 
@@ -263,9 +263,9 @@ describe('buildRedirectsCacheEntries', () => {
     const entries = await build([
       {
         id: 1,
-        type: '301',
         caseInsensitive: true,
         forwardQuery: true,
+        status: '301',
         // non-exact `from` is trimmed only, never canonicalized
         from: '/Blog/',
         matchType: 'startsWith',
@@ -275,11 +275,11 @@ describe('buildRedirectsCacheEntries', () => {
     expect(entries).toEqual([
       {
         id: '1',
-        type: '301',
         caseInsensitive: true,
         forwardQuery: true,
         from: '/Blog/',
         match: 'startsWith',
+        status: 301,
         to: '/news',
       },
     ])
@@ -287,21 +287,21 @@ describe('buildRedirectsCacheEntries', () => {
 
   it('excludes disabled redirects from the cache', async () => {
     const entries = await build([
-      { id: 1, type: '301', enabled: false, from: '/off', to: { type: 'custom', url: '/x' } },
-      { id: 2, type: '301', enabled: true, from: '/on', to: { type: 'custom', url: '/y' } },
-      { id: 3, type: '301', from: '/default-on', to: { type: 'custom', url: '/z' } },
+      { id: 1, enabled: false, from: '/off', status: '301', to: { type: 'custom', url: '/x' } },
+      { id: 2, enabled: true, from: '/on', status: '301', to: { type: 'custom', url: '/y' } },
+      { id: 3, from: '/default-on', status: '301', to: { type: 'custom', url: '/z' } },
     ])
     expect(entries.map((entry) => entry.from)).toEqual(['/on', '/default-on'])
   })
 
   it('flattens exact redirect chains to a single hop, carrying the earliest fragment', async () => {
     const entries = await build([
-      { id: 1, type: '301', from: '/a', to: { type: 'custom', scrollTo: 'top', url: '/b' } },
-      { id: 2, type: '301', from: '/b', to: { type: 'custom', url: '/c' } },
+      { id: 1, from: '/a', status: '301', to: { type: 'custom', scrollTo: 'top', url: '/b' } },
+      { id: 2, from: '/b', status: '301', to: { type: 'custom', url: '/c' } },
     ])
     expect(entries).toEqual([
-      { id: '1', type: '301', from: '/a', to: '/c#top' },
-      { id: '2', type: '301', from: '/b', to: '/c' },
+      { id: '1', from: '/a', status: 301, to: '/c#top' },
+      { id: '2', from: '/b', status: 301, to: '/c' },
     ])
   })
 
@@ -312,8 +312,8 @@ describe('buildRedirectsCacheEntries', () => {
       find: vi.fn(() =>
         Promise.resolve({
           docs: [
-            { id: 1, type: '301', from: '/a', to: { type: 'custom', url: '/b' } },
-            { id: 2, type: '301', from: '/b', to: { type: 'custom', url: '/a' } },
+            { id: 1, from: '/a', status: '301', to: { type: 'custom', url: '/b' } },
+            { id: 2, from: '/b', status: '301', to: { type: 'custom', url: '/a' } },
           ],
         }),
       ),
@@ -325,39 +325,39 @@ describe('buildRedirectsCacheEntries', () => {
       req,
     })
     expect(entries).toEqual([
-      { id: '1', type: '301', from: '/a', to: '/b' },
-      { id: '2', type: '301', from: '/b', to: '/a' },
+      { id: '1', from: '/a', status: 301, to: '/b' },
+      { id: '2', from: '/b', status: 301, to: '/a' },
     ])
     expect(warn).toHaveBeenCalled()
   })
 
   it('drops rows that cannot produce a working redirect', async () => {
     const entries = await build([
-      { id: 1, type: '308', from: '/a', to: { type: 'custom', url: '/x' } },
-      { id: 2, type: '301', from: '  ', to: { type: 'custom', url: '/x' } },
+      { id: 1, from: '/a', status: '308', to: { type: 'custom', url: '/x' } },
+      { id: 2, from: '  ', status: '301', to: { type: 'custom', url: '/x' } },
       {
         id: 3,
-        type: '301',
         from: '/unpopulated',
+        status: '301',
         to: { type: 'reference', reference: { relationTo: 'pages', value: 7 } },
       },
       {
         id: 4,
-        type: '301',
         from: '/unknown-collection',
+        status: '301',
         to: { type: 'reference', reference: { relationTo: 'posts', value: { id: 1 } } },
       },
-      { id: 5, type: '301', from: '/empty-url', to: { type: 'custom', url: '  ' } },
-      { id: 6, type: '301', from: '/works', to: { type: 'custom', url: '/x' } },
+      { id: 5, from: '/empty-url', status: '301', to: { type: 'custom', url: '  ' } },
+      { id: 6, from: '/works', status: '301', to: { type: 'custom', url: '/x' } },
     ])
-    expect(entries).toEqual([{ id: '6', type: '301', from: '/works', to: '/x' }])
+    expect(entries).toEqual([{ id: '6', from: '/works', status: 301, to: '/x' }])
   })
 
   it('treats a missing to.type as a custom URL (no reference picker configured)', async () => {
-    const entries = await build([{ id: 1, type: '301', from: '/old', to: { url: '/new' } }], {
+    const entries = await build([{ id: 1, from: '/old', status: '301', to: { url: '/new' } }], {
       collections: undefined,
     })
-    expect(entries).toEqual([{ id: '1', type: '301', from: '/old', to: '/new' }])
+    expect(entries).toEqual([{ id: '1', from: '/old', status: 301, to: '/new' }])
   })
 })
 
@@ -445,5 +445,76 @@ describe('re-sync hooks', () => {
   it('posts do not get hooks — only configured destinations and the redirects collection', async () => {
     const { result } = await setup()
     expect(getCollection(result, 'posts').hooks).toBeUndefined()
+  })
+})
+
+describe('onInit composition', () => {
+  const stubPayload = (result: Config, logger: Record<string, unknown> = {}) =>
+    makeReq(result, {
+      logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), ...logger },
+    }).payload
+
+  it('runs a prior onInit, then primes the cache from the database', async () => {
+    const priorOnInit = vi.fn()
+    const base = baseConfig()
+    base.onInit = priorOnInit
+    const result = await redirectsPlugin(pluginConfig())(base)
+
+    const setSpy = vi.spyOn(getRedirectsConfig(result).cache, 'set')
+    await result.onInit?.(stubPayload(result))
+
+    expect(priorOnInit).toHaveBeenCalledTimes(1)
+    expect(setSpy).toHaveBeenCalledWith([])
+  })
+
+  it('skips the init sync when syncOnInit is false', async () => {
+    const result = await redirectsPlugin(pluginConfig({ syncOnInit: false }))(baseConfig())
+    const setSpy = vi.spyOn(getRedirectsConfig(result).cache, 'set')
+    await result.onInit?.(stubPayload(result))
+    expect(setSpy).not.toHaveBeenCalled()
+  })
+
+  it('logs (never throws) when the init sync fails', async () => {
+    const result = await redirectsPlugin(
+      pluginConfig({
+        cache: {
+          get: () => Promise.resolve(null),
+          set: () => Promise.reject(new Error('backend down')),
+        },
+      }),
+    )(baseConfig())
+    const error = vi.fn()
+    await expect(result.onInit?.(stubPayload(result, { error }))).resolves.toBeUndefined()
+    expect(error).toHaveBeenCalled()
+  })
+
+  it('warns in production only when no secret is configured', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+
+    const open = await redirectsPlugin(pluginConfig())(baseConfig())
+    const openWarn = vi.fn()
+    await open.onInit?.(stubPayload(open, { warn: openWarn }))
+    expect(openWarn).toHaveBeenCalledWith(expect.stringContaining('secret'))
+
+    const secured = await redirectsPlugin(pluginConfig({ secret: 's3cret' }))(baseConfig())
+    const securedWarn = vi.fn()
+    await secured.onInit?.(stubPayload(secured, { warn: securedWarn }))
+    expect(securedWarn).not.toHaveBeenCalled()
+
+    vi.unstubAllEnvs()
+  })
+
+  it('does not warn outside production even without a secret', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    const result = await redirectsPlugin(pluginConfig())(baseConfig())
+    const warn = vi.fn()
+    await result.onInit?.(stubPayload(result, { warn }))
+    expect(warn).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('composes no onInit when disabled', async () => {
+    const result = await redirectsPlugin(pluginConfig({ disabled: true }))(baseConfig())
+    expect(result.onInit).toBeUndefined()
   })
 })

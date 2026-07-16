@@ -108,7 +108,7 @@ describe('scrollTo helpers', () => {
 })
 
 describe('matchRedirect', () => {
-  const base = { id: '1', type: '301' } as const
+  const base = { id: '1', status: 301 } as const
 
   it('matches exact targets', () => {
     const redirect: CachedRedirect = { ...base, from: '/old', to: '/new' }
@@ -179,7 +179,7 @@ describe('matchRedirect', () => {
 })
 
 describe('resolveRedirect', () => {
-  const base = { id: '1', type: '301' } as const
+  const base = { id: '1', status: 301 } as const
 
   it('returns the first matching redirect in order', () => {
     const redirects: CachedRedirect[] = [
@@ -284,33 +284,35 @@ describe('mergeForwardedQuery', () => {
 
 describe('isCachedRedirect', () => {
   it('accepts well-formed entries and rejects everything else', () => {
-    expect(isCachedRedirect({ id: '1', type: '301', from: '/a', to: '/b' })).toBe(true)
-    expect(isCachedRedirect({ id: '1', type: '302', from: '^/a$', match: 'regex', to: '/b' })).toBe(
+    expect(isCachedRedirect({ id: '1', from: '/a', status: 301, to: '/b' })).toBe(true)
+    expect(isCachedRedirect({ id: '1', from: '^/a$', match: 'regex', status: 302, to: '/b' })).toBe(
       true,
     )
     expect(
       isCachedRedirect({
         id: '1',
-        type: '301',
         caseInsensitive: true,
         forwardQuery: true,
         from: '/a',
         locale: 'en',
         match: 'startsWith',
+        status: 301,
         to: '/b',
       }),
     ).toBe(true)
     // Invalid literal for match.
-    expect(isCachedRedirect({ id: '1', type: '301', from: '/a', match: 'nope', to: '/b' })).toBe(
+    expect(isCachedRedirect({ id: '1', from: '/a', match: 'nope', status: 301, to: '/b' })).toBe(
       false,
     )
     // Boolean flags must be `true` when present, never `false`.
     expect(
-      isCachedRedirect({ id: '1', type: '301', caseInsensitive: false, from: '/a', to: '/b' }),
+      isCachedRedirect({ id: '1', caseInsensitive: false, from: '/a', status: 301, to: '/b' }),
     ).toBe(false)
-    expect(isCachedRedirect({ id: '1', type: '307', from: '/a', to: '/b' })).toBe(false)
-    expect(isCachedRedirect({ id: 1, type: '301', from: '/a', to: '/b' })).toBe(false)
-    expect(isCachedRedirect({ id: '1', type: '301', from: '/a' })).toBe(false)
+    // `status` must be the number 301 or 302 — a 307, or the string form, is rejected.
+    expect(isCachedRedirect({ id: '1', from: '/a', status: 307, to: '/b' })).toBe(false)
+    expect(isCachedRedirect({ id: '1', from: '/a', status: '301', to: '/b' })).toBe(false)
+    expect(isCachedRedirect({ id: 1, from: '/a', status: 301, to: '/b' })).toBe(false)
+    expect(isCachedRedirect({ id: '1', from: '/a', status: 301 })).toBe(false)
     expect(isCachedRedirect(null)).toBe(false)
     expect(isCachedRedirect('nope')).toBe(false)
   })

@@ -27,31 +27,34 @@ pnpm add @vercel/edge-config
 
 ## Quick start
 
-Define the cache once, in a module imported by **both** your Payload config and your middleware — the plugin writes to it, the middleware reads from it, so both sides must share one backing store:
+Define the shared config once, in a module imported by **both** your Payload config and your middleware. `defineRedirectsConfig` bundles the `cache` (and any `endpointsPath`, `secret`, or `api`) so the two sides can never drift — spread it into the plugin, and pass it straight to the middleware. The plugin writes to the cache, the middleware reads from it, so both must share one backing store:
 
 ```ts
-// redirects-cache.ts
+// redirects.config.ts
 import { envCache, fileCache } from '@whatworks/payload-redirects/cache'
+import { defineRedirectsConfig } from '@whatworks/payload-redirects/middleware'
 import { vercelRuntimeCache } from '@whatworks/payload-redirects/vercel'
 
 // The Vercel Runtime Cache only exists on Vercel's infrastructure, so `envCache`
 // falls back to a JSON file cache (.next/cache/payload-redirects.json) locally —
 // which is what makes `next dev` work. See "Development fallback" below.
-export const cache = envCache({
-  development: fileCache(),
-  production: vercelRuntimeCache(),
+export const redirectsConfig = defineRedirectsConfig({
+  cache: envCache({
+    development: fileCache(),
+    production: vercelRuntimeCache(),
+  }),
 })
 ```
 
 ```ts
 // payload.config.ts
 import { redirectsPlugin } from '@whatworks/payload-redirects'
-import { cache } from './redirects-cache'
+import { redirectsConfig } from './redirects.config'
 
 export default buildConfig({
   plugins: [
     redirectsPlugin({
-      cache,
+      ...redirectsConfig, // cache, endpointsPath, secret — `api` is ignored here
       collections: {
         // Collections editors can pick as internal destinations, and how a
         // referenced doc resolves to the path it lives at.
@@ -67,14 +70,16 @@ export default buildConfig({
 import type { NextFetchEvent, NextRequest } from 'next/server'
 import { createRedirectsMiddleware } from '@whatworks/payload-redirects/middleware'
 import { NextResponse } from 'next/server'
-import { cache } from './redirects-cache'
+import { redirectsConfig } from './redirects.config'
 
-const redirects = createRedirectsMiddleware({ cache })
+const redirects = createRedirectsMiddleware(redirectsConfig)
 
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
   return (await redirects(request, event)) ?? NextResponse.next()
 }
 ```
+
+> `defineRedirectsConfig` is exported from the main entry and from `/resolver` and `/middleware`. Import it from an **edge-safe** entry (`/middleware` above, or `/resolver`) whenever the shared module is also pulled into edge middleware — that keeps `payload` out of the middleware bundle.
 
 ## How it works
 
@@ -146,8 +151,9 @@ redirectsPlugin({
   },
   slug: 'redirects', // collection slug
   endpointsPath: '/payload-redirects', // REST base path (must match the middleware option)
-  hits: true, // hit counter + lastAccess fields and the hit endpoint
+  trackHits: true, // hit counter + lastAccess fields and the hit endpoint
   localized: false, // localize `from` and `to`; build one cache per locale
+  syncOnInit: true, // rebuild the cache from the database once on boot (onInit)
   secret: process.env.REDIRECTS_SECRET, // lock down the endpoints — see "Security"
   disabled: false, // keep the collection (schema parity) but disable everything else
   overrides: ({ collection }) => collection, // final say over the generated collection
@@ -156,25 +162,27 @@ redirectsPlugin({
 
 - **`select`** (per destination collection) narrows the fields populated on that collection during a cache rebuild — passed to the redirects `find` as `populate: { [slug]: select }`, so depth-1 population fetches only what your `path()` needs. Defaults to full population.
 - **`localized`** localizes `from` and the `to` group, and builds the cache once per configured locale (each cache entry carries its `locale`). Requires `localization` on the Payload config — if absent, the plugin logs a warning and behaves as `false`. Rows with no `from` for a given locale are skipped for that locale. Unique `from` is scoped per locale.
+- **`syncOnInit`** rebuilds the cache from the database once on boot, composing any existing `onInit` (yours runs first). A freshly started instance then serves redirects without waiting for the first content change or cache-miss refresh. A sync failure is logged, never fatal. Set `false` to opt out; skipped entirely when `disabled`.
+- **`api`** comes from the shared config but is **ignored by the plugin** — it only concerns the middleware/resolver. Spreading `redirectsConfig` into both sides is safe.
 
 `syncRedirectsCache(payload, req?)` is exported for priming the cache from seed scripts; `getRedirectsConfig(config)` returns the resolved plugin config from a Payload config.
 
 ### Security (endpoint hardening)
 
-By default the `refresh-cache` and `hit/:id` endpoints are open (zero-config — the middleware calls them itself, and they only rewrite the cache or bump a counter from existing data). Set a `secret` to lock them down: both endpoints then require either an authenticated `req.user` or the `x-payload-redirects-secret` header equal to that value; unauthorized requests get a `403`. Give the middleware the same `secret` and it sends the header on its background refresh and hit-tracking requests.
+By default the `refresh-cache` and `hit/:id` endpoints are open (zero-config — the middleware calls them itself, and they only rewrite the cache or bump a counter from existing data). Set a `secret` to lock them down: both endpoints then require either an authenticated `req.user` or the `x-payload-redirects-secret` header equal to that value; unauthorized requests get a `403`. Give the middleware the same `secret` and it sends the header on its background refresh and hit-tracking requests. When `NODE_ENV === 'production'` and no `secret` is set, the plugin logs a one-time warning on boot that the endpoints are publicly reachable.
 
 ### Hit tracking
 
-With `hits: true` (default), each match reports to `POST /hit/:id` in the background. The write uses adapter-agnostic optimistic concurrency: it reads the current count, then issues a guarded update conditioned on that value, retrying up to three times on a lost race before a best-effort unguarded write. Same-id writes are also serialized per process. It's designed to be as close to atomic as the database API allows — accurate enough for analytics, not accounting.
+With `trackHits: true` (default), each match reports to `POST /hit/:id` in the background. The write uses adapter-agnostic optimistic concurrency: it reads the current count, then issues a guarded update conditioned on that value, retrying up to three times on a lost race before a best-effort unguarded write. Same-id writes are also serialized per process. It's designed to be as close to atomic as the database API allows — accurate enough for analytics, not accounting.
 
 ## Middleware options
 
 ```ts
 createRedirectsMiddleware({
   cache, // required — same backing store as the plugin
-  apiBasePath: '/api', // Payload REST base path, relative to any Next.js basePath
+  api: '/api', // Payload REST base: relative path (default) or absolute URL — see below
   endpointsPath: '/payload-redirects',
-  trackHits: true, // report matches to the hit endpoint (disable with hits: false)
+  trackHits: true, // report matches to the hit endpoint (disable with trackHits: false)
   refreshOnMiss: true, // rebuild the cache in the background on a miss
   secret: process.env.REDIRECTS_SECRET, // sent as x-payload-redirects-secret on background calls
   debug: false, // console.debug('[payload-redirects] …') for misses, matches, skips
@@ -187,6 +195,7 @@ createRedirectsMiddleware({
 })
 ```
 
+- **`api`** — base of the Payload REST API the background refresh and hit-tracking calls target. A **relative path** (default `/api`) is resolved against each request's own origin and, in an app with a `basePath`, prefixed with it automatically — so keep it `/api`, not `/<basePath>/api`. An **absolute URL** (`https://cms.example.com/api`) is used verbatim, for split-origin deployments (see below), and is never `basePath`-prefixed.
 - **`cacheMemoMs`** — micro-memo (per middleware instance) of the last successful cache read and its compiled per-entry regexes, so bursts of requests don't each hit the backing store or recompile patterns. Defaults to `5000` when `NODE_ENV === 'production'`, otherwise `0` (off). A miss is never memoized, so a background refresh is picked up on the very next request.
 - **`debug`** — opt-in diagnostics for cache misses, matches (`from → destination` + status), open-redirect rejections, and self-redirect skips. Never logs request bodies.
 - **`trailingSlash`** — set to `true` when your `next.config` uses `trailingSlash: true`. Relative destinations then get a trailing slash on the path part (`/about` → `/about/`), so we redirect straight to the canonical URL instead of letting Next 308 the slashless one — a wasteful double hop. The slash is skipped when the path is `/`, already ends with `/`, or its last segment looks like a file (`/logo.png`), mirroring Next's own exemption; query and fragment are preserved (`/a?x=1#f` → `/a/?x=1#f`). Absolute/external destinations are never touched. Not auto-detected — `NextRequest` exposes no reliable view of the app's `trailingSlash` config — so set it explicitly.
@@ -196,7 +205,7 @@ The returned function takes `(request, event?)` and resolves to a `NextResponse`
 
 ### Next.js `basePath`
 
-Apps with a [`basePath`](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) just work — no configuration needed. Redirect entries are authored **without** the basePath (`/old`, not `/base/old`): matching runs against the basePath-stripped request path, and the basePath is re-applied to relative destinations, so `/base/old` → `/base/new`. Absolute/external destinations are left as-is. The background refresh and hit-tracking calls also target the basePath-prefixed Payload API, so leave `apiBasePath` as its plain value (e.g. `/api`) — the basePath is prepended for you.
+Apps with a [`basePath`](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) just work — no configuration needed. Redirect entries are authored **without** the basePath (`/old`, not `/base/old`): matching runs against the basePath-stripped request path, and the basePath is re-applied to relative destinations, so `/base/old` → `/base/new`. Absolute/external destinations are left as-is. The background refresh and hit-tracking calls also target the basePath-prefixed Payload API, so leave `api` as its plain relative value (e.g. `/api`) — the basePath is prepended for you.
 
 ## Other frameworks
 
@@ -205,18 +214,18 @@ The Next.js middleware is a thin wrapper over a framework-agnostic core exported
 - **`createRedirectsResolver(options)`** → `(url, ctx?) => Promise<{ destination, redirect, status } | null>`. `destination` is relative or absolute exactly as resolved (after `forwardQuery`/`trailingSlash`); you absolutize and respond however your framework does. `url` is a `string | URL`.
 - **`createRedirectsRequestHandler(options)`** → `(request, ctx?) => Promise<Response | null>`. Answers a WHATWG `Request` with a `Response.redirect` (relative destinations absolutized against `request.url`), or `null` to pass through.
 
-Pass `ctx.waitUntil` (Vercel/Cloudflare `waitUntil`, Next's `event.waitUntil`, …) to anchor the background refresh / hit-tracking work; without it, that work runs fire-and-forget. Both factories accept the same options as the middleware **minus the Next-only `basePath` behavior**: `cache` (required), `apiBasePath`, `endpointsPath`, `endpointsBaseUrl`, `secret`, `trackHits`, `refreshOnMiss`, `trailingSlash`, `cacheMemoMs`, `debug`, and `onRedirect({ destination, redirect, url })`.
+Pass `ctx.waitUntil` (Vercel/Cloudflare `waitUntil`, Next's `event.waitUntil`, …) to anchor the background refresh / hit-tracking work; without it, that work runs fire-and-forget. Both factories accept the same options as the middleware **minus the Next-only `basePath` behavior**: `cache` (required), `api`, `endpointsPath`, `secret`, `trackHits`, `refreshOnMiss`, `trailingSlash`, `cacheMemoMs`, `debug`, and `onRedirect({ destination, redirect, url })`.
 
-### Split-origin deployments (`endpointsBaseUrl`)
+### Split-origin deployments (an absolute `api`)
 
-By default the background refresh and hit-tracking calls target the request's own origin (`<origin><apiBasePath><endpointsPath>/…`). When the CMS runs on a **different origin** than the app serving redirects, set `endpointsBaseUrl` to the absolute Payload API base (no trailing slash) — those calls then go there instead, ignoring the request origin and `apiBasePath`:
+By default the background refresh and hit-tracking calls target the request's own origin (`<origin><api><endpointsPath>/…`, with a relative `api`). When the CMS runs on a **different origin** than the app serving redirects, set `api` to the absolute Payload API base (no trailing slash) — those calls then go there instead, ignoring the request origin:
 
 ```ts
-createRedirectsRequestHandler({ cache, endpointsBaseUrl: 'https://cms.example.com/api' })
+createRedirectsRequestHandler({ cache, api: 'https://cms.example.com/api' })
 // → refresh: https://cms.example.com/api/payload-redirects/refresh-cache
 ```
 
-The Next.js middleware accepts `endpointsBaseUrl` too (it then skips the `basePath` prefix on endpoint URLs).
+The Next.js middleware treats an absolute `api` the same way (it then skips the `basePath` prefix on endpoint URLs).
 
 > `fileCache`'s default path is `.next/cache/payload-redirects.json`, a Next convention — non-Next apps should pass an explicit `path` (e.g. `fileCache({ path: '.cache/payload-redirects.json' })`).
 
@@ -305,11 +314,11 @@ if (resolved) {
   const destination = redirect.forwardQuery
     ? mergeForwardedQuery(resolved.destination, new URL(req.url, 'http://x').search)
     : resolved.destination
-  // respond with a `Number(redirect.type)` redirect to `destination`, report the hit yourself
+  // respond with a `redirect.status` (301/302) redirect to `destination`, report the hit yourself
 }
 ```
 
-`resolveRedirect(redirects, url, options?)` accepts a `string | URL` and returns `{ destination, redirect } | null`. Its optional `options.onSkip({ destination, reason, redirect })` fires for every **matched** entry that a guard then skips (`reason` is `'open-redirect'` or `'self-redirect'`), so you can answer "why didn't my redirect fire?" without re-implementing the guards; plain non-matches never fire it. The resolver and middleware wire `onSkip` to their `debug` logging. Report hits yourself with `POST {apiBasePath}{endpointsPath}/hit/:id` if you want the counter.
+`resolveRedirect(redirects, url, options?)` accepts a `string | URL` and returns `{ destination, redirect } | null`. Its optional `options.onSkip({ destination, reason, redirect })` fires for every **matched** entry that a guard then skips (`reason` is `'open-redirect'` or `'self-redirect'`), so you can answer "why didn't my redirect fire?" without re-implementing the guards; plain non-matches never fire it. The resolver and middleware wire `onSkip` to their `debug` logging. Report hits yourself with `POST {api}{endpointsPath}/hit/:id` if you want the counter.
 
 ## Cache adapters
 
@@ -448,7 +457,7 @@ Run it from a one-off script or a `payload.jobs`/migration task, then remove the
 Registered under the Payload API route at `endpointsPath`:
 
 - `POST /api/payload-redirects/refresh-cache` — rebuild the cache from the database.
-- `POST /api/payload-redirects/hit/:id` — increment a redirect's hit counter (only when `hits` is enabled).
+- `POST /api/payload-redirects/hit/:id` — increment a redirect's hit counter (only when `trackHits` is enabled).
 
 Both are open unless you configure a `secret` (see [Security](#security-endpoint-hardening)).
 

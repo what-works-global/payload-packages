@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { cache } from './redirectsCache.js'
+import { redirectsConfig } from './redirects.config.js'
 import { seed } from './seed.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -40,7 +40,7 @@ export default buildDevConfig({
   onInit: seed,
   plugins: [
     redirectsPlugin({
-      cache,
+      ...redirectsConfig,
       collections: {
         pages: {
           path: ({ doc }) => (doc.slug === 'home' ? '/' : `/${doc.slug}`),

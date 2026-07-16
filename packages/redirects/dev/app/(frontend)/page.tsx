@@ -62,7 +62,7 @@ export default async function FrontendPage() {
               {redirect.caseInsensitive ? ', case-insensitive' : ''}
               {redirect.forwardQuery ? ', forward-query' : ''})
             </span>{' '}
-            → <code>{redirect.to}</code> ({redirect.type})
+            → <code>{redirect.to}</code> ({redirect.status})
           </li>
         ))}
       </ul>

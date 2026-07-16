@@ -51,9 +51,13 @@ const fakeRequest = (
 const buildInstance = async (
   pluginOverrides: Partial<RedirectsPluginConfig> = {},
   configOverrides: Record<string, unknown> = {},
+  options: { dbFile?: string } = {},
 ): Promise<TestInstance> => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'payload-redirects-test-'))
   const cache = memoryCache()
+  // A shared `dbFile` lets two instances (with independent caches) point at the
+  // same sqlite file — the setup the syncOnInit test needs.
+  const dbFile = options.dbFile ?? path.join(tmpDir, 'test.db')
 
   const config = await buildConfig({
     collections: [
@@ -64,7 +68,7 @@ const buildInstance = async (
       },
     ],
     db: sqliteAdapter({
-      client: { url: `file:${path.join(tmpDir, 'test.db')}` },
+      client: { url: `file:${dbFile}` },
       push: true,
     }),
     plugins: [
@@ -150,8 +154,8 @@ describe('redirectsPlugin integration', () => {
     const redirect = await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         from: 'https://example.com/legacy/',
+        status: '301',
         to: { type: 'custom', scrollTo: '#signup', url: '/landing' },
       } as never,
     })
@@ -159,8 +163,8 @@ describe('redirectsPlugin integration', () => {
     expect(await cache.get()).toEqual([
       {
         id: String((redirect as { id: number | string }).id),
-        type: '301',
         from: '/legacy',
+        status: 301,
         to: '/landing#signup',
       },
     ])
@@ -175,8 +179,8 @@ describe('redirectsPlugin integration', () => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '302',
         from: '/old-about',
+        status: '302',
         to: {
           type: 'reference',
           reference: { relationTo: 'pages', value: page.id },
@@ -228,20 +232,20 @@ describe('redirectsPlugin integration', () => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         caseInsensitive: true,
         forwardQuery: true,
         from: '/Section/',
         matchType: 'startsWith',
+        status: '301',
         to: { type: 'custom', url: '/new-section' },
       } as never,
     })
     const disabled = (await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         enabled: false,
         from: '/disabled',
+        status: '301',
         to: { type: 'custom', url: '/nope' },
       } as never,
     })) as { id: number | string }
@@ -261,20 +265,20 @@ describe('redirectsPlugin integration', () => {
   it('rejects redirect loops and self-redirects at save time', async () => {
     await payload.create({
       collection: 'redirects' as never,
-      data: { type: '301', from: '/loop-a', to: { type: 'custom', url: '/loop-b' } } as never,
+      data: { from: '/loop-a', status: '301', to: { type: 'custom', url: '/loop-b' } } as never,
     })
 
     await expect(
       payload.create({
         collection: 'redirects' as never,
-        data: { type: '301', from: '/loop-b', to: { type: 'custom', url: '/loop-a' } } as never,
+        data: { from: '/loop-b', status: '301', to: { type: 'custom', url: '/loop-a' } } as never,
       }),
     ).rejects.toThrow()
 
     await expect(
       payload.create({
         collection: 'redirects' as never,
-        data: { type: '301', from: '/self', to: { type: 'custom', url: '/self' } } as never,
+        data: { from: '/self', status: '301', to: { type: 'custom', url: '/self' } } as never,
       }),
     ).rejects.toThrow()
   })
@@ -283,8 +287,8 @@ describe('redirectsPlugin integration', () => {
     const redirect = (await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         from: '/counted-concurrent',
+        status: '301',
         to: { type: 'custom', url: '/target' },
       } as never,
     })) as { hits: number; id: number | string }
@@ -309,8 +313,8 @@ describe('redirectsPlugin integration', () => {
     const redirect = (await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         from: '/counted',
+        status: '301',
         to: { type: 'custom', url: '/target' },
       } as never,
     })) as { hits: number; id: number | string }
@@ -398,8 +402,8 @@ describe('redirectsPlugin localization', () => {
     const doc = (await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         from: '/en-old',
+        status: '301',
         to: { type: 'custom', url: '/en-new' },
       } as never,
       locale: 'en',
@@ -416,8 +420,8 @@ describe('redirectsPlugin localization', () => {
     await payload.create({
       collection: 'redirects' as never,
       data: {
-        type: '301',
         from: '/en-only',
+        status: '301',
         to: { type: 'custom', url: '/en-only-new' },
       } as never,
       locale: 'en',
@@ -457,10 +461,10 @@ describe('migrateFromOfficialRedirects', () => {
         // lacks this plugin's fields, like a real `@payloadcms/plugin-redirects`
         // document. `from` carries a trailing slash the official plugin never
         // normalized.
-        type: null,
         enabled: null,
         from: '/legacy-path/',
         matchType: null,
+        status: null,
         to: { type: 'custom', url: '/new-path' },
       },
     })) as { id: number | string }
@@ -476,8 +480,8 @@ describe('migrateFromOfficialRedirects', () => {
     const migrated = (await payload.findByID({
       id: created.id,
       collection: 'redirects' as never,
-    })) as unknown as { enabled: boolean; from: string; matchType: string; type: string }
-    expect(migrated.type).toBe('301')
+    })) as unknown as { enabled: boolean; from: string; matchType: string; status: string }
+    expect(migrated.status).toBe('301')
     expect(migrated.matchType).toBe('exact')
     expect(migrated.enabled).toBe(true)
     // Re-saving ran the `from` normalization hook (trailing slash stripped).
@@ -485,8 +489,8 @@ describe('migrateFromOfficialRedirects', () => {
 
     const cached = await cache.get()
     expect(cached?.find((entry) => entry.id === id)).toMatchObject({
-      type: '301',
       from: '/legacy-path',
+      status: 301,
       to: '/new-path',
     })
 
@@ -494,5 +498,43 @@ describe('migrateFromOfficialRedirects', () => {
     const second = await migrateFromOfficialRedirects({ payload })
     expect(second.updated).toBe(0)
     expect(second.skipped).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('redirectsPlugin syncOnInit', () => {
+  it('rebuilds a fresh instance cache from the db on init, and honours syncOnInit: false', async () => {
+    // Two instances, run one at a time, point at the same sqlite file. Because
+    // the writer creates the schema on disk, a later instance reopening the file
+    // has its tables regardless of push — so these need not coexist.
+    const sharedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'payload-redirects-syncinit-'))
+    const dbFile = path.join(sharedDir, 'shared.db')
+
+    try {
+      // 1. The writer seeds the shared database; its own change hook fills its cache.
+      const writer = await buildInstance({}, {}, { dbFile })
+      await writer.payload.create({
+        collection: 'redirects' as never,
+        data: {
+          from: '/sync-init',
+          status: '301',
+          to: { type: 'custom', url: '/synced' },
+        } as never,
+      })
+      expect((await writer.cache.get())?.some((entry) => entry.from === '/sync-init')).toBe(true)
+      await writer.destroy()
+
+      // 2. A fresh instance on the same db, with its own empty cache, backfills it
+      //    on init — no request, no content change needed.
+      const reader = await buildInstance({}, {}, { dbFile })
+      expect((await reader.cache.get())?.some((entry) => entry.from === '/sync-init')).toBe(true)
+      await reader.destroy()
+
+      // 3. With syncOnInit: false the cache stays a miss after boot.
+      const disabledReader = await buildInstance({ syncOnInit: false }, {}, { dbFile })
+      expect(await disabledReader.cache.get()).toBeNull()
+      await disabledReader.destroy()
+    } finally {
+      fs.rmSync(sharedDir, { force: true, recursive: true })
+    }
   })
 })

@@ -5,6 +5,7 @@ export {
   validateScrollTo,
   validateUrlOrPathname,
 } from './core/collection.js'
+export { defineRedirectsConfig, type SharedRedirectsConfig } from './core/config.js'
 export {
   migrateFromOfficialRedirects,
   type MigrateFromOfficialRedirectsResult,
@@ -27,7 +28,7 @@ export {
   normalizeScrollTo,
   type RedirectMatchType,
   type RedirectsCache,
-  type RedirectType,
+  type RedirectStatus,
   type ResolvedRedirect,
   resolveRedirect,
   type ResolveRedirectOptions,

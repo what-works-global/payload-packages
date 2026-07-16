@@ -19,13 +19,13 @@ type RedirectDoc = {
   from?: unknown
   id: number | string
   matchType?: unknown
+  status?: unknown
   to?: {
     reference?: { relationTo?: unknown; value?: unknown } | null
     scrollTo?: unknown
     type?: unknown
     url?: unknown
   } | null
-  type?: unknown
 } & JsonObject
 
 const NON_EXACT_MATCH_TYPES = new Set(['contains', 'endsWith', 'regex', 'startsWith'])
@@ -47,13 +47,13 @@ export const localizedFindArgs = (
 
 /** The redirect fields the cache needs — everything else is left unfetched. */
 const cacheSelect = {
-  type: true,
   _order: true,
   caseInsensitive: true,
   enabled: true,
   forwardQuery: true,
   from: true,
   matchType: true,
+  status: true,
   to: true,
 } as const
 
@@ -113,7 +113,7 @@ const buildEntry = ({
   locale?: string
   req?: PayloadRequest
 }): CachedRedirect | null => {
-  if (doc.type !== '301' && doc.type !== '302') {
+  if (doc.status !== '301' && doc.status !== '302') {
     return null
   }
 
@@ -145,8 +145,10 @@ const buildEntry = ({
 
   const entry: CachedRedirect = {
     id: String(doc.id),
-    type: doc.type,
+    // Payload selects are string-valued ('301'/'302'); the cache carries a
+    // numeric status so the middleware can hand it straight to a redirect.
     from,
+    status: Number(doc.status) as CachedRedirect['status'],
     to: applyScrollTo(destination, doc.to?.scrollTo),
   }
 

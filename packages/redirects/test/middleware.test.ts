@@ -10,8 +10,8 @@ import { createRedirectsMiddleware } from '../src/exports/middleware.js'
 
 const entry = (overrides: Partial<CachedRedirect> = {}): CachedRedirect => ({
   id: '1',
-  type: '301',
   from: '/old',
+  status: 301,
   to: '/new',
   ...overrides,
 })
@@ -60,7 +60,7 @@ afterEach(() => {
 describe('createRedirectsMiddleware', () => {
   it('redirects a matching request with the configured status code', async () => {
     const middleware = createRedirectsMiddleware({
-      cache: await primedCache([entry(), entry({ id: '2', type: '302', from: '/temp', to: '/x' })]),
+      cache: await primedCache([entry(), entry({ id: '2', from: '/temp', status: 302, to: '/x' })]),
       trackHits: false,
     })
 
@@ -188,7 +188,7 @@ describe('createRedirectsMiddleware', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const middleware = createRedirectsMiddleware({
-      apiBasePath: '/api/payload',
+      api: '/api/payload',
       cache: await primedCache([entry({ id: 'abc' })]),
     })
 
@@ -446,13 +446,13 @@ describe('createRedirectsMiddleware', () => {
     expect(firstUrl(fetchMock)).toBe('https://site.com/base/api/payload-redirects/refresh-cache')
   })
 
-  it('sends background refresh/hit calls to endpointsBaseUrl for a split-origin CMS', async () => {
+  it('sends background refresh/hit calls to an absolute api base for a split-origin CMS', async () => {
     const fetchMock = okFetch()
     vi.stubGlobal('fetch', fetchMock)
 
     const hitMw = createRedirectsMiddleware({
+      api: 'https://cms.example.com/api',
       cache: await primedCache([entry({ id: 'abc' })]),
-      endpointsBaseUrl: 'https://cms.example.com/api',
     })
     const hitEvent = fakeEvent()
     await hitMw(request('https://site.com/old'), asEvent(hitEvent))
@@ -463,8 +463,8 @@ describe('createRedirectsMiddleware', () => {
     fetchMock.mockClear()
 
     const missMw = createRedirectsMiddleware({
+      api: 'https://cms.example.com/api',
       cache: memoryCache(),
-      endpointsBaseUrl: 'https://cms.example.com/api',
     })
     const missEvent = fakeEvent()
     await missMw(request('https://site.com/old'), asEvent(missEvent))

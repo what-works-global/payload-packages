@@ -188,7 +188,7 @@ export interface Redirect {
      */
     scrollTo?: string | null;
   };
-  type?: ('301' | '302') | null;
+  status?: ('301' | '302') | null;
   /**
    * Internal notes for editors — why does this redirect exist?
    */
@@ -335,7 +335,7 @@ export interface RedirectsSelect<T extends boolean = true> {
         url?: T;
         scrollTo?: T;
       };
-  type?: T;
+  status?: T;
   notes?: T;
   advanced?: T;
   enabled?: T;

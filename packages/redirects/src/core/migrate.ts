@@ -17,10 +17,10 @@ type OfficialRedirectDoc = {
   from?: unknown
   id: number | string
   matchType?: unknown
-  type?: unknown
+  status?: unknown
 } & JsonObject
 
-const VALID_TYPES = new Set(['301', '302'])
+const VALID_STATUSES = new Set(['301', '302'])
 const VALID_MATCH_TYPES = new Set(['contains', 'endsWith', 'exact', 'regex', 'startsWith'])
 
 /**
@@ -43,7 +43,7 @@ const fromNeedsNormalization = (from: unknown, effectiveMatchType: string): bool
 
 /**
  * Backfills documents created by the official `@payloadcms/plugin-redirects`
- * with the fields this plugin adds: `type` (defaults to `'301'`), `matchType`
+ * with the fields this plugin adds: `status` (defaults to `'301'`), `matchType`
  * (`'exact'`), and `enabled` (`true`). Swap the official plugin for this one on
  * the SAME collection slug, then run this once — the two shapes are otherwise
  * identical (`from` text; `to.type` custom|reference, `to.reference`, `to.url`).
@@ -75,21 +75,21 @@ export const migrateFromOfficialRedirects = async ({
   const output: MigrateFromOfficialRedirectsResult = { errors: [], skipped: 0, updated: 0 }
 
   for (const doc of result.docs as OfficialRedirectDoc[]) {
-    const needsType = typeof doc.type !== 'string' || !VALID_TYPES.has(doc.type)
+    const needsStatus = typeof doc.status !== 'string' || !VALID_STATUSES.has(doc.status)
     const needsMatchType =
       typeof doc.matchType !== 'string' || !VALID_MATCH_TYPES.has(doc.matchType)
     const needsEnabled = typeof doc.enabled !== 'boolean'
     const effectiveMatchType = needsMatchType ? 'exact' : (doc.matchType as string)
     const needsNormalization = fromNeedsNormalization(doc.from, effectiveMatchType)
 
-    if (!needsType && !needsMatchType && !needsEnabled && !needsNormalization) {
+    if (!needsStatus && !needsMatchType && !needsEnabled && !needsNormalization) {
       output.skipped++
       continue
     }
 
     const data: Record<string, unknown> = {}
-    if (needsType) {
-      data.type = '301'
+    if (needsStatus) {
+      data.status = '301'
     }
     if (needsMatchType) {
       data.matchType = 'exact'

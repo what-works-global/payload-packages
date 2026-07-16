@@ -7,8 +7,8 @@ import { createRedirectsRequestHandler, createRedirectsResolver } from '../src/e
 
 const entry = (overrides: Partial<CachedRedirect> = {}): CachedRedirect => ({
   id: '1',
-  type: '301',
   from: '/old',
+  status: 301,
   to: '/new',
   ...overrides,
 })
@@ -50,7 +50,7 @@ afterEach(() => {
 describe('createRedirectsResolver', () => {
   it('resolves a matching request to a destination + status', async () => {
     const resolver = createRedirectsResolver({
-      cache: await primedCache([entry(), entry({ id: '2', type: '302', from: '/temp', to: '/x' })]),
+      cache: await primedCache([entry(), entry({ id: '2', from: '/temp', status: 302, to: '/x' })]),
       trackHits: false,
     })
 
@@ -125,7 +125,7 @@ describe('createRedirectsResolver', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const resolver = createRedirectsResolver({
-      apiBasePath: '/api/payload',
+      api: '/api/payload',
       cache: await primedCache([entry({ id: 'abc' })]),
     })
 
@@ -185,13 +185,13 @@ describe('createRedirectsResolver', () => {
     expect(init.headers).toBeUndefined()
   })
 
-  it('targets endpointsBaseUrl for a split-origin deployment, not the request origin', async () => {
+  it('targets an absolute api base for a split-origin deployment, not the request origin', async () => {
     const fetchMock = okFetch()
     vi.stubGlobal('fetch', fetchMock)
 
     const resolver = createRedirectsResolver({
+      api: 'https://cms.example.com/api',
       cache: await primedCache([entry({ id: 'abc' })]),
-      endpointsBaseUrl: 'https://cms.example.com/api',
     })
     const hitCtx = fakeCtx()
     await resolver('https://site.com/old', hitCtx)
@@ -202,8 +202,8 @@ describe('createRedirectsResolver', () => {
     fetchMock.mockClear()
 
     const onMiss = createRedirectsResolver({
+      api: 'https://cms.example.com/api',
       cache: memoryCache(),
-      endpointsBaseUrl: 'https://cms.example.com/api',
     })
     const missCtx = fakeCtx()
     await onMiss('https://site.com/old', missCtx)
@@ -327,7 +327,7 @@ describe('createRedirectsResolver', () => {
 describe('createRedirectsRequestHandler', () => {
   it('answers a matching Request with a Response redirect', async () => {
     const handler = createRedirectsRequestHandler({
-      cache: await primedCache([entry(), entry({ id: '2', type: '302', from: '/temp', to: '/x' })]),
+      cache: await primedCache([entry(), entry({ id: '2', from: '/temp', status: 302, to: '/x' })]),
       trackHits: false,
     })
 
