@@ -25,6 +25,7 @@ import {
   fullAccessPermissions,
   getRbacCustomConfig,
   getUserPermissions,
+  isTransientMongoError,
   isWriteConflict,
   missingPermissions,
   permissionCovers,
@@ -876,9 +877,14 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     })
     const collection = { slug: 'users' } as CollectionConfig
 
+    // Existence check is a `find` (not `count`) so it is transaction-safe; it
+    // returns no users on bootstrap and the role lookup returns the admin role.
     const bootstrapReq = makeReq(result, null, {
-      count: vi.fn(() => Promise.resolve({ totalDocs: 0 })),
-      find: vi.fn(() => Promise.resolve({ docs: [{ id: 'r1', name: 'admin' }] })),
+      find: vi.fn((args: { collection: string }) =>
+        Promise.resolve(
+          args.collection === 'roles' ? { docs: [{ id: 'r1', name: 'admin' }] } : { docs: [] },
+        ),
+      ),
     })
     const created = await hook({
       collection,
@@ -888,8 +894,15 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     } as never)
     expect(created).toEqual({ email: 'a@b.co', roles: ['r1'] })
 
+    // A user already exists → not the first user → left untouched.
     const laterReq = makeReq(result, null, {
-      count: vi.fn(() => Promise.resolve({ totalDocs: 3 })),
+      find: vi.fn((args: { collection: string }) =>
+        Promise.resolve(
+          args.collection === 'roles'
+            ? { docs: [{ id: 'r1', name: 'admin' }] }
+            : { docs: [{ id: 'u1' }] },
+        ),
+      ),
     })
     expect(
       await hook({
@@ -1389,6 +1402,27 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     expect(createIndexes).toHaveBeenCalledTimes(2)
   })
 
+  it('retries a transient write-concern error while building the roles indexes', async () => {
+    // Concurrent `onInit` boots hammering a fresh replica set can knock the
+    // index build over with a `MongoWriteConcernError: operation was
+    // interrupted` — not a WriteConflict, so it must still be retried.
+    const writeConcern = Object.assign(new Error('operation was interrupted'), {
+      name: 'MongoWriteConcernError',
+      writeConcernError: { code: 11602, errmsg: 'operation was interrupted' },
+    })
+    const createIndexes = vi
+      .fn()
+      .mockRejectedValueOnce(writeConcern)
+      .mockResolvedValueOnce(undefined)
+    const payload = {
+      db: { name: 'mongoose', collections: { roles: { createIndexes } } },
+      logger: { error: vi.fn() },
+    } as unknown as Payload
+
+    await expect(ensureRolesIndexes(payload, 'roles')).resolves.toBeUndefined()
+    expect(createIndexes).toHaveBeenCalledTimes(2)
+  })
+
   it('treats a unique violation during seed create as already-seeded (concurrent boot)', async () => {
     const uniqueViolation = Object.assign(new Error('duplicate key value'), { code: '23505' })
     const create = vi.fn(() => Promise.reject(uniqueViolation))
@@ -1472,6 +1506,22 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     expect(isWriteConflict({ code: 11000 })).toBe(false)
     expect(isWriteConflict(new Error('boom'))).toBe(false)
     expect(isWriteConflict(null)).toBe(false)
+  })
+
+  it('detects the broader transient-error class but not permanent failures', () => {
+    // Superset of WriteConflict.
+    expect(isTransientMongoError({ code: 112 })).toBe(true)
+    expect(isTransientMongoError({ codeName: 'WriteConflict' })).toBe(true)
+    // Write-concern / replica-set churn that concurrent boots provoke.
+    expect(isTransientMongoError({ name: 'MongoWriteConcernError' })).toBe(true)
+    expect(isTransientMongoError({ writeConcernError: { code: 11602 } })).toBe(true)
+    expect(isTransientMongoError({ codeName: 'InterruptedDueToReplStateChange' })).toBe(true)
+    expect(isTransientMongoError({ errorLabels: ['RetryableWriteError'] })).toBe(true)
+    expect(isTransientMongoError({ cause: { name: 'MongoWriteConcernError' } })).toBe(true) // wrapped
+    // Permanent failures must NOT be retried.
+    expect(isTransientMongoError({ code: 11000 })).toBe(false) // duplicate key
+    expect(isTransientMongoError(new Error('disk full'))).toBe(false)
+    expect(isTransientMongoError(null)).toBe(false)
   })
 
   it('retries write conflicts and rethrows every other error', async () => {

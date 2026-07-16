@@ -1,7 +1,7 @@
 import type { Payload } from 'payload'
 
 import { isUniqueViolation } from './isUniqueViolation.js'
-import { retryOnWriteConflict } from './retryOnWriteConflict.js'
+import { isTransientMongoError, retryOnWriteConflict } from './retryOnWriteConflict.js'
 
 /**
  * Builds the roles collection's indexes on MongoDB before seeding runs.
@@ -45,9 +45,13 @@ export const ensureRolesIndexes = async (
 
   try {
     // Idempotent: creates any missing indexes (including the unique `name`
-    // index) and is a no-op once they exist. Retry a transient `WriteConflict`
-    // from another boot building the same index concurrently.
-    await retryOnWriteConflict(() => createIndexes())
+    // index) and is a no-op once they exist. Building it is a best effort, so
+    // retry the full transient class — not just `WriteConflict` but also the
+    // write-concern/step-down churn ("operation was interrupted") that many
+    // concurrent `onInit` boots provoke on a fresh replica set — because a
+    // `create` racing an in-progress index build is what the unique index is
+    // there to make safe in the first place.
+    await retryOnWriteConflict(() => createIndexes(), { shouldRetry: isTransientMongoError })
   } catch (error) {
     if (isUniqueViolation(error)) {
       payload.logger.error(

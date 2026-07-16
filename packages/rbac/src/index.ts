@@ -77,6 +77,7 @@ export {
 } from './utilities/fullAccessHolders.js'
 export { getUserPermissions, hasPermission } from './utilities/getUserPermissions.js'
 export {
+  isTransientMongoError,
   isWriteConflict,
   retryOnWriteConflict,
   type RetryOnWriteConflictOptions,

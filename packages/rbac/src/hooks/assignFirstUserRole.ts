@@ -27,8 +27,24 @@ export const createAssignFirstUserRoleHook = ({
       return data
     }
 
-    const { totalDocs } = await req.payload.count({ collection: collection.slug, req })
-    if (totalDocs > 0) {
+    // Existence check via `find` with `pagination: false` — deliberately NOT
+    // `count`. An unfiltered `count` uses Mongo's `count` command (through
+    // `estimatedDocumentCount`), which is rejected inside a multi-document
+    // transaction ("Cannot run 'count' in a multi-document transaction"). This
+    // hook runs precisely inside one whenever the first user is seeded by a
+    // transactional `create` on a replica set (Atlas) — e.g. an init/build
+    // `onInit` seed — so a `count` here fails the whole boot. `find` with
+    // `pagination: false` skips the count entirely and works with or without an
+    // active transaction.
+    const { docs: existingUsers } = await req.payload.find({
+      collection: collection.slug,
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      pagination: false,
+      req,
+    })
+    if (existingUsers.length > 0) {
       return data
     }
 
