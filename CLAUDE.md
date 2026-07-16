@@ -17,6 +17,14 @@
 - Dev sandboxes (`dev/payload.config.ts`) build on `buildDevConfig` from `@whatworks/dev-fixture/dev-config`, which supplies the shared boilerplate: autoLogin dev user, `users` auth collection, dev-user seeding, local-Mongo fallback (`dbName`), import map + generated types rooted in `dev/`, and disabled telemetry. Pass regular Payload config keys to override any of it (see `packages/sitemap` for a custom-db example, `packages/switch-env` for heavy overrides).
 - **Anything that imports an optional peer dependency must live in its own entry point / export, never in a shared one.** Bundlers resolve even dynamic `import()`s with literal specifiers at build time, so a single `import '@some/optional-pkg'` anywhere reachable from a shared entry forces _every_ consumer of that entry to install the dep — including those using only the default feature set. Give the optional-dep code a dedicated `exports` subpath (e.g. `./edge-config`), import the peer dep statically there, and declare it in `peerDependencies` with `peerDependenciesMeta.<pkg>.optional = true`. Reaching for the subpath is then the consumer's explicit opt-in to installing the dep. See `packages/redirects` — the `@vercel/edge-config` adapter lives at `src/exports/edge-config.ts` (its own `./edge-config` export) precisely so `fileCache`/`memoryCache` users never need `@vercel/edge-config`.
 
+## Payload spawns orphaned `generate:types` workers (high-CPU zombies)
+
+Whenever Payload boots outside production with `typescript.autoGenerate` enabled (its default), it spawns a detached `payload/bin.js generate:types` child process. If the parent exits without reaping it — vitest finishing an int-test run, a killed dev server — the child is orphaned (PPID=1) and spins at ~100% CPU forever.
+
+- **Every test that boots Payload via `getPayload()`/`buildConfig` must set `typescript: { autoGenerate: false }`** (types are irrelevant to tests). See `packages/switch-env/test/shared/configDefaults.ts` for the shared-defaults approach.
+- Dev sandboxes should keep autoGenerate on for normal `pnpm dev`, but gate it off via an env flag when booted by e2e tests (see `packages/redirects` — `REDIRECTS_DEV_DISABLE_AUTOGEN`).
+- Sweep strays with `pkill -9 -f "payload/bin.js generate:types"`; find them with `ps -eo pid,ppid,%cpu,command | awk '$2==1' | grep payload`.
+
 ## Adding a package: places that enumerate every package
 
 Most tooling auto-discovers `packages/*`, but these files list packages by name and must be updated by hand when a package is added (or renamed/removed):
