@@ -7,16 +7,18 @@ import path from 'node:path'
 import { buildConfig, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import type { RedirectsCache } from '../src/index.js'
+import type { RedirectsCache, RedirectsPluginConfig } from '../src/index.js'
 
 import { memoryCache } from '../src/exports/cache.js'
-import { redirectsPlugin, syncRedirectsCache } from '../src/index.js'
+import { migrateFromOfficialRedirects, redirectsPlugin, syncRedirectsCache } from '../src/index.js'
 
-let payload: Payload
-let cache: RedirectsCache
-let tmpDir: string
+type TestInstance = {
+  cache: RedirectsCache
+  destroy: () => Promise<void>
+  payload: Payload
+}
 
-const findEndpoint = (endpointPath: string): Endpoint => {
+const findEndpointOn = (payload: Payload, endpointPath: string): Endpoint => {
   const endpoint = payload.config.endpoints.find(
     (candidate) => candidate.path === endpointPath && candidate.method === 'post',
   )
@@ -26,17 +28,32 @@ const findEndpoint = (endpointPath: string): Endpoint => {
   return endpoint
 }
 
-const fakeRequest = (routeParams: Record<string, unknown> = {}): PayloadRequest =>
+const fakeRequest = (
+  payload: Payload,
+  {
+    headers,
+    routeParams = {},
+    user = null,
+  }: {
+    headers?: Record<string, string>
+    routeParams?: Record<string, unknown>
+    user?: unknown
+  } = {},
+): PayloadRequest =>
   ({
+    headers: new Headers(headers ?? {}),
     payload,
     routeParams,
     url: 'http://cms.local/api/payload-redirects',
-    user: null,
+    user,
   }) as unknown as PayloadRequest
 
-beforeAll(async () => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'payload-redirects-test-'))
-  cache = memoryCache()
+const buildInstance = async (
+  pluginOverrides: Partial<RedirectsPluginConfig> = {},
+  configOverrides: Record<string, unknown> = {},
+): Promise<TestInstance> => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'payload-redirects-test-'))
+  const cache = memoryCache()
 
   const config = await buildConfig({
     collections: [
@@ -56,23 +73,75 @@ beforeAll(async () => {
         collections: {
           pages: { path: ({ doc }) => (doc.slug === 'home' ? '/' : `/${doc.slug}`) },
         },
+        ...pluginOverrides,
       }),
     ],
     secret: 'test-secret',
     telemetry: false,
+    ...configOverrides,
   })
 
-  payload = await getPayload({ config })
+  // A unique key per instance so getPayload does not return a globally-cached
+  // instance built from a different config (secret / localization differ).
+  const payload = await getPayload({ config, key: tmpDir })
+
+  return {
+    cache,
+    destroy: async () => {
+      if (typeof payload?.db?.destroy === 'function') {
+        await payload.db.destroy()
+      }
+      fs.rmSync(tmpDir, { force: true, recursive: true })
+    },
+    payload,
+  }
+}
+
+// All instances are built up front and torn down together. Building one sqlite
+// instance and destroying it before another is built leaves the second without
+// its pushed schema ("no such table") — so they must coexist for the run.
+let mainInstance: TestInstance
+let secretInstance: TestInstance
+let localizedInstance: TestInstance
+let migrationInstance: TestInstance
+
+beforeAll(async () => {
+  // db-sqlite's dev schema push caches the last-pushed schema at module scope
+  // and skips the push when a later instance has an identical schema — leaving
+  // that instance's fresh db without tables. Force every instance to push.
+  process.env.PAYLOAD_FORCE_DRIZZLE_PUSH = 'true'
+
+  mainInstance = await buildInstance()
+  secretInstance = await buildInstance({ secret: 'topsecret' })
+  localizedInstance = await buildInstance(
+    { localized: true },
+    {
+      localization: {
+        defaultLocale: 'en',
+        fallback: false,
+        locales: ['en', 'fr'],
+      },
+    },
+  )
+  migrationInstance = await buildInstance()
 })
 
 afterAll(async () => {
-  if (typeof payload?.db?.destroy === 'function') {
-    await payload.db.destroy()
-  }
-  fs.rmSync(tmpDir, { force: true, recursive: true })
+  await mainInstance?.destroy()
+  await secretInstance?.destroy()
+  await localizedInstance?.destroy()
+  await migrationInstance?.destroy()
 })
 
 describe('redirectsPlugin integration', () => {
+  let payload: Payload
+  let cache: RedirectsCache
+
+  beforeAll(() => {
+    payload = mainInstance.payload
+    cache = mainInstance.cache
+  })
+
   it('caches custom-URL redirects on create, normalized and with scrollTo applied', async () => {
     const redirect = await payload.create({
       collection: 'redirects' as never,
@@ -151,25 +220,85 @@ describe('redirectsPlugin integration', () => {
     expect((await cache.get())?.some((entry) => entry.from === '/old-about')).toBe(false)
   })
 
-  it('updates and removes cache entries as redirects change', async () => {
+  it('caches match/caseInsensitive/forwardQuery flags and excludes disabled redirects', async () => {
+    await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        type: '301',
+        caseInsensitive: true,
+        forwardQuery: true,
+        from: '/Section/',
+        matchType: 'startsWith',
+        to: { type: 'custom', url: '/new-section' },
+      } as never,
+    })
+    const disabled = (await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        type: '301',
+        enabled: false,
+        from: '/disabled',
+        to: { type: 'custom', url: '/nope' },
+      } as never,
+    })) as { id: number | string }
+
+    const cached = await cache.get()
+    const entry = cached?.find((candidate) => candidate.from === '/Section/')
+    expect(entry).toMatchObject({
+      caseInsensitive: true,
+      forwardQuery: true,
+      from: '/Section/',
+      match: 'startsWith',
+      to: '/new-section',
+    })
+    expect(cached?.some((candidate) => candidate.id === String(disabled.id))).toBe(false)
+  })
+
+  it('rejects redirect loops and self-redirects at save time', async () => {
+    await payload.create({
+      collection: 'redirects' as never,
+      data: { type: '301', from: '/loop-a', to: { type: 'custom', url: '/loop-b' } } as never,
+    })
+
+    await expect(
+      payload.create({
+        collection: 'redirects' as never,
+        data: { type: '301', from: '/loop-b', to: { type: 'custom', url: '/loop-a' } } as never,
+      }),
+    ).rejects.toThrow()
+
+    await expect(
+      payload.create({
+        collection: 'redirects' as never,
+        data: { type: '301', from: '/self', to: { type: 'custom', url: '/self' } } as never,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('increments hits atomically under concurrent hit requests', async () => {
     const redirect = (await payload.create({
       collection: 'redirects' as never,
       data: {
         type: '301',
-        from: '/temp',
-        to: { type: 'custom', url: '/here' },
+        from: '/counted-concurrent',
+        to: { type: 'custom', url: '/target' },
       } as never,
-    })) as { id: number | string }
+    })) as { hits: number; id: number | string }
+    expect(redirect.hits).toBe(0)
 
-    await payload.update({
+    const handler = findEndpointOn(payload, '/payload-redirects/hit/:id').handler
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        handler(fakeRequest(payload, { routeParams: { id: String(redirect.id) } })),
+      ),
+    )
+    expect(responses.every((response) => response.status === 200)).toBe(true)
+
+    const updated = (await payload.findByID({
       id: redirect.id,
       collection: 'redirects' as never,
-      data: { to: { type: 'custom', url: '/there' } } as never,
-    })
-    expect((await cache.get())?.find((entry) => entry.from === '/temp')?.to).toBe('/there')
-
-    await payload.delete({ id: redirect.id, collection: 'redirects' as never })
-    expect((await cache.get())?.some((entry) => entry.from === '/temp')).toBe(false)
+    })) as unknown as { hits: number }
+    expect(updated.hits).toBe(10)
   })
 
   it('increments hits through the hit endpoint without rebuilding the cache', async () => {
@@ -183,8 +312,10 @@ describe('redirectsPlugin integration', () => {
     })) as { hits: number; id: number | string }
     expect(redirect.hits).toBe(0)
 
-    const handler = findEndpoint('/payload-redirects/hit/:id').handler
-    const response = await handler(fakeRequest({ id: String(redirect.id) }))
+    const handler = findEndpointOn(payload, '/payload-redirects/hit/:id').handler
+    const response = await handler(
+      fakeRequest(payload, { routeParams: { id: String(redirect.id) } }),
+    )
     expect(response.status).toBe(200)
 
     const updated = (await payload.findByID({
@@ -194,21 +325,170 @@ describe('redirectsPlugin integration', () => {
     expect(updated.hits).toBe(1)
     expect(updated.lastAccess).toBeTruthy()
 
-    expect((await handler(fakeRequest({ id: '999999' }))).status).toBe(404)
-    expect((await handler(fakeRequest())).status).toBe(400)
+    expect((await handler(fakeRequest(payload, { routeParams: { id: '999999' } }))).status).toBe(
+      404,
+    )
+    expect((await handler(fakeRequest(payload))).status).toBe(400)
   })
 
   it('rebuilds the cache via the refresh endpoint and syncRedirectsCache', async () => {
     await cache.set([])
     expect(await cache.get()).toEqual([])
 
-    const handler = findEndpoint('/payload-redirects/refresh-cache').handler
-    const response = await handler(fakeRequest())
+    const handler = findEndpointOn(payload, '/payload-redirects/refresh-cache').handler
+    const response = await handler(fakeRequest(payload))
     expect(response.status).toBe(200)
     expect((await cache.get())?.length).toBeGreaterThan(0)
 
     await cache.set([])
     await syncRedirectsCache(payload)
     expect((await cache.get())?.length).toBeGreaterThan(0)
+  })
+})
+
+describe('redirectsPlugin secret hardening', () => {
+  let payload: Payload
+
+  beforeAll(() => {
+    payload = secretInstance.payload
+  })
+
+  it('rejects endpoint calls without the secret or a user, and allows them with either', async () => {
+    const refresh = findEndpointOn(payload, '/payload-redirects/refresh-cache').handler
+    const hit = findEndpointOn(payload, '/payload-redirects/hit/:id').handler
+
+    // No secret, no user → 403.
+    expect((await refresh(fakeRequest(payload))).status).toBe(403)
+    expect((await hit(fakeRequest(payload, { routeParams: { id: '1' } }))).status).toBe(403)
+
+    // Wrong secret → 403.
+    expect(
+      (await refresh(fakeRequest(payload, { headers: { 'x-payload-redirects-secret': 'nope' } })))
+        .status,
+    ).toBe(403)
+
+    // Correct secret header → authorized (200 for refresh).
+    expect(
+      (
+        await refresh(
+          fakeRequest(payload, { headers: { 'x-payload-redirects-secret': 'topsecret' } }),
+        )
+      ).status,
+    ).toBe(200)
+
+    // Authenticated user → authorized (400 here only because no id is supplied).
+    expect((await hit(fakeRequest(payload, { user: { id: 1 } }))).status).toBe(400)
+  })
+})
+
+describe('redirectsPlugin localization', () => {
+  let payload: Payload
+  let cache: RedirectsCache
+
+  beforeAll(() => {
+    payload = localizedInstance.payload
+    cache = localizedInstance.cache
+  })
+
+  it('builds a per-locale cache and skips locales with no `from`', async () => {
+    const doc = (await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        type: '301',
+        from: '/en-old',
+        to: { type: 'custom', url: '/en-new' },
+      } as never,
+      locale: 'en',
+    })) as { id: number | string }
+
+    await payload.update({
+      id: doc.id,
+      collection: 'redirects' as never,
+      data: { from: '/fr-old', to: { type: 'custom', url: '/fr-new' } } as never,
+      locale: 'fr',
+    })
+
+    // A second redirect only ever set in English — must NOT appear in the fr cache.
+    await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        type: '301',
+        from: '/en-only',
+        to: { type: 'custom', url: '/en-only-new' },
+      } as never,
+      locale: 'en',
+    })
+
+    await syncRedirectsCache(payload)
+    const cached = await cache.get()
+
+    const en = cached?.filter((entry) => entry.locale === 'en') ?? []
+    const fr = cached?.filter((entry) => entry.locale === 'fr') ?? []
+
+    expect(en.map((entry) => entry.from).sort()).toEqual(['/en-old', '/en-only'])
+    expect(en.find((entry) => entry.from === '/en-old')?.to).toBe('/en-new')
+
+    expect(fr.map((entry) => entry.from)).toEqual(['/fr-old'])
+    expect(fr[0]?.to).toBe('/fr-new')
+  })
+})
+
+describe('migrateFromOfficialRedirects', () => {
+  let payload: Payload
+  let cache: RedirectsCache
+
+  beforeAll(() => {
+    payload = migrationInstance.payload
+    cache = migrationInstance.cache
+  })
+
+  it('backfills official-plugin rows, normalizes `from`, and rebuilds the cache', async () => {
+    // Insert an official-shaped row straight through the db adapter, bypassing
+    // this plugin's field defaults, `from` normalization, and cache-sync hooks —
+    // exactly the state left behind by `@payloadcms/plugin-redirects`.
+    const created = (await payload.db.create({
+      collection: 'redirects' as never,
+      data: {
+        // Explicit nulls override the column defaults so the row genuinely
+        // lacks this plugin's fields, like a real `@payloadcms/plugin-redirects`
+        // document. `from` carries a trailing slash the official plugin never
+        // normalized.
+        type: null,
+        enabled: null,
+        from: '/legacy-path/',
+        matchType: null,
+        to: { type: 'custom', url: '/new-path' },
+      },
+    })) as { id: number | string }
+    const id = String(created.id)
+
+    // The raw row never reached the cache (still a miss on a fresh instance).
+    expect((await cache.get())?.some((entry) => entry.id === id) ?? false).toBe(false)
+
+    const result = await migrateFromOfficialRedirects({ payload })
+    expect(result.errors).toEqual([])
+    expect(result.updated).toBeGreaterThanOrEqual(1)
+
+    const migrated = (await payload.findByID({
+      id: created.id,
+      collection: 'redirects' as never,
+    })) as unknown as { enabled: boolean; from: string; matchType: string; type: string }
+    expect(migrated.type).toBe('301')
+    expect(migrated.matchType).toBe('exact')
+    expect(migrated.enabled).toBe(true)
+    // Re-saving ran the `from` normalization hook (trailing slash stripped).
+    expect(migrated.from).toBe('/legacy-path')
+
+    const cached = await cache.get()
+    expect(cached?.find((entry) => entry.id === id)).toMatchObject({
+      type: '301',
+      from: '/legacy-path',
+      to: '/new-path',
+    })
+
+    // Idempotent: a complete row is skipped on a second run.
+    const second = await migrateFromOfficialRedirects({ payload })
+    expect(second.updated).toBe(0)
+    expect(second.skipped).toBeGreaterThanOrEqual(1)
   })
 })

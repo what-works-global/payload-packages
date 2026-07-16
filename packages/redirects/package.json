@@ -26,6 +26,7 @@
     "lint:fix": "eslint --fix",
     "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
     "test": "vitest run",
+    "test:e2e": "vitest run test/e2e.test.ts",
     "test:peer": "vitest run",
     "typecheck": "tsc --noEmit",
     "typecheck:dev": "tsc -p dev/tsconfig.json --noEmit"
@@ -46,6 +47,11 @@
       "import": "./src/exports/cache.ts",
       "default": "./src/exports/cache.ts"
     },
+    "./edge-config": {
+      "types": "./src/exports/edge-config.ts",
+      "import": "./src/exports/edge-config.ts",
+      "default": "./src/exports/edge-config.ts"
+    },
     "./middleware": {
       "types": "./src/exports/middleware.ts",
       "import": "./src/exports/middleware.ts",
@@ -58,11 +64,15 @@
     }
   },
   "peerDependencies": {
+    "@vercel/edge-config": ">=1.0.0 <2",
     "@vercel/functions": ">=2.2.0 <4",
     "next": ">=15.0.0 <17",
     "payload": ">=3.32.0 <4"
   },
   "peerDependenciesMeta": {
+    "@vercel/edge-config": {
+      "optional": true
+    },
     "@vercel/functions": {
       "optional": true
     },
@@ -85,6 +95,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@vercel/edge-config": "catalog:",
     "@vercel/functions": "catalog:",
     "@whatworks/dev-fixture": "workspace:*",
     "cross-env": "catalog:",
@@ -115,6 +126,11 @@
         "types": "./dist/exports/cache.d.ts",
         "import": "./dist/exports/cache.js",
         "default": "./dist/exports/cache.js"
+      },
+      "./edge-config": {
+        "types": "./dist/exports/edge-config.d.ts",
+        "import": "./dist/exports/edge-config.js",
+        "default": "./dist/exports/edge-config.js"
       },
       "./middleware": {
         "types": "./dist/exports/middleware.d.ts",

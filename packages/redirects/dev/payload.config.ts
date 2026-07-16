@@ -10,9 +10,13 @@ import { seed } from './seed.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// SQLite file lives in .dbs/ (gitignored). Delete it to reseed from scratch.
-const dbDir = path.resolve(dirname, '.dbs')
-fs.mkdirSync(dbDir, { recursive: true })
+// SQLite file lives in .dbs/ (gitignored) by default. Override with
+// REDIRECTS_DEV_DB (e.g. a throwaway path for e2e) so a test run never clobbers
+// local dev state. Delete the file to reseed from scratch.
+const dbFile = process.env.REDIRECTS_DEV_DB
+  ? path.resolve(process.env.REDIRECTS_DEV_DB)
+  : path.join(path.resolve(dirname, '.dbs'), 'dev.db')
+fs.mkdirSync(path.dirname(dbFile), { recursive: true })
 
 export default buildDevConfig({
   collections: [
@@ -29,7 +33,7 @@ export default buildDevConfig({
     },
   ],
   db: sqliteAdapter({
-    client: { url: `file:${path.join(dbDir, 'dev.db')}` },
+    client: { url: `file:${dbFile}` },
     push: true,
   }),
   dirname,
@@ -44,4 +48,9 @@ export default buildDevConfig({
       },
     }),
   ],
+  // In dev, Payload spawns `payload generate:types` on every HMR init. The e2e
+  // harness kills the whole sandbox process group, which orphans any in-flight
+  // worker (they then spin at ~100% CPU). Disable the auto-spawn under e2e; a
+  // normal `pnpm dev` keeps auto-refreshing types on save.
+  ...(process.env.REDIRECTS_DEV_DISABLE_AUTOGEN ? { typescript: { autoGenerate: false } } : {}),
 })

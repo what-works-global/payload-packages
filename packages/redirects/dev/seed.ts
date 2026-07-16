@@ -54,8 +54,49 @@ export const seed = async (payload: Payload): Promise<void> => {
       data: {
         type: '302',
         from: '^/posts/(.+)$',
+        matchType: 'regex',
         to: { type: 'custom', url: '/$1' },
-        useRegex: true,
+      } as never,
+    })
+    // Starts-with: any path under /section → /new-section (fixed destination).
+    await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        type: '301',
+        from: '/section',
+        matchType: 'startsWith',
+        to: { type: 'custom', url: '/new-section' },
+      } as never,
+    })
+    // Case-insensitive exact match: /docs-legacy (any casing) → /docs.
+    await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        type: '301',
+        caseInsensitive: true,
+        from: '/Docs-Legacy',
+        to: { type: 'custom', url: '/docs' },
+      } as never,
+    })
+    // Forward the incoming query string onto the destination.
+    await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        type: '301',
+        forwardQuery: true,
+        from: '/promo',
+        to: { type: 'custom', url: '/campaign' },
+      } as never,
+    })
+    // Disabled: kept in the collection but excluded from the cache, so it never
+    // fires (the frontend list shows it is absent).
+    await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        type: '301',
+        enabled: false,
+        from: '/disabled-redirect',
+        to: { type: 'custom', url: '/should-not-fire' },
       } as never,
     })
   }

@@ -14,6 +14,27 @@ import { isCachedRedirect } from '../core/shared.js'
 export type { CachedRedirect, RedirectsCache } from '../core/shared.js'
 
 /**
+ * Coerces a value read from a key-value store into a validated redirect list.
+ * Tolerates both a JSON string (ioredis, node-redis, Cloudflare KV) and an
+ * already-parsed array (`@upstash/redis` auto-deserializes). Malformed or
+ * missing values become `null`; individual bad entries are filtered out.
+ */
+const parseCachedRedirects = (value: unknown): CachedRedirect[] | null => {
+  let data: unknown = value
+  if (typeof value === 'string') {
+    try {
+      data = JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  if (!Array.isArray(data)) {
+    return null
+  }
+  return data.filter(isCachedRedirect)
+}
+
+/**
  * In-process cache. Only useful when the writer (Payload hooks) and the
  * reader (middleware) share one long-lived process — tests, and single
  * self-hosted servers where the middleware runs in the Node runtime. On
@@ -80,6 +101,84 @@ export const fileCache = (options: FileCacheOptions = {}): RedirectsCache => {
       const temporary = `${target}.${process.pid}.tmp`
       await writeFile(temporary, JSON.stringify({ redirects }, null, 2))
       await rename(temporary, target)
+    },
+  }
+}
+
+/** Minimal structural view of a Redis client — the subset the adapter uses. */
+export type RedisCacheClient = {
+  get: (key: string) => Promise<unknown>
+  set: (key: string, value: string) => Promise<unknown>
+}
+
+export type RedisCacheOptions = {
+  /**
+   * Any client exposing `get`/`set` — ioredis, node-redis v4, or
+   * `@upstash/redis` all satisfy this shape.
+   */
+  client: RedisCacheClient
+  /**
+   * Key the redirect list is stored under.
+   * @default 'payload-redirects'
+   */
+  key?: string
+}
+
+/**
+ * Redis-backed cache. The list is stored as a JSON string; on read it accepts
+ * either a JSON string (ioredis, node-redis) or an already-parsed array
+ * (`@upstash/redis` auto-deserializes). A missing key or malformed value is a
+ * miss. No dependency is added — pass whichever client you already use.
+ */
+export const redisCache = (options: RedisCacheOptions): RedirectsCache => {
+  const { client, key = 'payload-redirects' } = options
+  return {
+    get: async () => {
+      const value = await client.get(key)
+      if (value === null || value === undefined) {
+        return null
+      }
+      return parseCachedRedirects(value)
+    },
+    set: async (redirects) => {
+      await client.set(key, JSON.stringify(redirects))
+    },
+  }
+}
+
+/** Minimal structural view of a Cloudflare KV namespace binding. */
+export type CloudflareKVNamespace = {
+  get: (key: string, type: 'text') => Promise<null | string>
+  put: (key: string, value: string) => Promise<unknown>
+}
+
+export type CloudflareKVCacheOptions = {
+  /**
+   * Key the redirect list is stored under.
+   * @default 'payload-redirects'
+   */
+  key?: string
+  /** The KV namespace binding (e.g. `env.REDIRECTS`). */
+  namespace: CloudflareKVNamespace
+}
+
+/**
+ * Cloudflare Workers KV cache. Reads the value as text and parses it as JSON; a
+ * missing key or malformed value is a miss. No dependency is added — pass the
+ * KV binding from your Worker/Pages environment.
+ */
+export const cloudflareKVCache = (options: CloudflareKVCacheOptions): RedirectsCache => {
+  const { key = 'payload-redirects', namespace } = options
+  return {
+    get: async () => {
+      const value = await namespace.get(key, 'text')
+      if (value === null || value === undefined) {
+        return null
+      }
+      return parseCachedRedirects(value)
+    },
+    set: async (redirects) => {
+      await namespace.put(key, JSON.stringify(redirects))
     },
   }
 }

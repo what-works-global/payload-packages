@@ -17,6 +17,7 @@ import {
   getRedirectsConfig,
   redirectsPlugin,
   validateFromField,
+  validateSafeRegexPattern,
   validateScrollTo,
   validateUrlOrPathname,
 } from '../src/index.js'
@@ -156,13 +157,45 @@ describe('field validation', () => {
     expect(validateUrlOrPathname(undefined)).toMatch(/required/)
   })
 
-  it('validates from as URL/pathname, or as a regex with useRegex', () => {
-    const options = (useRegex: boolean) => ({ siblingData: { useRegex } }) as never
-    expect(validateFromField('/old', options(false))).toBe(true)
-    expect(validateFromField('bad', options(false))).toMatch(/Invalid/)
-    expect(validateFromField('^/blog/(.*)$', options(true))).toBe(true)
-    expect(validateFromField('([', options(true))).toMatch(/Invalid regular expression/)
-    expect(validateFromField('', options(true))).toMatch(/required/)
+  it('validates from according to matchType', () => {
+    const options = (matchType: string) => ({ siblingData: { matchType } }) as never
+    // exact → URL/pathname rules
+    expect(validateFromField('/old', options('exact'))).toBe(true)
+    expect(validateFromField('bad', options('exact'))).toMatch(/Invalid/)
+    // regex → safe-regex rules
+    expect(validateFromField('^/blog/(.*)$', options('regex'))).toBe(true)
+    expect(validateFromField('([', options('regex'))).toMatch(/Invalid regular expression/)
+    expect(validateFromField('', options('regex'))).toMatch(/required/)
+    // startsWith/contains → any non-empty substring is valid (no leading slash needed)
+    expect(validateFromField('blog', options('contains'))).toBe(true)
+    expect(validateFromField('/section', options('startsWith'))).toBe(true)
+    expect(validateFromField('  ', options('startsWith'))).toMatch(/required/)
+    // missing matchType defaults to exact
+    expect(validateFromField('bad', { siblingData: {} } as never)).toMatch(/Invalid/)
+  })
+
+  it('accepts safe regex patterns and rejects catastrophic / unsafe ones', () => {
+    // Accepts
+    expect(validateSafeRegexPattern('^/blog/(.*)$')).toBe(true)
+    expect(validateSafeRegexPattern('^/docs(/.*)?$')).toBe(true)
+    expect(validateSafeRegexPattern('(ab)+')).toBe(true)
+    expect(validateSafeRegexPattern('a{1,1000}')).toBe(true)
+    expect(validateSafeRegexPattern('(a+){0,5}')).toBe(true)
+    // Rejects: nested unbounded quantifiers (catastrophic backtracking)
+    expect(validateSafeRegexPattern('(a+)+')).toMatch(/catastrophic/i)
+    expect(validateSafeRegexPattern('(a*)*')).toMatch(/catastrophic/i)
+    expect(validateSafeRegexPattern('((a+))+')).toMatch(/catastrophic/i)
+    expect(validateSafeRegexPattern('(?:a+)+')).toMatch(/catastrophic/i)
+    expect(validateSafeRegexPattern('(a+){2,}')).toMatch(/catastrophic/i)
+    // Rejects: backreferences
+    expect(validateSafeRegexPattern('(a)\\1')).toMatch(/[Bb]ackreference/)
+    // Rejects: bounded repetition above 1000
+    expect(validateSafeRegexPattern('a{1001}')).toMatch(/1000/)
+    expect(validateSafeRegexPattern('a{1,2000}')).toMatch(/1000/)
+    // Rejects: too long / uncompilable / empty
+    expect(validateSafeRegexPattern(`^${'a'.repeat(300)}$`)).toMatch(/too long/i)
+    expect(validateSafeRegexPattern('([')).toMatch(/Invalid regular expression/)
+    expect(validateSafeRegexPattern('')).toMatch(/required/)
   })
 
   it('rejects whitespace in scrollTo and allows empty values', () => {
@@ -211,19 +244,91 @@ describe('buildRedirectsCacheEntries', () => {
     ])
   })
 
-  it('keeps regex sources verbatim and flags them', async () => {
+  it('keeps regex sources verbatim and flags them with matchType', async () => {
     const entries = await build([
       {
         id: 1,
         type: '301',
         from: '^/blog/(.*)$',
+        matchType: 'regex',
         to: { type: 'custom', url: '/news/$1' },
-        useRegex: true,
       },
     ])
     expect(entries).toEqual([
-      { id: '1', type: '301', from: '^/blog/(.*)$', regex: true, to: '/news/$1' },
+      { id: '1', type: '301', from: '^/blog/(.*)$', match: 'regex', to: '/news/$1' },
     ])
+  })
+
+  it('emits per-entry match/caseInsensitive/forwardQuery flags only when set', async () => {
+    const entries = await build([
+      {
+        id: 1,
+        type: '301',
+        caseInsensitive: true,
+        forwardQuery: true,
+        // non-exact `from` is trimmed only, never canonicalized
+        from: '/Blog/',
+        matchType: 'startsWith',
+        to: { type: 'custom', url: '/news' },
+      },
+    ])
+    expect(entries).toEqual([
+      {
+        id: '1',
+        type: '301',
+        caseInsensitive: true,
+        forwardQuery: true,
+        from: '/Blog/',
+        match: 'startsWith',
+        to: '/news',
+      },
+    ])
+  })
+
+  it('excludes disabled redirects from the cache', async () => {
+    const entries = await build([
+      { id: 1, type: '301', enabled: false, from: '/off', to: { type: 'custom', url: '/x' } },
+      { id: 2, type: '301', enabled: true, from: '/on', to: { type: 'custom', url: '/y' } },
+      { id: 3, type: '301', from: '/default-on', to: { type: 'custom', url: '/z' } },
+    ])
+    expect(entries.map((entry) => entry.from)).toEqual(['/on', '/default-on'])
+  })
+
+  it('flattens exact redirect chains to a single hop, carrying the earliest fragment', async () => {
+    const entries = await build([
+      { id: 1, type: '301', from: '/a', to: { type: 'custom', scrollTo: 'top', url: '/b' } },
+      { id: 2, type: '301', from: '/b', to: { type: 'custom', url: '/c' } },
+    ])
+    expect(entries).toEqual([
+      { id: '1', type: '301', from: '/a', to: '/c#top' },
+      { id: '2', type: '301', from: '/b', to: '/c' },
+    ])
+  })
+
+  it('leaves cyclic chains unflattened and warns', async () => {
+    const result = await redirectsPlugin(pluginConfig())(baseConfig())
+    const warn = vi.fn()
+    const req = makeReq(result, {
+      find: vi.fn(() =>
+        Promise.resolve({
+          docs: [
+            { id: 1, type: '301', from: '/a', to: { type: 'custom', url: '/b' } },
+            { id: 2, type: '301', from: '/b', to: { type: 'custom', url: '/a' } },
+          ],
+        }),
+      ),
+      logger: { error: vi.fn(), info: vi.fn(), warn },
+    })
+    const entries = await buildRedirectsCacheEntries({
+      config: getRedirectsConfig(result),
+      payload: req.payload,
+      req,
+    })
+    expect(entries).toEqual([
+      { id: '1', type: '301', from: '/a', to: '/b' },
+      { id: '2', type: '301', from: '/b', to: '/a' },
+    ])
+    expect(warn).toHaveBeenCalled()
   })
 
   it('drops rows that cannot produce a working redirect', async () => {

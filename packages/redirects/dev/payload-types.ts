@@ -165,9 +165,17 @@ export interface Redirect {
   _order?: string | null;
   from: string;
   /**
-   * Match the request path against a regular expression. Capture groups can be used in a custom destination URL as $1, $2, …
+   * How the request path is compared to "From". Exact is the common case; Regex is for advanced users (capture groups become $1, $2, … in a custom destination).
    */
-  useRegex?: boolean | null;
+  matchType?: ('exact' | 'startsWith' | 'endsWith' | 'contains' | 'regex') | null;
+  /**
+   * Match the request path regardless of letter case.
+   */
+  caseInsensitive?: boolean | null;
+  /**
+   * Append the incoming query string to the destination (params already on the destination win).
+   */
+  forwardQuery?: boolean | null;
   to?: {
     type?: ('reference' | 'custom') | null;
     reference?: {
@@ -180,7 +188,19 @@ export interface Redirect {
      */
     scrollTo?: string | null;
   };
-  type: '301' | '302';
+  type?: ('301' | '302') | null;
+  /**
+   * Internal notes for editors — why does this redirect exist?
+   */
+  notes?: string | null;
+  /**
+   * Reveal matching, query, and metadata options for this redirect.
+   */
+  advanced?: boolean | null;
+  /**
+   * Disabled redirects are kept but excluded from the live cache.
+   */
+  enabled?: boolean | null;
   hits: number;
   lastAccess?: string | null;
   updatedAt: string;
@@ -304,7 +324,9 @@ export interface PagesSelect<T extends boolean = true> {
 export interface RedirectsSelect<T extends boolean = true> {
   _order?: T;
   from?: T;
-  useRegex?: T;
+  matchType?: T;
+  caseInsensitive?: T;
+  forwardQuery?: T;
   to?:
     | T
     | {
@@ -314,6 +336,9 @@ export interface RedirectsSelect<T extends boolean = true> {
         scrollTo?: T;
       };
   type?: T;
+  notes?: T;
+  advanced?: T;
+  enabled?: T;
   hits?: T;
   lastAccess?: T;
   updatedAt?: T;

@@ -1,4 +1,12 @@
-import type { CollectionConfig, CollectionSlug, Field, TextField, ValidateOptions } from 'payload'
+import type {
+  CheckboxField,
+  CollectionConfig,
+  CollectionSlug,
+  Field,
+  SelectField,
+  TextField,
+  ValidateOptions,
+} from 'payload'
 
 import type { ResolvedRedirectsConfig } from '../types.js'
 
@@ -13,6 +21,14 @@ const redirectTypeOptions = [
     label: '302 - Temporary',
     value: '302',
   },
+] as const
+
+const matchTypeOptions = [
+  { label: 'Exact', value: 'exact' },
+  { label: 'Starts with', value: 'startsWith' },
+  { label: 'Ends with', value: 'endsWith' },
+  { label: 'Contains', value: 'contains' },
+  { label: 'Regex', value: 'regex' },
 ] as const
 
 export const validateUrlOrPathname = (value: null | string | undefined): string | true => {
@@ -44,26 +60,155 @@ export const validateUrlOrPathname = (value: null | string | undefined): string 
   }
 }
 
-export const validateFromField = (
-  value: null | string | undefined,
-  options: ValidateOptions<unknown, { useRegex?: boolean | null }, TextField, string>,
-): string | true => {
-  const trimmed = value?.trim()
-
-  if (!options.siblingData?.useRegex) {
-    return validateUrlOrPathname(trimmed)
-  }
-
-  if (!trimmed) {
+/**
+ * Save-time validator for regex `from` patterns. Conservatively rejects shapes
+ * that are prone to catastrophic backtracking — this is a static structural
+ * check, not a runtime ReDoS guard. Exotic patterns may need restructuring.
+ * Returns `true`, or a human-readable error string.
+ */
+export const validateSafeRegexPattern = (pattern: string): string | true => {
+  if (typeof pattern !== 'string' || pattern.trim() === '') {
     return 'This field is required'
   }
 
+  if (pattern.length > 256) {
+    return 'Regular expression is too long (maximum 256 characters).'
+  }
+
   try {
-    new RegExp(trimmed)
-    return true
+    new RegExp(pattern)
   } catch {
     return 'Invalid regular expression'
   }
+
+  const catastrophic =
+    'This pattern can cause catastrophic backtracking (an unbounded quantifier applied to a group that already repeats unboundedly). Restructure it to be safe.'
+  const boundedTooLarge = 'Bounded repetition above 1000 is not allowed.'
+
+  let inClass = false
+  const groupStack: { hasUnbounded: boolean }[] = []
+  // Whether the most recently closed group contained an unbounded quantifier;
+  // only meaningful for a quantifier that immediately follows a `)`.
+  let lastClosedGroupHadUnbounded = false
+
+  const markUnbounded = () => {
+    const current = groupStack[groupStack.length - 1]
+    if (current) {
+      current.hasUnbounded = true
+    }
+  }
+
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i]
+
+    if (char === '\\') {
+      const next = pattern[i + 1]
+      if (!inClass && next !== undefined && next >= '1' && next <= '9') {
+        return 'Backreferences are not supported in redirect patterns.'
+      }
+      i++ // skip the escaped character
+      lastClosedGroupHadUnbounded = false
+      continue
+    }
+
+    if (inClass) {
+      if (char === ']') {
+        inClass = false
+      }
+      lastClosedGroupHadUnbounded = false
+      continue
+    }
+
+    if (char === '[') {
+      inClass = true
+      lastClosedGroupHadUnbounded = false
+      continue
+    }
+
+    if (char === '(') {
+      groupStack.push({ hasUnbounded: false })
+      lastClosedGroupHadUnbounded = false
+      continue
+    }
+
+    if (char === ')') {
+      const closed = groupStack.pop()
+      const hadUnbounded = closed ? closed.hasUnbounded : false
+      // Bubble "contains an unbounded quantifier at any depth" up to the parent.
+      if (hadUnbounded) {
+        markUnbounded()
+      }
+      lastClosedGroupHadUnbounded = hadUnbounded
+      continue
+    }
+
+    if (char === '*' || char === '+') {
+      if (lastClosedGroupHadUnbounded) {
+        return catastrophic
+      }
+      markUnbounded()
+      lastClosedGroupHadUnbounded = false
+      continue
+    }
+
+    if (char === '{') {
+      const quantifier = /^\{(\d+)(,(\d*))?\}/.exec(pattern.slice(i))
+      if (quantifier) {
+        const min = Number(quantifier[1])
+        const hasComma = quantifier[2] !== undefined
+        const maxRaw = quantifier[3]
+        const isUnbounded = hasComma && (maxRaw === undefined || maxRaw === '')
+        const max = maxRaw ? Number(maxRaw) : undefined
+
+        if (!hasComma && min > 1000) {
+          return boundedTooLarge
+        }
+        if (!isUnbounded && max !== undefined && max > 1000) {
+          return boundedTooLarge
+        }
+
+        if (isUnbounded) {
+          if (lastClosedGroupHadUnbounded) {
+            return catastrophic
+          }
+          markUnbounded()
+        }
+
+        i += quantifier[0].length - 1
+        lastClosedGroupHadUnbounded = false
+        continue
+      }
+    }
+
+    lastClosedGroupHadUnbounded = false
+  }
+
+  return true
+}
+
+export const validateFromField = (
+  value: null | string | undefined,
+  options: ValidateOptions<unknown, { matchType?: null | string }, TextField, string>,
+): string | true => {
+  const trimmed = value?.trim()
+  const matchType = options.siblingData?.matchType ?? 'exact'
+
+  if (matchType === 'regex') {
+    if (!trimmed) {
+      return 'This field is required'
+    }
+    return validateSafeRegexPattern(trimmed)
+  }
+
+  if (matchType === 'exact') {
+    return validateUrlOrPathname(trimmed)
+  }
+
+  // startsWith / endsWith / contains: any non-empty substring is valid.
+  if (!trimmed) {
+    return 'This field is required'
+  }
+  return true
 }
 
 export const validateScrollTo = (value: null | string | undefined): string | true => {
@@ -76,9 +221,20 @@ export const validateScrollTo = (value: null | string | undefined): string | tru
   return true
 }
 
+/** True when advanced settings are on, or the field already holds a non-default value. */
+const showWhenAdvancedOr = (
+  hasValue: (data: Record<string, unknown>) => boolean,
+): ((data: unknown) => boolean) => {
+  return (data) => {
+    const record = (data ?? {}) as Record<string, unknown>
+    return record.advanced === true || hasValue(record)
+  }
+}
+
 export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): CollectionConfig => {
   const referenceSlugs = Object.keys(config.collections)
   const hasReferences = referenceSlugs.length > 0
+  const localized = config.localized
 
   const toFields: Field[] = []
 
@@ -138,6 +294,9 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
       name: 'scrollTo',
       type: 'text',
       admin: {
+        condition: (data, siblingData) =>
+          (data as Record<string, unknown>)?.advanced === true ||
+          Boolean((siblingData as Record<string, unknown>)?.scrollTo),
         description:
           'Optional id of an element on the destination page — appended to the redirect as a #fragment.',
       },
@@ -146,12 +305,73 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
     },
   )
 
+  const advancedField: CheckboxField = {
+    name: 'advanced',
+    type: 'checkbox',
+    admin: {
+      description: 'Reveal matching, query, and metadata options for this redirect.',
+      position: 'sidebar',
+    },
+    defaultValue: false,
+    label: 'Show advanced settings',
+  }
+
+  const matchTypeField: SelectField = {
+    name: 'matchType',
+    type: 'select',
+    admin: {
+      condition: showWhenAdvancedOr(
+        (data) => Boolean(data.matchType) && data.matchType !== 'exact',
+      ),
+      description:
+        'How the request path is compared to "From". Exact is the common case; Regex is for advanced users (capture groups become $1, $2, … in a custom destination).',
+    },
+    defaultValue: 'exact',
+    label: 'Match Type',
+    options: [...matchTypeOptions],
+    required: true,
+  }
+
+  const caseInsensitiveField: CheckboxField = {
+    name: 'caseInsensitive',
+    type: 'checkbox',
+    admin: {
+      condition: showWhenAdvancedOr((data) => data.caseInsensitive === true),
+      description: 'Match the request path regardless of letter case.',
+    },
+    defaultValue: false,
+    label: 'Case insensitive',
+  }
+
+  const forwardQueryField: CheckboxField = {
+    name: 'forwardQuery',
+    type: 'checkbox',
+    admin: {
+      condition: showWhenAdvancedOr((data) => data.forwardQuery === true),
+      description:
+        'Append the incoming query string to the destination (params already on the destination win).',
+    },
+    defaultValue: false,
+    label: 'Forward query string',
+  }
+
+  const notesField: Field = {
+    name: 'notes',
+    type: 'textarea',
+    admin: {
+      condition: showWhenAdvancedOr((data) => Boolean(data.notes)),
+      description: 'Internal notes for editors — why does this redirect exist?',
+    },
+    label: 'Notes',
+  }
+
   return {
     slug: config.slug,
     admin: {
       defaultColumns: [
         'from',
         hasReferences ? 'to.type' : 'to.url',
+        'enabled',
         ...(config.hits ? ['hits', 'lastAccess'] : []),
         'createdAt',
       ],
@@ -170,8 +390,12 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
               }
 
               const trimmed = value.trim()
+              const matchType =
+                (siblingData as { matchType?: unknown } | undefined)?.matchType ?? 'exact'
 
-              if (siblingData?.useRegex) {
+              // Non-exact match types are substrings/patterns — canonicalizing
+              // them (e.g. stripping a trailing slash) would break intent.
+              if (matchType !== 'exact') {
                 return trimmed
               }
 
@@ -180,34 +404,45 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
           ],
         },
         index: true,
+        ...(localized ? { localized: true } : {}),
         label: 'From URL',
         required: true,
+        // Unique per locale when localized (Payload scopes the unique index by locale).
         unique: true,
         validate: validateFromField,
       },
-      {
-        name: 'useRegex',
-        type: 'checkbox',
-        admin: {
-          description:
-            'Match the request path against a regular expression. Capture groups can be used in a custom destination URL as $1, $2, …',
-        },
-        defaultValue: false,
-        label: 'Use Regex',
-      },
+      matchTypeField,
+      caseInsensitiveField,
+      forwardQueryField,
       {
         name: 'to',
         type: 'group',
         fields: toFields,
         label: false,
+        ...(localized ? { localized: true } : {}),
       },
       {
         name: 'type',
         type: 'select',
+        admin: {
+          condition: showWhenAdvancedOr((data) => data.type === '302'),
+        },
         defaultValue: '301',
         label: 'Redirect Type',
         options: [...redirectTypeOptions],
         required: true,
+      },
+      notesField,
+      advancedField,
+      {
+        name: 'enabled',
+        type: 'checkbox',
+        admin: {
+          description: 'Disabled redirects are kept but excluded from the live cache.',
+          position: 'sidebar',
+        },
+        defaultValue: true,
+        label: 'Enabled',
       },
       ...(config.hits
         ? ([

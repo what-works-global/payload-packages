@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CachedRedirect, RedirectsCache } from '../src/exports/cache.js'
 
-import { fileCache, memoryCache } from '../src/exports/cache.js'
+import { cloudflareKVCache, fileCache, memoryCache, redisCache } from '../src/exports/cache.js'
+import { edgeConfigCache } from '../src/exports/edge-config.js'
 import { vercelRuntimeCache } from '../src/exports/vercel.js'
 
 const entry = (overrides: Partial<CachedRedirect> = {}): CachedRedirect => ({
@@ -27,9 +28,18 @@ vi.mock('@vercel/functions', () => ({
   }),
 }))
 
+const edgeConfigStore = new Map<string, unknown>()
+vi.mock('@vercel/edge-config', () => ({
+  createClient: () => ({
+    get: (key: string) => Promise.resolve(edgeConfigStore.get(key)),
+  }),
+}))
+
 afterEach(() => {
   runtimeStore.clear()
+  edgeConfigStore.clear()
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
 })
 
 describe('memoryCache', () => {
@@ -110,5 +120,156 @@ describe('vercelRuntimeCache', () => {
     const cache = vercelRuntimeCache({ development: false })
     await cache.set([entry()])
     expect(runtimeStore.get('payload-redirects')).toEqual([entry()])
+  })
+})
+
+const fakeRedis = (mode: 'parsed' | 'string') => {
+  const store = new Map<string, string>()
+  return {
+    get: vi.fn((key: string): Promise<unknown> => {
+      const raw = store.get(key)
+      if (raw === undefined) {
+        return Promise.resolve(null)
+      }
+      return Promise.resolve(mode === 'string' ? raw : JSON.parse(raw))
+    }),
+    set: vi.fn((key: string, value: string) => {
+      store.set(key, value)
+      return Promise.resolve('OK')
+    }),
+    store,
+  }
+}
+
+describe('redisCache', () => {
+  it('round-trips through a JSON string client (ioredis / node-redis)', async () => {
+    const client = fakeRedis('string')
+    const cache = redisCache({ client })
+
+    expect(await cache.get()).toBeNull()
+    await cache.set([entry()])
+    expect(client.set).toHaveBeenCalledWith('payload-redirects', JSON.stringify([entry()]))
+    expect(await cache.get()).toEqual([entry()])
+  })
+
+  it('accepts an already-parsed array and filters malformed entries (Upstash)', async () => {
+    const client = fakeRedis('parsed')
+    const cache = redisCache({ client, key: 'rd' })
+
+    client.store.set('rd', JSON.stringify([entry(), { junk: true }]))
+    expect(client.get).not.toHaveBeenCalled()
+    expect(await cache.get()).toEqual([entry()])
+    expect(client.get).toHaveBeenCalledWith('rd')
+  })
+
+  it('treats a malformed string as a miss', async () => {
+    const client = fakeRedis('string')
+    const cache = redisCache({ client })
+    client.store.set('payload-redirects', 'not json')
+    expect(await cache.get()).toBeNull()
+  })
+})
+
+const fakeKVNamespace = () => {
+  const store = new Map<string, string>()
+  return {
+    get: vi.fn(
+      (key: string, _type: 'text'): Promise<null | string> =>
+        Promise.resolve(store.get(key) ?? null),
+    ),
+    put: vi.fn((key: string, value: string) => {
+      store.set(key, value)
+      return Promise.resolve()
+    }),
+    store,
+  }
+}
+
+describe('cloudflareKVCache', () => {
+  it('round-trips through the KV namespace and filters malformed entries', async () => {
+    const namespace = fakeKVNamespace()
+    const cache = cloudflareKVCache({ namespace })
+
+    expect(await cache.get()).toBeNull()
+    await cache.set([entry()])
+    expect(namespace.put).toHaveBeenCalledWith('payload-redirects', JSON.stringify([entry()]))
+    expect(namespace.get).toHaveBeenCalledWith('payload-redirects', 'text')
+    expect(await cache.get()).toEqual([entry()])
+
+    namespace.store.set('payload-redirects', JSON.stringify([entry(), { junk: true }]))
+    expect(await cache.get()).toEqual([entry()])
+  })
+
+  it('treats a malformed value as a miss and honours a custom key', async () => {
+    const namespace = fakeKVNamespace()
+    const cache = cloudflareKVCache({ key: 'kv', namespace })
+    namespace.store.set('kv', 'not json')
+    expect(await cache.get()).toBeNull()
+  })
+})
+
+describe('edgeConfigCache', () => {
+  it('reads and filters from the edge config client', async () => {
+    edgeConfigStore.set('payload-redirects', [entry(), { junk: true }])
+    const cache = edgeConfigCache({ edgeConfigId: 'ecfg_1', token: 't' })
+    expect(await cache.get()).toEqual([entry()])
+  })
+
+  it('returns null when the item is absent or not an array', async () => {
+    const cache = edgeConfigCache({ edgeConfigId: 'ecfg_1', token: 't' })
+    expect(await cache.get()).toBeNull()
+    edgeConfigStore.set('payload-redirects', 'nope')
+    expect(await cache.get()).toBeNull()
+  })
+
+  it('writes via the Vercel REST API with the expected URL, headers and body', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 200 })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cache = edgeConfigCache({
+      edgeConfigId: 'ecfg_1',
+      itemKey: 'ph',
+      teamId: 'team_9',
+      token: 'tok',
+    })
+    await cache.set([entry()])
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(String(url)).toBe('https://api.vercel.com/v1/edge-config/ecfg_1/items?teamId=team_9')
+    expect(init.method).toBe('PATCH')
+    const headers = init.headers as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer tok')
+    expect(headers['Content-Type']).toBe('application/json')
+    expect(JSON.parse(init.body as string)).toEqual({
+      items: [{ key: 'ph', operation: 'upsert', value: [entry()] }],
+    })
+  })
+
+  it('throws when the write fails', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('denied', { status: 401 })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cache = edgeConfigCache({ edgeConfigId: 'ecfg_1', token: 't' })
+    await expect(cache.set([entry()])).rejects.toThrow(/401/)
+  })
+
+  it('delegates to the development cache while NODE_ENV is development', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    const store: { entries: CachedRedirect[] | null } = { entries: null }
+    const development: RedirectsCache = {
+      get: () => Promise.resolve(store.entries),
+      set: (redirects) => {
+        store.entries = redirects
+        return Promise.resolve()
+      },
+    }
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cache = edgeConfigCache({ development, edgeConfigId: 'ecfg_1', token: 't' })
+    await cache.set([entry()])
+    expect(store.entries).toEqual([entry()])
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(await cache.get()).toEqual([entry()])
   })
 })

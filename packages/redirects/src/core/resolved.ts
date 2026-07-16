@@ -19,6 +19,8 @@ export const resolveRedirectsConfig = (
   >,
   endpointsPath: pluginConfig.endpointsPath ?? DEFAULT_ENDPOINTS_PATH,
   hits: pluginConfig.hits !== false,
+  localized: pluginConfig.localized === true,
+  secret: pluginConfig.secret,
 })
 
 /**

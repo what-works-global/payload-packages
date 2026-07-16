@@ -7,6 +7,7 @@ import { resolveRedirectsConfig } from './core/resolved.js'
 import {
   createRedirectsAfterChangeHook,
   createRedirectsAfterDeleteHook,
+  createRedirectsBeforeChangeHook,
   createTargetAfterChangeHook,
   createTargetAfterDeleteHook,
 } from './core/resync.js'
@@ -16,6 +17,14 @@ export const redirectsPlugin =
   (pluginConfig: RedirectsPluginConfig): Plugin =>
   (config: Config): Config => {
     const resolved = resolveRedirectsConfig(pluginConfig)
+
+    if (resolved.localized && !config.localization) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[payload-redirects] `localized: true` requires `localization` on the Payload config — falling back to non-localized behavior.',
+      )
+      resolved.localized = false
+    }
 
     if (config.collections?.some((collection) => collection.slug === resolved.slug)) {
       throw new Error(
@@ -74,6 +83,14 @@ export const redirectsPlugin =
               ? createRedirectsAfterDeleteHook()
               : createTargetAfterDeleteHook(collection.slug),
           ],
+          ...(isRedirects
+            ? {
+                beforeChange: [
+                  ...(collection.hooks?.beforeChange ?? []),
+                  createRedirectsBeforeChangeHook(),
+                ],
+              }
+            : {}),
         },
       }
     })

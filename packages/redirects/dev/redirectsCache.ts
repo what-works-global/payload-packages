@@ -11,8 +11,11 @@ import { vercelRuntimeCache } from '@whatworks/payload-redirects/vercel'
  * graphs `next dev` runs the proxy and the server in.
  *
  * The path is relative to the working directory, so run `pnpm dev` from the
- * package root (`.dbs/` is gitignored).
+ * package root (`.dbs/` is gitignored). Override with REDIRECTS_DEV_CACHE (e.g.
+ * a throwaway path for e2e) so a test run never clobbers local dev state.
  */
 export const cache: RedirectsCache = vercelRuntimeCache({
-  development: fileCache({ path: 'dev/.dbs/redirects-cache.json' }),
+  development: fileCache({
+    path: process.env.REDIRECTS_DEV_CACHE ?? 'dev/.dbs/redirects-cache.json',
+  }),
 })
