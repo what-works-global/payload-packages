@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-redirects",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Managed redirects for Payload with a cache-backed Next.js middleware matcher — orderable redirects collection, regex + capture groups, scroll-to anchors, hit tracking, and pluggable caches (Vercel Runtime Cache, file, memory).",
   "license": "MIT",
   "type": "module",
