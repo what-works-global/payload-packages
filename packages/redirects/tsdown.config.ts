@@ -6,6 +6,7 @@ export default definePackageBuild({
     'src/exports/cache.ts',
     'src/exports/edge-config.ts',
     'src/exports/middleware.ts',
+    'src/exports/resolver.ts',
     'src/exports/vercel.ts',
   ],
 })

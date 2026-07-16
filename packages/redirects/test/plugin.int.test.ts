@@ -78,6 +78,10 @@ const buildInstance = async (
     ],
     secret: 'test-secret',
     telemetry: false,
+    // getPayload auto-spawns a `payload generate:types` child process per
+    // instance outside production; those workers outlive vitest as PPID=1
+    // CPU-spinning zombies. Types are irrelevant to these tests.
+    typescript: { autoGenerate: false },
     ...configOverrides,
   })
 

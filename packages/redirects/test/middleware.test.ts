@@ -446,6 +446,32 @@ describe('createRedirectsMiddleware', () => {
     expect(firstUrl(fetchMock)).toBe('https://site.com/base/api/payload-redirects/refresh-cache')
   })
 
+  it('sends background refresh/hit calls to endpointsBaseUrl for a split-origin CMS', async () => {
+    const fetchMock = okFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const hitMw = createRedirectsMiddleware({
+      cache: await primedCache([entry({ id: 'abc' })]),
+      endpointsBaseUrl: 'https://cms.example.com/api',
+    })
+    const hitEvent = fakeEvent()
+    await hitMw(request('https://site.com/old'), asEvent(hitEvent))
+    await Promise.all(hitEvent.tasks)
+    // The hit targets the absolute API base, not the request's site.com origin.
+    expect(firstUrl(fetchMock)).toBe('https://cms.example.com/api/payload-redirects/hit/abc')
+
+    fetchMock.mockClear()
+
+    const missMw = createRedirectsMiddleware({
+      cache: memoryCache(),
+      endpointsBaseUrl: 'https://cms.example.com/api',
+    })
+    const missEvent = fakeEvent()
+    await missMw(request('https://site.com/old'), asEvent(missEvent))
+    await Promise.all(missEvent.tasks)
+    expect(firstUrl(fetchMock)).toBe('https://cms.example.com/api/payload-redirects/refresh-cache')
+  })
+
   it('does not append trailing slashes by default', async () => {
     const middleware = createRedirectsMiddleware({
       cache: await primedCache([entry({ from: '/old', to: '/about' })]),

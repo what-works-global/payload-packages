@@ -1,22 +1,19 @@
 /**
- * The request-matching side of the plugin, for Next.js `proxy.ts` (or
- * `middleware.ts`). This module never imports `payload` — it reads the
- * denormalized redirect list from the shared cache and answers from there via
- * the framework-agnostic `resolveRedirect`.
+ * The Next.js adapter for the framework-agnostic redirect resolver, for
+ * `proxy.ts` (Next 16) or `middleware.ts`. This module never imports `payload` —
+ * it delegates all operational logic (memoized cache reads, matching, query
+ * forwarding, background refresh / hit tracking) to `createRedirectsResolver`
+ * and only adds the Next-specific concerns: `basePath` handling and
+ * `NextResponse.redirect` + `event.waitUntil`.
  */
 import type { NextFetchEvent, NextRequest } from 'next/server'
 
 import { NextResponse } from 'next/server'
 
 import type { CachedRedirect, RedirectsCache } from '../core/shared.js'
+import type { RedirectsResolver } from './resolver.js'
 
-import {
-  appendTrailingSlash,
-  DEFAULT_ENDPOINTS_PATH,
-  isCachedRedirect,
-  mergeForwardedQuery,
-  resolveRedirect,
-} from '../core/shared.js'
+import { createRedirectsResolver } from './resolver.js'
 
 export type { CachedRedirect, RedirectsCache } from '../core/shared.js'
 
@@ -25,7 +22,7 @@ export type RedirectsMiddlewareOptions = {
    * Base path the Payload REST API is served under, RELATIVE to any Next.js
    * `basePath`. When the app has a `basePath`, it is detected from the request
    * and prepended automatically — set this to just `/api` (the default), not
-   * `/<basePath>/api`.
+   * `/<basePath>/api`. Ignored when `endpointsBaseUrl` is set.
    * @default '/api'
    */
   apiBasePath?: string
@@ -48,6 +45,14 @@ export type RedirectsMiddlewareOptions = {
    * @default false
    */
   debug?: boolean
+  /**
+   * Absolute base URL of the Payload API for split-origin deployments — where
+   * the CMS lives on a different origin than this Next app (e.g.
+   * `'https://cms.example.com/api'`). When set, background refresh and
+   * hit-tracking requests target it verbatim, ignoring the request origin,
+   * `apiBasePath`, and the Next `basePath`. Leave unset for same-origin apps.
+   */
+  endpointsBaseUrl?: string
   /**
    * Must match the plugin's `endpointsPath` option.
    * @default '/payload-redirects'
@@ -102,12 +107,6 @@ export type RedirectsMiddleware = (
   event?: NextFetchEvent,
 ) => Promise<NextResponse | undefined>
 
-const toStatusCode = (type: CachedRedirect['type']) => Number(type) as 301 | 302
-
-const SECRET_HEADER = 'x-payload-redirects-secret'
-
-type Memo = { at: number; entries: CachedRedirect[] }
-
 /**
  * Builds the middleware matcher. Returns a redirect response when a cached
  * redirect matches the request, `undefined` otherwise — compose it into your
@@ -131,153 +130,82 @@ export const createRedirectsMiddleware = (
   const {
     apiBasePath = '/api',
     cache,
-    cacheMemoMs = process.env.NODE_ENV === 'production' ? 5000 : 0,
-    debug = false,
-    endpointsPath = DEFAULT_ENDPOINTS_PATH,
+    cacheMemoMs,
+    debug,
+    endpointsBaseUrl,
+    endpointsPath,
     onRedirect,
-    refreshOnMiss = true,
+    refreshOnMiss,
     secret,
-    trackHits = true,
-    trailingSlash = false,
+    trackHits,
+    trailingSlash,
   } = options
 
-  const log = (message: string) => {
-    if (debug) {
-      // eslint-disable-next-line no-console -- opt-in diagnostics gated behind `debug`
-      console.debug(`[payload-redirects] ${message}`)
-    }
-  }
-
-  const endpointUrl = (request: NextRequest, path: string) =>
-    // `basePath` prefixes the Payload API too — the plugin's endpoints live at
-    // `/<basePath>/api/...`. Empty when the app has no basePath. Resolved
-    // against the origin so the request's own path never leaks in.
-    new URL(
-      `${request.nextUrl.basePath}${apiBasePath}${endpointsPath}${path}`,
-      request.nextUrl.origin,
-    )
-
-  const postEndpoint = async (request: NextRequest, path: string) => {
-    const response = await fetch(endpointUrl(request, path), {
-      cache: 'no-store',
-      method: 'POST',
-      ...(secret ? { headers: { [SECRET_HEADER]: secret } } : {}),
-    })
-    if (!response.ok) {
-      throw new Error(`[payload-redirects] POST ${path} failed with ${response.status}`)
-    }
-  }
-
-  const runInBackground = (event: NextFetchEvent | undefined, run: () => Promise<unknown>) => {
-    const task = run()
-    if (event) {
-      event.waitUntil(task)
-    } else {
-      // Fire-and-forget: without an event there is nothing to anchor the
-      // promise to, and a redirect must not wait on bookkeeping.
-      void task.catch(() => {})
-    }
-  }
-
-  // A short-lived, per-instance memo of the last non-null cache read. It only
-  // dedupes the async `cache.get()` + validation across a burst; matching
-  // (including regex compilation) is delegated to `resolveRedirect`.
-  let memo: Memo | undefined
-
-  const readEntries = async (): Promise<'error' | CachedRedirect[] | null> => {
-    if (cacheMemoMs > 0 && memo && Date.now() - memo.at < cacheMemoMs) {
-      return memo.entries
-    }
-
-    let entries: CachedRedirect[] | null
-    try {
-      const value = await cache.get()
-      entries = Array.isArray(value) ? value.filter(isCachedRedirect) : null
-    } catch {
-      // A broken cache backend must never take down routing.
-      return 'error'
-    }
-
-    if (cacheMemoMs > 0 && entries !== null) {
-      memo = { at: Date.now(), entries }
-    }
-
-    return entries
-  }
+  // The resolver is built lazily on the first request so it can fold the Next
+  // `basePath` into the endpoint URLs (the Payload API also lives under it).
+  // `basePath` is an app-level constant, so this single instance — and its cache
+  // memo — is correct for every subsequent request.
+  let resolver: RedirectsResolver | undefined
 
   return async (request, event) => {
-    const entries = await readEntries()
+    const { nextUrl } = request
 
-    if (entries === 'error') {
-      return undefined
-    }
-
-    if (entries === null) {
-      log('cache miss')
-      if (refreshOnMiss) {
-        runInBackground(event, () => postEndpoint(request, '/refresh-cache'))
-      }
-      return undefined
-    }
-
-    if (entries.length === 0) {
-      return undefined
-    }
+    resolver ??= createRedirectsResolver({
+      // `basePath` prefixes the Payload API too; skip it when a split-origin
+      // `endpointsBaseUrl` already points at the absolute API.
+      apiBasePath: endpointsBaseUrl ? apiBasePath : `${nextUrl.basePath}${apiBasePath}`,
+      cache,
+      cacheMemoMs,
+      debug,
+      endpointsBaseUrl,
+      endpointsPath,
+      refreshOnMiss,
+      secret,
+      trackHits,
+      trailingSlash,
+      // `onRedirect` is intentionally NOT forwarded — the middleware invokes its
+      // own NextRequest-based hook below from the resolved result.
+    })
 
     // Match against the basePath-STRIPPED path. `nextUrl.pathname` already has
     // any Next.js `basePath` removed, so redirect entries are authored (and
-    // compared) without it. Passing `nextUrl.toString()` would re-add basePath
-    // and never match.
-    const resolved = resolveRedirect(
-      entries,
-      `${request.nextUrl.pathname}${request.nextUrl.search}`,
-      debug
-        ? {
-            onSkip: ({ destination, reason, redirect }) => {
-              log(`skipped "${redirect.from}" -> "${destination}": ${reason}`)
-            },
-          }
-        : undefined,
+    // compared) without it. Carry the origin so background endpoint URLs resolve
+    // against the request's own host.
+    const resolverUrl = new URL(`${nextUrl.pathname}${nextUrl.search}`, nextUrl.origin)
+
+    const result = await resolver(
+      resolverUrl,
+      event ? { waitUntil: (promise) => event.waitUntil(promise) } : undefined,
     )
-    if (!resolved) {
+    if (!result) {
       return undefined
     }
 
-    const { redirect } = resolved
-    let destination = redirect.forwardQuery
-      ? mergeForwardedQuery(resolved.destination, request.nextUrl.search)
-      : resolved.destination
+    const { destination, redirect, status } = result
 
-    // A relative destination begins with a single `/` (the open-redirect guard
-    // in `resolveRedirect` rejects `//`); everything else is an absolute URL to
-    // another origin and passes through untouched.
+    // A relative destination begins with a single `/`; everything else is an
+    // absolute URL to another origin and passes through untouched.
     const isRelative = destination.startsWith('/')
-
-    if (isRelative && trailingSlash) {
-      destination = appendTrailingSlash(destination)
-    }
-
-    const status = toStatusCode(redirect.type)
-    log(`match ${redirect.from} -> ${destination} (${status})`)
 
     // Re-apply basePath to relative destinations (authored without it) and
     // resolve against the origin. Absolute destinations keep their own origin.
     const destinationUrl = isRelative
-      ? new URL(`${request.nextUrl.basePath}${destination}`, request.nextUrl.origin)
+      ? new URL(`${nextUrl.basePath}${destination}`, nextUrl.origin)
       : new URL(destination, request.url)
 
-    if (trackHits) {
-      runInBackground(event, () => postEndpoint(request, `/hit/${redirect.id}`))
-    }
-
     if (onRedirect) {
-      runInBackground(event, async () => {
+      const task = (async () => {
         try {
           await onRedirect({ destination, redirect, request })
         } catch {
           // A failing hook must never affect routing, on any code path.
         }
-      })
+      })()
+      if (event) {
+        event.waitUntil(task)
+      } else {
+        void task.catch(() => {})
+      }
     }
 
     return NextResponse.redirect(destinationUrl, status)

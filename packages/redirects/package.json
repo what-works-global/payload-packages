@@ -57,6 +57,11 @@
       "import": "./src/exports/middleware.ts",
       "default": "./src/exports/middleware.ts"
     },
+    "./resolver": {
+      "types": "./src/exports/resolver.ts",
+      "import": "./src/exports/resolver.ts",
+      "default": "./src/exports/resolver.ts"
+    },
     "./vercel": {
       "types": "./src/exports/vercel.ts",
       "import": "./src/exports/vercel.ts",
@@ -136,6 +141,11 @@
         "types": "./dist/exports/middleware.d.ts",
         "import": "./dist/exports/middleware.js",
         "default": "./dist/exports/middleware.js"
+      },
+      "./resolver": {
+        "types": "./dist/exports/resolver.d.ts",
+        "import": "./dist/exports/resolver.js",
+        "default": "./dist/exports/resolver.js"
       },
       "./vercel": {
         "types": "./dist/exports/vercel.d.ts",

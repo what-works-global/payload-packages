@@ -2,7 +2,7 @@
 
 Managed redirects for [Payload](https://payloadcms.com) with a cache-backed [Next.js](https://nextjs.org) middleware matcher.
 
-Editors manage redirects in an orderable admin collection; the plugin denormalizes them into a shared cache on every change; your `proxy.ts`/`middleware.ts` answers matching requests straight from that cache — no Payload import, no database query, no function invocation on the hot path. The matcher is framework-agnostic (`resolveRedirect`), so the same cache drives Express, Hono, or anything else.
+Editors manage redirects in an orderable admin collection; the plugin denormalizes them into a shared cache on every change; your `proxy.ts`/`middleware.ts` answers matching requests straight from that cache — no Payload import, no database query, no function invocation on the hot path. The serving side is framework-agnostic — a WHATWG-only resolver / request handler (`@whatworks/payload-redirects/resolver`) carries the same behavior to Hono, Cloudflare Workers, Astro, SvelteKit, Express, or anything else, and a pure `resolveRedirect` sits underneath for full manual control.
 
 - **Simple by default, powerful when needed** — the editor form shows just `From`, `To`, and `Enabled`; a "Show advanced settings" toggle reveals match type, case-insensitivity, query forwarding, redirect type, scroll-to anchor, and notes.
 - **Match types** — exact (default), starts with, ends with, contains, or regex with capture-group substitution (`^/blog/(.+)$` → `/news/$1`).
@@ -198,52 +198,118 @@ The returned function takes `(request, event?)` and resolves to a `NextResponse`
 
 Apps with a [`basePath`](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) just work — no configuration needed. Redirect entries are authored **without** the basePath (`/old`, not `/base/old`): matching runs against the basePath-stripped request path, and the basePath is re-applied to relative destinations, so `/base/old` → `/base/new`. Absolute/external destinations are left as-is. The background refresh and hit-tracking calls also target the basePath-prefixed Payload API, so leave `apiBasePath` as its plain value (e.g. `/api`) — the basePath is prepended for you.
 
-## Framework-agnostic matcher (`resolveRedirect`)
+## Other frameworks
 
-The middleware is a thin wrapper over `resolveRedirect`, which is pure and dependency-free — use it to add redirects to any server. It owns ordered matching, the self-redirect skip (fragments ignored, since they never reach the server), and the **open-redirect guard**: when a stored `to` is relative, the final destination (after regex substitution) must be a plain absolute path — it may not begin with `//` or `/\`, which browsers treat as protocol-relative URLs to another origin.
+The Next.js middleware is a thin wrapper over a framework-agnostic core exported from `@whatworks/payload-redirects/resolver`. That core speaks only WHATWG APIs (`fetch`, `URL`, `Request`, `Response`) and imports no `payload`, `next`, or Node built-ins, so it stays bundleable on any edge/worker runtime. It carries **the same operational behavior as the middleware** — memoized cache reads, ordered matching, `forwardQuery`, `trailingSlash`, background cache-refresh on a miss, hit tracking, the `secret` header, and `debug` logging — so any runtime serves redirects identically. Two factories:
 
-`forwardQuery` is applied separately (it needs the full request URL), via the exported `mergeForwardedQuery`.
+- **`createRedirectsResolver(options)`** → `(url, ctx?) => Promise<{ destination, redirect, status } | null>`. `destination` is relative or absolute exactly as resolved (after `forwardQuery`/`trailingSlash`); you absolutize and respond however your framework does. `url` is a `string | URL`.
+- **`createRedirectsRequestHandler(options)`** → `(request, ctx?) => Promise<Response | null>`. Answers a WHATWG `Request` with a `Response.redirect` (relative destinations absolutized against `request.url`), or `null` to pass through.
+
+Pass `ctx.waitUntil` (Vercel/Cloudflare `waitUntil`, Next's `event.waitUntil`, …) to anchor the background refresh / hit-tracking work; without it, that work runs fire-and-forget. Both factories accept the same options as the middleware **minus the Next-only `basePath` behavior**: `cache` (required), `apiBasePath`, `endpointsPath`, `endpointsBaseUrl`, `secret`, `trackHits`, `refreshOnMiss`, `trailingSlash`, `cacheMemoMs`, `debug`, and `onRedirect({ destination, redirect, url })`.
+
+### Split-origin deployments (`endpointsBaseUrl`)
+
+By default the background refresh and hit-tracking calls target the request's own origin (`<origin><apiBasePath><endpointsPath>/…`). When the CMS runs on a **different origin** than the app serving redirects, set `endpointsBaseUrl` to the absolute Payload API base (no trailing slash) — those calls then go there instead, ignoring the request origin and `apiBasePath`:
 
 ```ts
-// Express
-import { mergeForwardedQuery, resolveRedirect } from '@whatworks/payload-redirects'
-import { cache } from './redirects-cache'
-
-app.use(async (req, res, next) => {
-  const entries = await cache.get()
-  const resolved = entries && resolveRedirect(entries, req.url)
-  if (!resolved) {
-    return next()
-  }
-  const { redirect } = resolved
-  const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''
-  const destination = redirect.forwardQuery
-    ? mergeForwardedQuery(resolved.destination, search)
-    : resolved.destination
-  res.redirect(Number(redirect.type), destination)
-})
+createRedirectsRequestHandler({ cache, endpointsBaseUrl: 'https://cms.example.com/api' })
+// → refresh: https://cms.example.com/api/payload-redirects/refresh-cache
 ```
+
+The Next.js middleware accepts `endpointsBaseUrl` too (it then skips the `basePath` prefix on endpoint URLs).
+
+> `fileCache`'s default path is `.next/cache/payload-redirects.json`, a Next convention — non-Next apps should pass an explicit `path` (e.g. `fileCache({ path: '.cache/payload-redirects.json' })`).
+
+### Recipes
 
 ```ts
 // Hono
-import { mergeForwardedQuery, resolveRedirect } from '@whatworks/payload-redirects'
+import { createRedirectsRequestHandler } from '@whatworks/payload-redirects/resolver'
 import { cache } from './redirects-cache'
 
+const redirects = createRedirectsRequestHandler({ cache })
+
 app.use(async (c, next) => {
-  const entries = await cache.get()
-  const resolved = entries ? resolveRedirect(entries, c.req.url) : null
-  if (!resolved) {
-    return next()
-  }
-  const { redirect } = resolved
-  const destination = redirect.forwardQuery
-    ? mergeForwardedQuery(resolved.destination, new URL(c.req.url).search)
-    : resolved.destination
-  return c.redirect(destination, Number(redirect.type))
+  const response = await redirects(c.req.raw, c.executionCtx)
+  return response ?? next()
 })
 ```
 
-`resolveRedirect(redirects, url)` accepts a `string | URL` and returns `{ destination, redirect } | null`. Report hits yourself with `POST {apiBasePath}{endpointsPath}/hit/:id` if you want the counter.
+```ts
+// Cloudflare Workers
+import { cloudflareKVCache } from '@whatworks/payload-redirects/cache'
+import { createRedirectsRequestHandler } from '@whatworks/payload-redirects/resolver'
+
+let redirects // module scope persists across requests, keeping the cache memo warm
+
+export default {
+  async fetch(request, env, ctx) {
+    redirects ??= createRedirectsRequestHandler({
+      cache: cloudflareKVCache({ namespace: env.REDIRECTS }),
+    })
+    return (await redirects(request, ctx)) ?? fetch(request)
+  },
+}
+```
+
+```ts
+// Astro — src/middleware.ts
+import { createRedirectsRequestHandler } from '@whatworks/payload-redirects/resolver'
+import { defineMiddleware } from 'astro:middleware'
+import { cache } from './redirects-cache'
+
+const redirects = createRedirectsRequestHandler({ cache })
+
+export const onRequest = defineMiddleware(async (context, next) => {
+  return (await redirects(context.request)) ?? next()
+})
+```
+
+```ts
+// SvelteKit — src/hooks.server.ts
+import { createRedirectsRequestHandler } from '@whatworks/payload-redirects/resolver'
+import { cache } from './redirects-cache'
+
+const redirects = createRedirectsRequestHandler({ cache })
+
+export const handle = async ({ event, resolve }) =>
+  (await redirects(event.request)) ?? resolve(event)
+```
+
+```ts
+// Express — the resolver with Node req/res
+import { createRedirectsResolver } from '@whatworks/payload-redirects/resolver'
+import { cache } from './redirects-cache'
+
+const resolve = createRedirectsResolver({ cache })
+
+app.use(async (req, res, next) => {
+  const url = new URL(req.originalUrl, `${req.protocol}://${req.get('host')}`)
+  const result = await resolve(url)
+  return result ? res.redirect(result.status, result.destination) : next()
+})
+```
+
+### The pure matcher (`resolveRedirect`)
+
+Under the resolver sits `resolveRedirect`, which is pure and dependency-free — reach for it when you want full manual control (custom hit reporting, no background fetch). It owns ordered matching, the self-redirect skip (fragments ignored, since they never reach the server), and the **open-redirect guard**: when a stored `to` is relative, the final destination (after regex substitution) must be a plain absolute path — it may not begin with `//` or `/\`, which browsers treat as protocol-relative URLs to another origin. `forwardQuery` is applied separately (it needs the full request URL), via the exported `mergeForwardedQuery`.
+
+```ts
+import { mergeForwardedQuery, resolveRedirect } from '@whatworks/payload-redirects'
+import { cache } from './redirects-cache'
+
+const entries = await cache.get()
+const resolved = entries && resolveRedirect(entries, req.url)
+if (resolved) {
+  const { redirect } = resolved
+  const destination = redirect.forwardQuery
+    ? mergeForwardedQuery(resolved.destination, new URL(req.url, 'http://x').search)
+    : resolved.destination
+  // respond with a `Number(redirect.type)` redirect to `destination`, report the hit yourself
+}
+```
+
+`resolveRedirect(redirects, url, options?)` accepts a `string | URL` and returns `{ destination, redirect } | null`. Its optional `options.onSkip({ destination, reason, redirect })` fires for every **matched** entry that a guard then skips (`reason` is `'open-redirect'` or `'self-redirect'`), so you can answer "why didn't my redirect fire?" without re-implementing the guards; plain non-matches never fire it. The resolver and middleware wire `onSkip` to their `debug` logging. Report hits yourself with `POST {apiBasePath}{endpointsPath}/hit/:id` if you want the counter.
 
 ## Cache adapters
 
