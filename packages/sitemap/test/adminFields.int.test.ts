@@ -43,6 +43,8 @@ const buildTestConfig = (
     ],
     secret: 'test-secret',
     telemetry: false,
+    // Prevents getPayload from spawning orphaned `generate:types` workers (see AGENTS.md).
+    typescript: { autoGenerate: false },
   })
 
 beforeAll(() => {

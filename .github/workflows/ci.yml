@@ -56,6 +56,10 @@ jobs:
       - run: pnpm check:use-client ${{ needs.resolve.outputs.affectedList }}
       - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present check:exports
       - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present test:peer
+      # E2E boots a real dev sandbox (Next + Payload) over HTTP — scoped to the
+      # affected packages that define it, and only in this check job (never
+      # multiplied across the pinned-payload peer matrix).
+      - run: E2E=1 pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present test:e2e
 
   peer-matrix:
     name: ${{ matrix.package }} @ payload ${{ matrix.payloadVersion }} (${{ matrix.label }})
