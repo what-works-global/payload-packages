@@ -76,3 +76,8 @@ export {
   type WarnIfAdminRoleUnheldArgs,
 } from './utilities/fullAccessHolders.js'
 export { getUserPermissions, hasPermission } from './utilities/getUserPermissions.js'
+export {
+  isWriteConflict,
+  retryOnWriteConflict,
+  type RetryOnWriteConflictOptions,
+} from './utilities/retryOnWriteConflict.js'
