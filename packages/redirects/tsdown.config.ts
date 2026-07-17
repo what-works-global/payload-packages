@@ -7,6 +7,10 @@ export default definePackageBuild({
     'src/exports/edge-config.ts',
     'src/exports/middleware.ts',
     'src/exports/resolver.ts',
+    'src/exports/rsc.ts',
     'src/exports/vercel.ts',
   ],
+  // Emit one file per source module (no bundling) so the rsc export's server
+  // component keeps its module boundary intact for the admin import map.
+  unbundle: true,
 })

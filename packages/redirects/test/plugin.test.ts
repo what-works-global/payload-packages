@@ -99,6 +99,28 @@ describe('redirectsPlugin config shaping', () => {
     expect(fieldByName(toGroup.fields, 'url')).toBeDefined()
   })
 
+  it('exposes a destination column backed by the custom cell', async () => {
+    const cellPath = '@whatworks/payload-redirects/rsc#RedirectDestinationCell'
+    const cellOf = (field: Field | undefined): unknown =>
+      (field as { admin?: { components?: { Cell?: unknown } } } | undefined)?.admin?.components
+        ?.Cell
+
+    // The custom destination cell replaces the raw to.type / to.url as the second
+    // default column, in both the reference and custom-only collection shapes.
+    const withRefs = getCollection(await redirectsPlugin(pluginConfig())(baseConfig()), 'redirects')
+    const destination = fieldByName(withRefs.fields, 'destination')
+    expect(destination?.type).toBe('ui')
+    expect(cellOf(destination)).toBe(cellPath)
+    expect(withRefs.admin?.defaultColumns?.[1]).toBe('destination')
+
+    const withoutRefs = getCollection(
+      await redirectsPlugin(pluginConfig({ collections: undefined }))(baseConfig()),
+      'redirects',
+    )
+    expect(fieldByName(withoutRefs.fields, 'destination')?.type).toBe('ui')
+    expect(withoutRefs.admin?.defaultColumns?.[1]).toBe('destination')
+  })
+
   it('drops hit tracking with trackHits: false', async () => {
     const result = await redirectsPlugin(pluginConfig({ trackHits: false }))(baseConfig())
     const redirects = getCollection(result, 'redirects')

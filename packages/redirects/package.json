@@ -62,6 +62,11 @@
       "import": "./src/exports/resolver.ts",
       "default": "./src/exports/resolver.ts"
     },
+    "./rsc": {
+      "types": "./src/exports/rsc.ts",
+      "import": "./src/exports/rsc.ts",
+      "default": "./src/exports/rsc.ts"
+    },
     "./vercel": {
       "types": "./src/exports/vercel.ts",
       "import": "./src/exports/vercel.ts",
@@ -69,12 +74,18 @@
     }
   },
   "peerDependencies": {
+    "@payloadcms/ui": ">=3.32.0 <4",
     "@vercel/edge-config": ">=1.0.0 <2",
     "@vercel/functions": ">=2.2.0 <4",
     "next": ">=15.0.0 <17",
-    "payload": ">=3.32.0 <4"
+    "payload": ">=3.32.0 <4",
+    "react": ">=19.0.0 <20",
+    "react-dom": ">=19.0.0 <20"
   },
   "peerDependenciesMeta": {
+    "@payloadcms/ui": {
+      "optional": true
+    },
     "@vercel/edge-config": {
       "optional": true
     },
@@ -82,6 +93,12 @@
       "optional": true
     },
     "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
       "optional": true
     }
   },
@@ -97,6 +114,7 @@
     "@payloadcms/db-sqlite": "catalog:",
     "@payloadcms/eslint-config": "catalog:",
     "@payloadcms/next": "catalog:",
+    "@payloadcms/ui": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -146,6 +164,11 @@
         "types": "./dist/exports/resolver.d.ts",
         "import": "./dist/exports/resolver.js",
         "default": "./dist/exports/resolver.js"
+      },
+      "./rsc": {
+        "types": "./dist/exports/rsc.d.ts",
+        "import": "./dist/exports/rsc.js",
+        "default": "./dist/exports/rsc.js"
       },
       "./vercel": {
         "types": "./dist/exports/vercel.d.ts",

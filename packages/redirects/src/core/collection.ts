@@ -5,12 +5,21 @@ import type {
   Field,
   SelectField,
   TextField,
+  UIField,
   ValidateOptions,
 } from 'payload'
 
 import type { ResolvedRedirectsConfig } from '../types.js'
 
 import { normalizeRedirectFrom, normalizeScrollTo } from './shared.js'
+
+/**
+ * Import-map path of the destination list cell (`RedirectDestinationCell`).
+ * Referenced only as a string so the React component never enters the plugin's
+ * server/edge bundles; consumers register it by regenerating their admin import
+ * map (`payload generate:importmap`), which resolves the `./rsc` export.
+ */
+const destinationCellPath = '@whatworks/payload-redirects/rsc#RedirectDestinationCell'
 
 const redirectStatusOptions = [
   {
@@ -365,12 +374,27 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
     label: 'Notes',
   }
 
+  // Read-only list column that renders the resolved destination: an internal
+  // reference as its document path (linked to the doc in the admin), or a custom
+  // URL linked externally. Data-less `ui` field — it only carries the Cell and
+  // does not appear on the edit form.
+  const destinationField: UIField = {
+    name: 'destination',
+    type: 'ui',
+    admin: {
+      components: {
+        Cell: destinationCellPath,
+      },
+    },
+    label: 'To',
+  }
+
   return {
     slug: config.slug,
     admin: {
       defaultColumns: [
         'from',
-        hasReferences ? 'to.type' : 'to.url',
+        'destination',
         'enabled',
         ...(config.trackHits ? ['hits', 'lastAccess'] : []),
         'createdAt',
@@ -421,6 +445,7 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
         label: false,
         ...(localized ? { localized: true } : {}),
       },
+      destinationField,
       {
         name: 'status',
         type: 'select',
