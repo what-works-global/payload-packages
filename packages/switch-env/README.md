@@ -7,6 +7,8 @@
   </picture>
 </a>
 
+&nbsp;
+
 A Payload plugin that lets you switch your local admin panel between your **development** and **production** databases — and copy production into development — at the press of a button.
 
 Two common uses:

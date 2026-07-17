@@ -1,5 +1,14 @@
 # @whatworks/payload-redirects
 
+<a href="https://whatworks.com.au/?utm_source=github.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../assets/blackbanner.svg">
+    <img alt="@whatworks/payload-redirects" src="../../assets/whitebanner.svg">
+  </picture>
+</a>
+
+&nbsp;
+
 Managed redirects for [Payload](https://payloadcms.com) with a cache-backed [Next.js](https://nextjs.org) middleware matcher.
 
 Editors manage redirects in an orderable admin collection; the plugin denormalizes them into a shared cache on every change; your `proxy.ts`/`middleware.ts` answers matching requests straight from that cache — no Payload import, no database query, no function invocation on the hot path. The serving side is framework-agnostic — a WHATWG-only resolver / request handler (`@whatworks/payload-redirects/resolver`) carries the same behavior to Hono, Cloudflare Workers, Astro, SvelteKit, Express, or anything else, and a pure `resolveRedirect` sits underneath for full manual control.

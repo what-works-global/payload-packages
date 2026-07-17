@@ -7,6 +7,8 @@
   </picture>
 </a>
 
+&nbsp;
+
 Chunked, lazily cached XML sitemaps for [Payload](https://payloadcms.com) with hook-driven invalidation and robots.txt helpers.
 
 Next.js + Vercel work with near-zero config; every layer — delivery, caching, invalidation, robots output — is overridable for other stacks (decoupled frontends, self-hosted servers, SSG builds).

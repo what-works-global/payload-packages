@@ -7,6 +7,8 @@
   </picture>
 </a>
 
+&nbsp;
+
 Payload plugin that records who created and who last modified every document, and upgrades the versions list view with a **Modified By** column so you can see exactly who saved each version.
 
 - Adds read-only `createdBy` / `lastModifiedBy` relationship fields to every collection and global by default (opt-out, not opt-in).
