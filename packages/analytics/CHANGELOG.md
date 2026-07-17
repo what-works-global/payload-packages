@@ -1,17 +1,5 @@
 # @whatworks/analytics
 
-## 4.0.0
-
-### Major Changes
-
-- 7db31b3: Remove the pre-styled `CookieBanner` component — the package is now headless and ships no banner UI or CSS. Design your banner in your own codebase and drive it from `useCookieBanner()` (`shouldShowBanner`, `accept()`, `reject()`), optionally rendering it through the still-exported `CookieBannerPortal`. See the README's "Build your own cookie banner" section for a drop-in starting point. The Tailwind toolchain and `dist/styles.css` output are gone along with it.
-
-## 3.3.0
-
-### Minor Changes
-
-- ba40152: Redesign the default `CookieBanner` to match the WhatWorks design system cookie popover: card-style banner (max-width 443px) with stacked full-width pill buttons — a cyan "Accept all" primary action and an outlined "Accept essential only" secondary action. Default `title`, `description`, `acceptText`, and `rejectText` copy updated to the new design's wording.
-
 ## 3.2.0
 
 ### Minor Changes
