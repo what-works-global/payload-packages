@@ -23,6 +23,10 @@ Editors manage redirects in an orderable admin collection; the plugin denormaliz
 - **Pluggable cache** — Vercel Runtime Cache, Vercel Edge Config, Redis (ioredis / node-redis / Upstash), Cloudflare KV, JSON file, in-memory, or your own adapter.
 - **Localization & migration** — per-locale caches, and a one-shot helper to migrate from `@payloadcms/plugin-redirects`.
 
+## Compared to `@payloadcms/plugin-redirects`
+
+The official plugin gives you a redirects collection and leaves resolution to you — typically a database lookup on every request. This package keeps that familiar collection (and migrates from it in one step) but adds the serving layer it omits: matches are answered from a shared cache by an edge-safe middleware, with no `payload` import or database query on the hot path. It also goes past a single regex checkbox — five match types with capture-group substitution, drag-order precedence, loop protection, hit tracking, per-locale caches, and a framework-agnostic resolver for non-Next apps.
+
 ## Demo
 
 Manage redirects from an orderable collection in the Payload admin, with quick testing and hit tracking:
