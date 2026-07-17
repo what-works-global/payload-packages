@@ -34,11 +34,7 @@ const PAYLOAD_DEV_SCRIPTS = {
 }
 
 // Per-package exceptions to the enforced values above.
-const OVERRIDES = {
-  '@whatworks/analytics': {
-    build: 'tsdown && pnpm build:css',
-  },
-}
+const OVERRIDES = {}
 
 // Required to exist, but the value is package-specific:
 // - `dev`: next dev flags vary (--turbo support differs per package).
