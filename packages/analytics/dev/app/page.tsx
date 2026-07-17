@@ -1,15 +1,15 @@
 'use client'
 
 import {
+  Analytics as AnalyticsProvider,
   type ConsentStrategy,
   CookieBannerPortal,
-  CookieBannerProvider,
   useCookieBanner,
 } from '@whatworks/analytics'
 import { MicrosoftClarity } from '@whatworks/analytics/clarity'
 import { FacebookPixel } from '@whatworks/analytics/facebook'
 import { GoogleAnalytics, GoogleTagManager } from '@whatworks/analytics/google'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 // The package ships no banner UI — this is the pattern consumers follow: build
 // your own banner in your codebase on top of `useCookieBanner()`, optionally
@@ -64,8 +64,25 @@ const STRATEGIES: ConsentStrategy[] = [
   'load-scripts-then-revoke-consent-after-geolocation-check',
 ]
 
+const STRATEGY_STORAGE_KEY = 'analyticsConsentStrategy'
+
 export default function Page() {
   const [consentStrategy, setConsentStrategy] = useState<ConsentStrategy>(STRATEGIES[3])
+  const [hasLoadedStrategy, setHasLoadedStrategy] = useState(false)
+
+  useEffect(() => {
+    const storedStrategy = localStorage.getItem(STRATEGY_STORAGE_KEY) as ConsentStrategy | null
+    if (storedStrategy && STRATEGIES.includes(storedStrategy)) {
+      setConsentStrategy(storedStrategy)
+    }
+    setHasLoadedStrategy(true)
+  }, [])
+
+  useEffect(() => {
+    if (hasLoadedStrategy) {
+      localStorage.setItem(STRATEGY_STORAGE_KEY, consentStrategy)
+    }
+  }, [consentStrategy, hasLoadedStrategy])
 
   const exampleIds = useMemo(
     () => ({
@@ -95,19 +112,32 @@ export default function Page() {
         </select>
         <button
           onClick={() => {
+            setConsentStrategy(STRATEGIES[3])
+            localStorage.removeItem(STRATEGY_STORAGE_KEY)
+          }}
+          type="button"
+        >
+          Clear Strategy
+        </button>
+        <button
+          onClick={() => {
             localStorage.removeItem('cookiesAllowed')
             window.location.reload()
           }}
           type="button"
         >
-          Clear decision
+          Clear Decision
         </button>
       </div>
       <p style={{ marginBottom: '2rem', maxWidth: '48rem' }}>
         Use this page to validate consent behavior across strategies. The consent endpoint lives at
         <code style={{ marginLeft: '0.5rem' }}>/api/consent</code>.
       </p>
-      <CookieBannerProvider consentApiPath="/api/consent" consentStrategy={consentStrategy}>
+      <AnalyticsProvider
+        consentApiPath="/api/consent"
+        consentStrategy={consentStrategy}
+        enabled={true}
+      >
         {/*
           `enabled` is passed explicitly so the tags run in `next dev`, where the
           production-only default would otherwise keep them inert. GtagBootstrap is
@@ -118,7 +148,7 @@ export default function Page() {
         <GoogleTagManager enabled gtmId={exampleIds.gtmId} />
         <MicrosoftClarity clarityId={exampleIds.clarityId} enabled />
         <DevCookieBanner />
-      </CookieBannerProvider>
+      </AnalyticsProvider>
 
       <section style={{ marginTop: '60vh', maxWidth: '48rem' }}>
         <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Long-form page content</h2>
