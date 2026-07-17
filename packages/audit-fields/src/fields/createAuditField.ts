@@ -2,7 +2,7 @@ import type { RelationshipField } from 'payload'
 
 import type { AuditFieldLabel } from '../types.js'
 
-import { auditUserFieldComponentPath } from '../shared.js'
+import { auditUserCellComponentPath, auditUserFieldComponentPath } from '../shared.js'
 import { resolveLabel } from '../utilities/resolveLabel.js'
 
 export type CreateAuditFieldArgs = {
@@ -20,10 +20,11 @@ export type CreateAuditFieldArgs = {
  * user collections. The value shape (`{ relationTo, value }`) is identical to the
  * one used by `@payload-bites/audit-fields`, so existing data carries over.
  *
- * The field renders through the plugin's `AuditUserField` display component, which
- * shows the resolved user label (default: email) linked to the user document. Use
- * `override` to remove `admin.components.Field` if you want the default
- * relationship input back.
+ * The field renders through the plugin's `AuditUserField` display component (document
+ * view) and `AuditUserCell` (list view), which both show the resolved user label
+ * (default: email) linked to the user document. Use `override` to remove
+ * `admin.components.Field` / `admin.components.Cell` if you want the default
+ * relationship input and cell back.
  */
 export const createAuditField = ({
   name,
@@ -41,6 +42,7 @@ export const createAuditField = ({
       allowCreate: false,
       allowEdit: false,
       components: {
+        Cell: auditUserCellComponentPath,
         Field: auditUserFieldComponentPath,
       },
       condition: (data) => Boolean(data?.[name]),

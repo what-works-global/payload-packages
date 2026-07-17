@@ -13,6 +13,7 @@ export {
 export { auditFieldsPlugin } from './plugin.js'
 export {
   type AuditFieldsCustomConfig,
+  auditUserCellComponentPath,
   auditUserFieldComponentPath,
   getAuditFieldsCustomConfig,
   pluginKey,

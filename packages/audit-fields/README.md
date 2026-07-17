@@ -12,7 +12,7 @@
 Payload plugin that records who created and who last modified every document, and upgrades the versions list view with a **Modified By** column so you can see exactly who saved each version.
 
 - Adds read-only `createdBy` / `lastModifiedBy` relationship fields to every collection and global by default (opt-out, not opt-in).
-- Displays attributed users by **email** (customizable via `resolveUserLabel`) — both on the document and in the versions view — linked to the user document.
+- Displays attributed users by **email** (customizable via `resolveUserLabel`) — on the document, in the collection list view, and in the versions view — linked to the user document.
 - Replaces the versions list view with a faithful recreation of Payload's own view, extended with a per-version "Modified By" column.
 - Supports multiple auth collections — attribution is stored as a polymorphic reference to whichever collection the acting user belongs to.
 - Data-compatible with [`@payload-bites/audit-fields`](https://github.com/rilrom/payload-bites) — same default field names and the same stored value shape (`{ relationTo, value }`), so you can switch plugins without a migration.
@@ -107,13 +107,14 @@ auditFieldsPlugin({
 ## How users are displayed
 
 On the document, audit fields render as a read-only label linking to the user
-document instead of the default (greyed-out) relationship input. In the versions
-view, the "Modified By" column shows the same label.
+document instead of the default (greyed-out) relationship input. The collection
+list view shows the same label in place of the raw relationship ID, and the
+versions view's "Modified By" column shows it too.
 
-Both use `resolveUserLabel` to derive the label from the user document, which is
-fetched with the **viewing** user's access rights — if the current user cannot read
-the users collection, the raw ID is shown instead. The default resolver returns
-`user.email`, falling back to `user.username`, then the ID.
+All three use `resolveUserLabel` to derive the label from the user document, which
+is fetched with the **viewing** user's access rights — if the current user cannot
+read the users collection, the raw ID is shown instead. The default resolver
+returns `user.email`, falling back to `user.username`, then the ID.
 
 `resolveUserLabel` may be async, so you can derive the label from anywhere:
 

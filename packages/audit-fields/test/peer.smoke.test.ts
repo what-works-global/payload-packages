@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   auditFieldsPlugin,
+  auditUserCellComponentPath,
   auditUserFieldComponentPath,
   createAuditField,
   defaultResolveUserLabel,
@@ -39,7 +40,7 @@ const fieldNames = (fields: Field[]): string[] =>
   fields.map((field) => ('name' in field ? field.name : '')).filter(Boolean)
 
 describe('@whatworks/payload-audit-fields peer smoke', () => {
-  it('createAuditField returns a read-only polymorphic relationship field with a display component', () => {
+  it('createAuditField returns a read-only polymorphic relationship field with display and cell components', () => {
     const field = createAuditField({
       name: 'createdBy',
       entitySlug: 'posts',
@@ -53,6 +54,7 @@ describe('@whatworks/payload-audit-fields peer smoke', () => {
     expect(field.admin?.readOnly).toBe(true)
     expect(field.admin?.position).toBe('sidebar')
     expect(field.admin?.components?.Field).toBe(auditUserFieldComponentPath)
+    expect(field.admin?.components?.Cell).toBe(auditUserCellComponentPath)
   })
 
   it('adds audit fields, hooks, and the versions view to every entity by default', async () => {

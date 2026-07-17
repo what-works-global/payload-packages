@@ -8,6 +8,8 @@ export const versionsViewComponentPath = `${pluginKey}/rsc#AuditVersionsView`
 
 export const auditUserFieldComponentPath = `${pluginKey}/rsc#AuditUserField`
 
+export const auditUserCellComponentPath = `${pluginKey}/rsc#AuditUserCell`
+
 /**
  * Plugin state stored on `config.custom[pluginKey]` so the components resolved
  * through the import map (the versions view and the audit field display), which
