@@ -4,6 +4,7 @@ export default definePackageBuild({
   entry: [
     'src/index.ts',
     'src/exports/cache.ts',
+    'src/exports/client.ts',
     'src/exports/edge-config.ts',
     'src/exports/middleware.ts',
     'src/exports/resolver.ts',
@@ -11,6 +12,7 @@ export default definePackageBuild({
     'src/exports/vercel.ts',
   ],
   // Emit one file per source module (no bundling) so the rsc export's server
-  // component keeps its module boundary intact for the admin import map.
+  // component and the client export's `'use client'` components keep their module
+  // boundaries intact for the admin import map.
   unbundle: true,
 })

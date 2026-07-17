@@ -47,6 +47,11 @@
       "import": "./src/exports/cache.ts",
       "default": "./src/exports/cache.ts"
     },
+    "./client": {
+      "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    },
     "./edge-config": {
       "types": "./src/exports/edge-config.ts",
       "import": "./src/exports/edge-config.ts",
@@ -149,6 +154,11 @@
         "types": "./dist/exports/cache.d.ts",
         "import": "./dist/exports/cache.js",
         "default": "./dist/exports/cache.js"
+      },
+      "./client": {
+        "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
+        "default": "./dist/exports/client.js"
       },
       "./edge-config": {
         "types": "./dist/exports/edge-config.d.ts",

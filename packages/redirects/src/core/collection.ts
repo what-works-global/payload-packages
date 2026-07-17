@@ -21,6 +21,17 @@ import { normalizeRedirectFrom, normalizeScrollTo } from './shared.js'
  */
 const destinationCellPath = '@whatworks/payload-redirects/rsc#RedirectDestinationCell'
 
+/**
+ * Import-map paths of the "Test Redirect" admin components — the sidebar button
+ * (`TestRedirectButton`) and the list-view "Test" column cell (`TestRedirectCell`).
+ * Both are `'use client'` components behind the `./client` export; consumers
+ * register them by regenerating their admin import map (`payload
+ * generate:importmap`). Referenced only as strings so the React components never
+ * enter the plugin's server/edge bundles.
+ */
+const testRedirectButtonPath = '@whatworks/payload-redirects/client#TestRedirectButton'
+const testRedirectCellPath = '@whatworks/payload-redirects/client#TestRedirectCell'
+
 const redirectStatusOptions = [
   {
     label: '301 - Permanent',
@@ -439,12 +450,30 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
     label: 'To',
   }
 
+  // Opens the redirect's "From URL" in a new tab so an editor can confirm it
+  // fires. Data-less `ui` field carrying two components: a large sidebar button on
+  // the edit form (`Field`) and a compact button in the list's "Test Redirect"
+  // column (`Cell`). The label names that column.
+  const testRedirectField: UIField = {
+    name: 'testRedirect',
+    type: 'ui',
+    admin: {
+      components: {
+        Cell: testRedirectCellPath,
+        Field: testRedirectButtonPath,
+      },
+      position: 'sidebar',
+    },
+    label: 'Test Redirect',
+  }
+
   return {
     slug: config.slug,
     admin: {
       defaultColumns: [
         'from',
         'destination',
+        'testRedirect',
         'enabled',
         ...(config.trackHits ? ['hits', 'lastAccess'] : []),
         'createdAt',
@@ -519,6 +548,7 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
         defaultValue: true,
         label: 'Enabled',
       },
+      testRedirectField,
       ...(config.trackHits
         ? ([
             {

@@ -18,6 +18,7 @@ Editors manage redirects in an orderable admin collection; the plugin denormaliz
 - **Internal or custom destinations** — point a redirect at a document (resolved to its path, kept in sync when the doc moves or is deleted) or at any URL/pathname.
 - **Query forwarding & case-insensitivity** — opt-in per redirect.
 - **Loop-safe** — save-time loop/self-redirect validation, and build-time chain flattening so visitors take a single hop.
+- **Test in place** — a "Test Redirect" button on the edit form and a "Test Redirect" column in the list view open a redirect's `From` URL in a new tab.
 - **Hit tracking** — per-redirect counter and last-access timestamp, updated in the background with adapter-agnostic optimistic concurrency.
 - **Pluggable cache** — Vercel Runtime Cache, Vercel Edge Config, Redis (ioredis / node-redis / Upstash), Cloudflare KV, JSON file, in-memory, or your own adapter.
 - **Localization & migration** — per-locale caches, and a one-shot helper to migrate from `@payloadcms/plugin-redirects`.
@@ -103,6 +104,7 @@ The editor form is deliberately minimal. By default only three controls show:
 - **From URL** — what the request is matched against. For exact matches, a pathname (`/old`, trailing slashes collapsed) or absolute URL (reduced to its path + query). Unique (per locale when localized), indexed, validated.
 - **To** — an internal document reference (when `collections` are configured) or a custom URL/pathname.
 - **Enabled** (sidebar) — disabled redirects are kept in the collection but excluded from the live cache, so they never fire. Toggle a redirect off instead of deleting it.
+- **Test Redirect** (sidebar) — opens the redirect's `From` URL in a new tab so you can confirm it fires. It reads the value currently in the field, so save first if you want to test an edit. Disabled when `From` isn't a concrete URL to open — a regex pattern, or a `contains`/`endsWith` fragment that isn't a path. Root-relative paths open against the admin's own origin. The list view carries the same action as a **Test Redirect** column.
 
 Flip **Show advanced settings** (sidebar) to reveal:
 

@@ -123,6 +123,34 @@ describe('redirectsPlugin config shaping', () => {
     expect(withoutRefs.admin?.defaultColumns?.[1]).toBe('destination')
   })
 
+  it('adds a "Test" redirect action as a sidebar button and a list column', async () => {
+    const componentsOf = (
+      field: Field | undefined,
+    ): { Cell?: unknown; Field?: unknown } | undefined =>
+      (field as { admin?: { components?: { Cell?: unknown; Field?: unknown } } } | undefined)?.admin
+        ?.components
+    const positionOf = (field: Field | undefined): unknown =>
+      (field as { admin?: { position?: unknown } } | undefined)?.admin?.position
+
+    const redirects = getCollection(
+      await redirectsPlugin(pluginConfig())(baseConfig()),
+      'redirects',
+    )
+    const testRedirect = fieldByName(redirects.fields, 'testRedirect')
+    expect(testRedirect?.type).toBe('ui')
+    expect((testRedirect as { label?: unknown } | undefined)?.label).toBe('Test Redirect')
+    // Sidebar edit-form button.
+    expect(positionOf(testRedirect)).toBe('sidebar')
+    expect(componentsOf(testRedirect)?.Field).toBe(
+      '@whatworks/payload-redirects/client#TestRedirectButton',
+    )
+    // List-view "Test" column cell, shown by default.
+    expect(componentsOf(testRedirect)?.Cell).toBe(
+      '@whatworks/payload-redirects/client#TestRedirectCell',
+    )
+    expect(redirects.admin?.defaultColumns).toContain('testRedirect')
+  })
+
   it('drops hit tracking with trackHits: false', async () => {
     const result = await redirectsPlugin(pluginConfig({ trackHits: false }))(baseConfig())
     const redirects = getCollection(result, 'redirects')
