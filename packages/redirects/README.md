@@ -23,6 +23,20 @@ Editors manage redirects in an orderable admin collection; the plugin denormaliz
 - **Pluggable cache** — Vercel Runtime Cache, Vercel Edge Config, Redis (ioredis / node-redis / Upstash), Cloudflare KV, JSON file, in-memory, or your own adapter.
 - **Localization & migration** — per-locale caches, and a one-shot helper to migrate from `@payloadcms/plugin-redirects`.
 
+## Demo
+
+Manage redirects from an orderable collection in the Payload admin, with quick testing and hit tracking:
+
+![Redirects collection](docs/assets/demo-1.png)
+
+Create simple redirects with an internal document or custom URL destination:
+
+![Basic redirect editor](docs/assets/demo-2.png)
+
+Reveal advanced matching, query, anchor, redirect type, and notes settings when needed:
+
+![Advanced redirect editor](docs/assets/demo-3.png)
+
 ## Install
 
 ```sh
