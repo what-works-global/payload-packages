@@ -74,11 +74,11 @@
     }
   },
   "peerDependencies": {
-    "@payloadcms/ui": ">=3.32.0 <4",
+    "@payloadcms/ui": ">=3.54.0 <4",
     "@vercel/edge-config": ">=1.0.0 <2",
     "@vercel/functions": ">=2.2.0 <4",
     "next": ">=15.0.0 <17",
-    "payload": ">=3.32.0 <4",
+    "payload": ">=3.54.0 <4",
     "react": ">=19.0.0 <20",
     "react-dom": ">=19.0.0 <20"
   },
@@ -105,7 +105,7 @@
   "whatworks": {
     "peerMatrix": {
       "payload": {
-        "min": "3.32.0"
+        "min": "3.54.0"
       }
     }
   },
