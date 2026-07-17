@@ -170,6 +170,29 @@ describe('redirectsPlugin integration', () => {
     ])
   })
 
+  it('caches custom-URL redirects with queryParams applied', async () => {
+    await payload.create({
+      collection: 'redirects' as never,
+      data: {
+        from: '/promo',
+        status: '301',
+        to: {
+          type: 'custom',
+          queryParams: [
+            { key: 'utm_source', value: 'nl' },
+            { key: 'utm_medium', value: 'email' },
+          ],
+          url: '/sale',
+        },
+      } as never,
+    })
+
+    const cached = await cache.get()
+    expect(cached?.find((entry) => entry.from === '/promo')?.to).toBe(
+      '/sale?utm_source=nl&utm_medium=email',
+    )
+  })
+
   it('resolves reference redirects and follows published path changes', async () => {
     const page = (await payload.create({
       collection: 'pages' as never,

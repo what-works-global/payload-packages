@@ -92,7 +92,7 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
 
 ## How it works
 
-The plugin adds an orderable `redirects` collection. Every create/update/delete/reorder rebuilds the full redirect list — normalized `from`, resolved destination, `scrollTo` fragment applied, flags denormalized — and writes it to the cache in one entry. Collections configured as destinations get hooks too: when a published document's path changes (or it is deleted), the cache is rebuilt so resolved destinations never go stale. Draft saves never touch the cache.
+The plugin adds an orderable `redirects` collection. Every create/update/delete/reorder rebuilds the full redirect list — normalized `from`, resolved destination, `queryParams` and `scrollTo` fragment applied, flags denormalized — and writes it to the cache in one entry. Collections configured as destinations get hooks too: when a published document's path changes (or it is deleted), the cache is rebuilt so resolved destinations never go stale. Draft saves never touch the cache.
 
 The middleware reads the list per request, matches in admin drag order (first match wins), and issues the redirect. On a cache miss it returns `undefined` immediately and refreshes the cache in the background via the plugin's `refresh-cache` endpoint (`event.waitUntil`), so a cold cache costs one pass-through request, never latency. A broken cache backend never takes down routing — errors read as "no redirects".
 
@@ -111,6 +111,7 @@ Flip **Show advanced settings** (sidebar) to reveal:
 - **Forward query string** — append the incoming query to the destination; params already present on the destination win.
 - **Redirect Type** — `301` permanent (default) or `302` temporary. Also shown automatically whenever a redirect is already set to `302`.
 - **Scroll To Element** — optional element id appended to the destination as `#fragment` (a leading `#` is tolerated; it replaces any fragment a custom URL already carries).
+- **Query Parameters** — an optional list of `name` / `value` rows appended to the destination's query string (e.g. `utm_source` = `newsletter`). Names and values are URL-encoded for you; a row wins over a param already on the destination with the same name. Any fragment (from **Scroll To Element** or a custom URL) is preserved after the query.
 - **Notes** — free-text, editor-facing ("why does this redirect exist?").
 
 Advanced-gated fields stay visible for any redirect that already holds a non-default value, so a redirect configured through the toggle keeps showing its options even after the toggle is turned off.
@@ -126,7 +127,7 @@ Regex patterns are validated at save time (this is a conservative static check, 
 - nested unbounded quantifiers — an unbounded quantifier (`*`, `+`, `{n,}`) wrapping a group that itself repeats unboundedly, i.e. the classic catastrophic-backtracking shape `(a+)+`;
 - bounded repetition with a maximum above 1000.
 
-`validateSafeRegexPattern`, `validateFromField`, `validateUrlOrPathname`, and `validateScrollTo` are exported if you build your own fields.
+`validateSafeRegexPattern`, `validateFromField`, `validateUrlOrPathname`, `validateScrollTo`, and `validateQueryParamKey` are exported if you build your own fields.
 
 ### Canonicalization
 

@@ -5,6 +5,7 @@ import type { CachedRedirect } from './shared.js'
 
 import { getRedirectsConfig } from './resolved.js'
 import {
+  applyQueryParams,
   applyScrollTo,
   getNormalizedRequestTargets,
   matchRedirect,
@@ -21,6 +22,7 @@ type RedirectDoc = {
   matchType?: unknown
   status?: unknown
   to?: {
+    queryParams?: unknown
     reference?: { relationTo?: unknown; value?: unknown } | null
     scrollTo?: unknown
     type?: unknown
@@ -149,7 +151,7 @@ const buildEntry = ({
     // numeric status so the middleware can hand it straight to a redirect.
     from,
     status: Number(doc.status) as CachedRedirect['status'],
-    to: applyScrollTo(destination, doc.to?.scrollTo),
+    to: applyScrollTo(applyQueryParams(destination, doc.to?.queryParams), doc.to?.scrollTo),
   }
 
   if (!isExact) {

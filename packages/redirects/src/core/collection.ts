@@ -230,6 +230,17 @@ export const validateScrollTo = (value: null | string | undefined): string | tru
   return true
 }
 
+export const validateQueryParamKey = (value: null | string | undefined): string | true => {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return 'This field is required'
+  }
+  if (/[\s#&=?]/.test(trimmed)) {
+    return 'Parameter names cannot contain spaces or the characters # & = ?'
+  }
+  return true
+}
+
 /** True when advanced settings are on, or the field already holds a non-default value. */
 const showWhenAdvancedOr = (
   hasValue: (data: Record<string, unknown>) => boolean,
@@ -311,6 +322,45 @@ export const buildRedirectsCollection = (config: ResolvedRedirectsConfig): Colle
       },
       label: 'Scroll To Element',
       validate: validateScrollTo,
+    },
+    {
+      name: 'queryParams',
+      type: 'array',
+      admin: {
+        condition: (data, siblingData) => {
+          const rows = (siblingData as { queryParams?: unknown })?.queryParams
+          return (
+            (data as Record<string, unknown>)?.advanced === true ||
+            (Array.isArray(rows) && rows.length > 0)
+          )
+        },
+        description:
+          'Optional query parameters appended to the destination (e.g. utm_source = newsletter). These win over any params already on the destination with the same name.',
+      },
+      fields: [
+        {
+          type: 'row',
+          fields: [
+            {
+              name: 'key',
+              type: 'text',
+              label: 'Name',
+              required: true,
+              validate: validateQueryParamKey,
+            },
+            {
+              name: 'value',
+              type: 'text',
+              label: 'Value',
+            },
+          ],
+        },
+      ],
+      label: 'Query Parameters',
+      labels: {
+        plural: 'Query Parameters',
+        singular: 'Query Parameter',
+      },
     },
   )
 

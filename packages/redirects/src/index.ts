@@ -1,6 +1,7 @@
 export { buildRedirectsCacheEntries, syncRedirectsCache } from './core/build.js'
 export {
   validateFromField,
+  validateQueryParamKey,
   validateSafeRegexPattern,
   validateScrollTo,
   validateUrlOrPathname,
@@ -13,6 +14,7 @@ export {
 export { getRedirectsConfig } from './core/resolved.js'
 export {
   appendTrailingSlash,
+  applyQueryParams,
   applyScrollTo,
   type CachedRedirect,
   canonicalizePathname,
@@ -23,6 +25,7 @@ export {
   isCachedRedirect,
   matchRedirect,
   mergeForwardedQuery,
+  normalizeQueryParams,
   normalizeRedirectFrom,
   normalizeRedirectPathname,
   normalizeScrollTo,

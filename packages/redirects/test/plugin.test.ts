@@ -17,6 +17,7 @@ import {
   getRedirectsConfig,
   redirectsPlugin,
   validateFromField,
+  validateQueryParamKey,
   validateSafeRegexPattern,
   validateScrollTo,
   validateUrlOrPathname,
@@ -81,6 +82,7 @@ describe('redirectsPlugin config shaping', () => {
     expect(reference.relationTo).toEqual(['pages'])
     expect(fieldByName(toGroup.fields, 'url')).toBeDefined()
     expect(fieldByName(toGroup.fields, 'scrollTo')).toBeDefined()
+    expect(fieldByName(toGroup.fields, 'queryParams')?.type).toBe('array')
 
     expect(fieldByName(redirects.fields, 'hits')).toBeDefined()
     expect(fieldByName(redirects.fields, 'lastAccess')).toBeDefined()
@@ -227,6 +229,14 @@ describe('field validation', () => {
     expect(validateScrollTo(undefined)).toBe(true)
     expect(validateScrollTo('two words')).toMatch(/whitespace/)
   })
+
+  it('validates a query parameter name (required, no reserved characters)', () => {
+    expect(validateQueryParamKey('utm_source')).toBe(true)
+    expect(validateQueryParamKey('')).toMatch(/required/)
+    expect(validateQueryParamKey(undefined)).toMatch(/required/)
+    expect(validateQueryParamKey('two words')).toMatch(/spaces/)
+    expect(validateQueryParamKey('a=b')).toMatch(/#/)
+  })
 })
 
 describe('buildRedirectsCacheEntries', () => {
@@ -263,6 +273,40 @@ describe('buildRedirectsCacheEntries', () => {
     expect(entries).toEqual([
       { id: '1', from: '/old', status: 301, to: '/landing' },
       { id: '2', from: '/team', status: 302, to: '/about#team' },
+    ])
+  })
+
+  it('applies queryParams to the destination, alongside scrollTo', async () => {
+    const entries = await build([
+      {
+        id: 1,
+        from: '/promo',
+        status: '301',
+        to: {
+          type: 'custom',
+          queryParams: [
+            { key: 'utm_source', value: 'nl' },
+            { key: 'utm_medium', value: 'email' },
+          ],
+          url: '/sale',
+        },
+      },
+      {
+        id: 2,
+        from: '/team',
+        status: '301',
+        to: {
+          type: 'reference',
+          queryParams: [{ key: 'ref', value: 'old' }],
+          reference: { relationTo: 'pages', value: { id: 9, slug: 'about' } },
+          scrollTo: 'team',
+        },
+      },
+    ])
+
+    expect(entries).toEqual([
+      { id: '1', from: '/promo', status: 301, to: '/sale?utm_source=nl&utm_medium=email' },
+      { id: '2', from: '/team', status: 301, to: '/about?ref=old#team' },
     ])
   })
 

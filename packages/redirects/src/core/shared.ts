@@ -196,6 +196,68 @@ export const stripFragment = (value: string): string => {
   return index === -1 ? value : value.slice(0, index)
 }
 
+/** A single editor-entered query parameter row from the `queryParams` array field. */
+type QueryParamRow = { key?: unknown; value?: unknown }
+
+/**
+ * Serializes the editor's `queryParams` array (rows of `{ key, value }`) into a
+ * canonical `key=value(&…)` string, in row order. Rows with a blank key are
+ * skipped; keys and values are trimmed and percent-encoded via `URLSearchParams`
+ * (so spaces and reserved characters are safe). Returns `''` when nothing usable
+ * remains, or the input isn't an array.
+ */
+export const normalizeQueryParams = (value: unknown): string => {
+  if (!Array.isArray(value)) {
+    return ''
+  }
+  const params = new URLSearchParams()
+  for (const row of value) {
+    if (!row || typeof row !== 'object') {
+      continue
+    }
+    const key = (row as QueryParamRow).key
+    if (typeof key !== 'string' || key.trim() === '') {
+      continue
+    }
+    const rawValue = (row as QueryParamRow).value
+    params.append(key.trim(), typeof rawValue === 'string' ? rawValue.trim() : '')
+  }
+  return params.toString()
+}
+
+/**
+ * Merges editor-entered query params into a destination, preserving any fragment
+ * it carries. The entered params win over params already on the destination for
+ * the same key — an explicit choice beats one baked into a custom URL — while
+ * unrelated destination params are kept. No-op when there are no params to add.
+ */
+export const applyQueryParams = (to: string, queryParams: unknown): string => {
+  const extra = normalizeQueryParams(queryParams)
+  if (!extra) {
+    return to
+  }
+
+  const hashIndex = to.indexOf('#')
+  const fragment = hashIndex === -1 ? '' : to.slice(hashIndex)
+  const base = hashIndex === -1 ? to : to.slice(0, hashIndex)
+
+  const queryIndex = base.indexOf('?')
+  const path = queryIndex === -1 ? base : base.slice(0, queryIndex)
+  const destinationSearch = queryIndex === -1 ? '' : base.slice(queryIndex)
+
+  const params = new URLSearchParams(destinationSearch)
+  const incoming = new URLSearchParams(extra)
+  for (const key of new Set(incoming.keys())) {
+    params.delete(key)
+  }
+  for (const [key, value] of incoming.entries()) {
+    params.append(key, value)
+  }
+
+  const merged = params.toString()
+  return `${path}${merged ? `?${merged}` : ''}${fragment}`
+}
+
 /**
  * Tests a redirect against the request targets and returns the resolved
  * destination, or `null` when it doesn't match. Regex redirects substitute

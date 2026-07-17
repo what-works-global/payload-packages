@@ -4,12 +4,14 @@ import type { CachedRedirect, ResolveRedirectSkipEvent } from '../src/index.js'
 
 import {
   appendTrailingSlash,
+  applyQueryParams,
   applyScrollTo,
   canonicalizeSearch,
   getNormalizedRequestTargets,
   isCachedRedirect,
   matchRedirect,
   mergeForwardedQuery,
+  normalizeQueryParams,
   normalizeRedirectFrom,
   normalizeRedirectPathname,
   normalizeScrollTo,
@@ -104,6 +106,61 @@ describe('scrollTo helpers', () => {
   it('is a no-op without a fragment', () => {
     expect(applyScrollTo('/about', '')).toBe('/about')
     expect(applyScrollTo('/about#kept', undefined)).toBe('/about#kept')
+  })
+})
+
+describe('queryParams helpers', () => {
+  it('serializes the array of key/value rows into a query string', () => {
+    expect(
+      normalizeQueryParams([
+        { key: 'utm_source', value: 'x' },
+        { key: 'utm_medium', value: 'y' },
+      ]),
+    ).toBe('utm_source=x&utm_medium=y')
+    expect(normalizeQueryParams([{ key: ' a ', value: ' 1 ' }])).toBe('a=1')
+    expect(normalizeQueryParams([{ key: 'q', value: 'hello world' }])).toBe('q=hello+world')
+    expect(normalizeQueryParams([{ key: 'flag' }])).toBe('flag=')
+  })
+
+  it('skips blank-key rows and non-array/empty input', () => {
+    expect(
+      normalizeQueryParams([
+        { key: '', value: 'skip' },
+        { value: 'no-key' },
+        { key: 'a', value: '1' },
+      ]),
+    ).toBe('a=1')
+    expect(normalizeQueryParams([])).toBe('')
+    expect(normalizeQueryParams(undefined)).toBe('')
+    expect(normalizeQueryParams('utm_source=x')).toBe('')
+  })
+
+  it('appends params to a destination without a query', () => {
+    expect(applyQueryParams('/about', [{ key: 'utm_source', value: 'x' }])).toBe(
+      '/about?utm_source=x',
+    )
+    expect(applyQueryParams('https://example.com/p', [{ key: 'ref', value: 'nl' }])).toBe(
+      'https://example.com/p?ref=nl',
+    )
+  })
+
+  it('merges with an existing query, entered params winning per name', () => {
+    expect(applyQueryParams('/about?a=1', [{ key: 'b', value: '2' }])).toBe('/about?a=1&b=2')
+    expect(applyQueryParams('/about?a=1', [{ key: 'a', value: '2' }])).toBe('/about?a=2')
+    expect(applyQueryParams('/about?a=1&b=2', [{ key: 'a', value: '9' }])).toBe('/about?b=2&a=9')
+  })
+
+  it('preserves a fragment on the destination', () => {
+    expect(applyQueryParams('/about#team', [{ key: 'a', value: '1' }])).toBe('/about?a=1#team')
+    expect(applyQueryParams('/about?x=1#team', [{ key: 'a', value: '1' }])).toBe(
+      '/about?x=1&a=1#team',
+    )
+  })
+
+  it('is a no-op without usable params', () => {
+    expect(applyQueryParams('/about', [])).toBe('/about')
+    expect(applyQueryParams('/about?x=1', undefined)).toBe('/about?x=1')
+    expect(applyQueryParams('/about#team', [{ key: '', value: '1' }])).toBe('/about#team')
   })
 })
 
