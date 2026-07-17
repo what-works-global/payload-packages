@@ -18,6 +18,12 @@ Payload plugin that records a chronological activity feed for your whole CMS —
 - Supports multiple auth collections — actors are stored as a polymorphic reference plus a label.
 - Composes with [`@whatworks/payload-audit-fields`](../audit-fields): reuses its `resolveUserLabel` automatically so both plugins display users identically, and keeps its attribution fields out of the changed-fields noise.
 
+## Demo
+
+![Activity Log collection](docs/assets/demo-1.png)
+
+![Activity Log entry](docs/assets/demo-2.png)
+
 ## Installation
 
 ```sh

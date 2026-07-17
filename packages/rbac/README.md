@@ -19,6 +19,10 @@ Role based access control for Payload where the roles live in the database. Edit
 - **Per-role credential protection** (`credentialChanges: 'self'`): the password, email, and username of users holding such a role can only be changed by the account owner — anyone else sends a password-reset email instead. Always on for the admin role, so an administrator account can never be taken over by another user with `users:update`.
 - Users can always read/update their own account document (configurable), so the admin account view keeps working for low-privilege users.
 
+## Demo
+
+![RBAC permissions matrix](docs/assets/demo-1.png)
+
 ## Installation
 
 ```sh

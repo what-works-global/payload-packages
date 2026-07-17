@@ -17,6 +17,14 @@ Payload plugin that records who created and who last modified every document, an
 - Supports multiple auth collections — attribution is stored as a polymorphic reference to whichever collection the acting user belongs to.
 - Data-compatible with [`@payload-bites/audit-fields`](https://github.com/rilrom/payload-bites) — same default field names and the same stored value shape (`{ relationTo, value }`), so you can switch plugins without a migration.
 
+## Demo
+
+![Audit fields in a collection list](docs/assets/demo-1.png)
+
+![Audit fields on a document](docs/assets/demo-2.png)
+
+![Modified By column in the versions view](docs/assets/demo-3.png)
+
 ## Installation
 
 ```sh

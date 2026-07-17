@@ -18,6 +18,12 @@ Algolia search sync for Payload with defaults that hold up in production: draft-
 - **Headless frontend search.** A `/react` entry ships `useAlgoliaSearch` (debounced search-as-you-type, typed to the record shape), `useHitCursor` (keyboard navigation), `useInsights` (click/conversion analytics), and dependency-free `<Highlight>`/`<Snippet>` components — a complete quick-search UI without `react-instantsearch`, with zero styling imposed.
 - **Serverless-safe.** Algolia writes are awaited inside hooks by default, so they aren't frozen when the response is sent.
 
+## Demo
+
+![Algolia Search reindex button](docs/assets/demo-1.png)
+
+![Algolia Search reindex modal](docs/assets/demo-2.png)
+
 ## Installation
 
 ```sh
