@@ -1,10 +1,61 @@
 'use client'
 
-import { type ConsentStrategy, CookieBanner, CookieBannerProvider } from '@whatworks/analytics'
+import {
+  type ConsentStrategy,
+  CookieBannerPortal,
+  CookieBannerProvider,
+  useCookieBanner,
+} from '@whatworks/analytics'
 import { MicrosoftClarity } from '@whatworks/analytics/clarity'
 import { FacebookPixel } from '@whatworks/analytics/facebook'
 import { GoogleAnalytics, GoogleTagManager } from '@whatworks/analytics/google'
 import { useMemo, useState } from 'react'
+
+// The package ships no banner UI — this is the pattern consumers follow: build
+// your own banner in your codebase on top of `useCookieBanner()`, optionally
+// rendering it through `CookieBannerPortal` to escape any local stacking context.
+function DevCookieBanner() {
+  const { accept, reject, shouldShowBanner } = useCookieBanner()
+
+  if (!shouldShowBanner) {
+    return null
+  }
+
+  return (
+    <CookieBannerPortal>
+      <div
+        style={{
+          background: 'white',
+          border: '1px solid #ccc',
+          borderRadius: '0.5rem',
+          bottom: '1rem',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+          display: 'grid',
+          gap: '0.75rem',
+          maxWidth: '28rem',
+          padding: '1.5rem',
+          position: 'fixed',
+          right: '1rem',
+          zIndex: 50,
+        }}
+      >
+        <strong>We use cookies</strong>
+        <p style={{ margin: 0 }}>
+          Custom banner rendered by the dev app itself — the package only supplies the consent state
+          via <code>useCookieBanner()</code>.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button onClick={accept} type="button">
+            Accept all
+          </button>
+          <button onClick={reject} type="button">
+            Essential only
+          </button>
+        </div>
+      </div>
+    </CookieBannerPortal>
+  )
+}
 
 const STRATEGIES: ConsentStrategy[] = [
   'load-scripts-always-grant-consent',
@@ -66,7 +117,7 @@ export default function Page() {
         <GoogleAnalytics enabled gaId={exampleIds.gaId} />
         <GoogleTagManager enabled gtmId={exampleIds.gtmId} />
         <MicrosoftClarity clarityId={exampleIds.clarityId} enabled />
-        <CookieBanner />
+        <DevCookieBanner />
       </CookieBannerProvider>
 
       <section style={{ marginTop: '60vh', maxWidth: '48rem' }}>

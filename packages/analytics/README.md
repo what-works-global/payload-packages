@@ -19,7 +19,8 @@ Each vendor lives in its own subpath import, so you only ever bundle the tags yo
 - [Usage](#usage)
   - [1. Add the consent API route](#1-add-the-consent-api-route)
   - [2. Compose `<Analytics>` in your root layout](#2-compose-analytics-in-your-root-layout)
-  - [3. Enabling and disabling tags](#3-enabling-and-disabling-tags)
+  - [3. Build your own cookie banner](#3-build-your-own-cookie-banner)
+  - [4. Enabling and disabling tags](#4-enabling-and-disabling-tags)
 - [PostHog](#posthog)
 - [Custom analytics scripts](#custom-analytics-scripts)
 - [Consent strategies](#consent-strategies)
@@ -55,12 +56,13 @@ If you aren't on Vercel, write your own handler that returns `{ requiresConsent:
 
 ```tsx
 // app/layout.tsx
-import { Analytics, CookieBanner } from '@whatworks/analytics'
+import { Analytics } from '@whatworks/analytics'
 import { GoogleAnalytics, GoogleTagManager } from '@whatworks/analytics/google'
 import { MicrosoftClarity } from '@whatworks/analytics/clarity'
 import { FacebookPixel } from '@whatworks/analytics/facebook'
 import { LinkedInInsightTag } from '@whatworks/analytics/linkedin'
 import { PostHog } from '@whatworks/analytics/posthog'
+import { CookieBanner } from './CookieBanner' // yours — see the next step
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -82,9 +84,49 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-Render only the tags you need — each is independent. Pass IDs explicitly as props; there are no environment-variable fallbacks (read your own `process.env.NEXT_PUBLIC_*` at the call site if you want them). `<CookieBanner>` must live **inside** `<Analytics>` so it can read the consent context (it portals to the bottom of the page regardless of where it sits in the tree).
+Render only the tags you need — each is independent. Pass IDs explicitly as props; there are no environment-variable fallbacks (read your own `process.env.NEXT_PUBLIC_*` at the call site if you want them).
 
-### 3. Enabling and disabling tags
+### 3. Build your own cookie banner
+
+The package ships **no banner UI** — you design the banner in your codebase, with your own styling system, and drive it from the consent context via `useCookieBanner()`. The hook exposes everything the banner needs: `shouldShowBanner`, `accept()`, `reject()` (plus `consentStatus` / `shouldLoadScripts` if you want them). Render it **inside** `<Analytics>` so it can read the context:
+
+```tsx
+// app/CookieBanner.tsx
+'use client'
+import { CookieBannerPortal, useCookieBanner } from '@whatworks/analytics'
+
+export function CookieBanner() {
+  const { accept, reject, shouldShowBanner } = useCookieBanner()
+
+  if (!shouldShowBanner) {
+    return null
+  }
+
+  return (
+    <CookieBannerPortal>
+      <div className="your-banner-styles">
+        <h3>We use cookies</h3>
+        <p>
+          We use cookies to analyse traffic and run ad campaigns. See our{' '}
+          <a href="/privacy-policy">Privacy Policy</a>.
+        </p>
+        <button onClick={accept} type="button">
+          Accept all
+        </button>
+        <button onClick={reject} type="button">
+          Accept essential only
+        </button>
+      </div>
+    </CookieBannerPortal>
+  )
+}
+```
+
+`CookieBannerPortal` is an optional helper that portals your banner into a `document.body`-level node (default id `cookie-banner-root`, override via `portalId`), so a fixed-position banner isn't trapped by a parent's stacking context or `transform`. Skip it if your layout doesn't need that.
+
+The provider handles everything behind the hook: `shouldShowBanner` is only `true` when the geolocation check says consent is required **and** the visitor hasn't already decided; `accept()` / `reject()` persist the decision to `localStorage` and flip consent for every tag at once.
+
+### 4. Enabling and disabling tags
 
 Every tag accepts an `enabled` prop. It defaults to `process.env.NODE_ENV === 'production'`, so tags stay inert in `next dev` and run on production and preview builds. Set it explicitly to override:
 
@@ -163,8 +205,9 @@ function MyTag() {
 
 ```tsx
 'use client'
-import { CookieBannerProvider, CookieBanner } from '@whatworks/analytics'
+import { CookieBannerProvider } from '@whatworks/analytics'
 import { GoogleAnalytics } from '@whatworks/analytics/google'
+import { CookieBanner } from './CookieBanner' // yours — see step 3
 ;<CookieBannerProvider
   consentApiPath="/api/consent"
   consentStrategy="require-consent-before-loading-scripts"
@@ -183,21 +226,21 @@ import { GoogleAnalytics } from '@whatworks/analytics/google'
 
 ## Subpaths and components
 
-| Import                             | Exports                                                                                                         |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `@whatworks/analytics`             | `Analytics`, `CookieBanner`, `CookieBannerProvider`, `CookieBannerPortal`, `useCookieBanner`, `ConsentStrategy` |
-| `@whatworks/analytics/google`      | `GoogleAnalytics`, `GoogleTagManager`                                                                           |
-| `@whatworks/analytics/linkedin`    | `LinkedInInsightTag`                                                                                            |
-| `@whatworks/analytics/clarity`     | `MicrosoftClarity`                                                                                              |
-| `@whatworks/analytics/facebook`    | `FacebookPixel`                                                                                                 |
-| `@whatworks/analytics/posthog`     | `PostHog`, `capture`                                                                                            |
-| `@whatworks/analytics/api/consent` | `GET` (consent route handler)                                                                                   |
+| Import                             | Exports                                                                                         |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `@whatworks/analytics`             | `Analytics`, `CookieBannerProvider`, `CookieBannerPortal`, `useCookieBanner`, `ConsentStrategy` |
+| `@whatworks/analytics/google`      | `GoogleAnalytics`, `GoogleTagManager`                                                           |
+| `@whatworks/analytics/linkedin`    | `LinkedInInsightTag`                                                                            |
+| `@whatworks/analytics/clarity`     | `MicrosoftClarity`                                                                              |
+| `@whatworks/analytics/facebook`    | `FacebookPixel`                                                                                 |
+| `@whatworks/analytics/posthog`     | `PostHog`, `capture`                                                                            |
+| `@whatworks/analytics/api/consent` | `GET` (consent route handler)                                                                   |
 
 All exports are named, and every tag's `Props` type is exported alongside it (e.g. `GoogleAnalyticsProps`).
 
 - **`<Analytics>`** — provider shell. Sets up consent and the inherited `enabled` default, then renders the tags you pass as children. Props: `enabled?`, `consentStrategy?`, `consentApiPath?`.
-- **`<CookieBanner>`** — default banner UI with `title`, `description`, `acceptText`, `rejectText` props. Only visible when the provider decides it should be.
-- **`<CookieBannerProvider>`** / **`useCookieBanner()`** — consent context. Exposes `consentStatus`, `shouldLoadScripts`, `shouldShowBanner`, `accept()`, `reject()`.
+- **`<CookieBannerProvider>`** / **`useCookieBanner()`** — consent context. Exposes `consentStatus`, `shouldLoadScripts`, `shouldShowBanner`, `accept()`, `reject()`. Drive your own banner UI from the hook — the package ships none (see [Build your own cookie banner](#3-build-your-own-cookie-banner)).
+- **`<CookieBannerPortal>`** — optional helper that portals children into a `document.body`-level node (`portalId?`, default `cookie-banner-root`) so a fixed banner escapes parent stacking contexts.
 - **`<GoogleAnalytics gaId>`** (`/google`) — GA4 config script. Renders the shared `gtag` / Consent Mode bootstrap internally.
 - **`<GoogleTagManager gtmId>`** (`/google`) — GTM container script plus the `<noscript>` `ns.html` fallback (see note below). Renders the shared bootstrap internally; deduped automatically when GA is also present.
 - **`<FacebookPixel pixelId>`** (`/facebook`) — Meta Pixel with SPA route tracking and noscript fallback.
@@ -205,11 +248,10 @@ All exports are named, and every tag's `Props` type is exported alongside it (e.
 - **`<LinkedInInsightTag partnerId>`** (`/linkedin`) — LinkedIn Insight Tag, consent-gated. Loads only once consent is granted (LinkedIn has no native consent API).
 - **`<PostHog apiKey>`** (`/posthog`) — PostHog product analytics, consent-gated. Lazy-loads `posthog-js` (which you install yourself; not a dependency of this package), opts out until consent is granted. Pair with `capture()` for events.
 
-Every tag also accepts an `enabled` prop — see [Enabling and disabling tags](#3-enabling-and-disabling-tags). The shared `gtag` bootstrap is an internal detail of the Google tags and is no longer exported.
+Every tag also accepts an `enabled` prop — see [Enabling and disabling tags](#4-enabling-and-disabling-tags). The shared `gtag` bootstrap is an internal detail of the Google tags and is no longer exported.
 
 ## Notes
 
 - If your GTM container includes a GA4 Configuration tag for the same property as `gaId`, `page_view` events will be double-counted. Pick one side.
-- The default `CookieBanner` renders into a portal and links to `/privacy-policy` — pass a custom `description` to override.
 - All tag components are `'use client'`; `<Analytics>` itself is a server component, so compose it from a server layout. To use the tags from a `'use client'` file, render `CookieBannerProvider` directly (see [Consent strategies](#consent-strategies)).
 - **`<noscript>` fallbacks reflect the _server-rendered_ consent posture only.** A client with JS disabled never runs the geolocation check or banner, so the GTM/Facebook/LinkedIn `<noscript>` tags appear only under grant-by-default strategies (`load-scripts-always-grant-consent`, `load-scripts-then-revoke-consent-after-geolocation-check`) and cannot honor a region-based revoke. To gate the no-JS path by region, seed `requiresConsent` from request headers at SSR rather than relying on the client `fetch`.
