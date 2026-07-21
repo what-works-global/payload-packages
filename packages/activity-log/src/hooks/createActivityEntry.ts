@@ -3,8 +3,9 @@ import type { JsonObject, PayloadRequest } from 'payload'
 import type {
   ActivityLogEvents,
   ActivityOperation,
-  ActivitySnapshotMode,
   ActivityUserRef,
+  CollectionSnapshotMode,
+  GlobalSnapshotMode,
   ResolveActivityDocumentLabel,
   ResolveActivityIpAddress,
   ResolveActivityRequestHost,
@@ -31,8 +32,24 @@ export type ActivityHookContext = {
   resolveUser?: ResolveActivityUser
   resolveUserLabel?: ResolveActivityUserLabel
   retention: { maxAgeDays: number } | null
-  snapshot: ActivitySnapshotMode
+  /**
+   * Resolves the effective snapshot mode for a given entity slug — one resolver per
+   * scope, since collections and globals can be configured (and defaulted) apart.
+   */
+  snapshot: {
+    collection: (slug: string) => CollectionSnapshotMode
+    global: (slug: string) => GlobalSnapshotMode
+  }
 }
+
+/**
+ * Whether a change event (create/update/trash/restore — never a delete) should
+ * carry a snapshot: `'always'` always does; `'fallback'` does only when the entity
+ * has no versions to fall back on; `'delete'`/`'never'` never do on a change.
+ * Globals pass their narrower mode here — it's a subset of the collection modes.
+ */
+export const shouldSnapshotChange = (mode: CollectionSnapshotMode, hasVersions: boolean): boolean =>
+  mode === 'always' || (mode === 'fallback' && !hasVersions)
 
 export const isAutosaveRequest = (req: PayloadRequest): boolean => {
   return Boolean(req.query?.autosave)

@@ -2,15 +2,20 @@ import type { CollectionConfig, Config, GlobalConfig, Plugin } from 'payload'
 
 import type { ActivityHookContext } from './hooks/createActivityEntry.js'
 import type { ActivityLogCustomConfig } from './shared.js'
-import type { ActivityEntitySelection, ActivityLogPluginConfig } from './types.js'
+import type {
+  ActivityEntitySelection,
+  ActivityLogPluginConfig,
+  SnapshotScopeConfig,
+} from './types.js'
 
 import { getActivityLogCollection } from './collections/getActivityLogCollection.js'
 import {
   defaultCollectionSlug,
+  defaultCollectionSnapshotMode,
   defaultEvents,
+  defaultGlobalSnapshotMode,
   defaultResolveIpAddress,
   defaultResolveRequestHost,
-  defaultSnapshotMode,
 } from './defaults.js'
 import { logAfterLogin, logAfterLogout } from './hooks/logAuthActivity.js'
 import {
@@ -32,6 +37,26 @@ const createSelector = <TSlug extends string>(
   }
   const excluded = new Set<string>(selection.exclude)
   return (slug) => !excluded.has(slug)
+}
+
+/**
+ * Builds a per-slug resolver from a scope's snapshot config: a bare mode applies to
+ * every entity; the object form supplies a `default` (falling back to the scope's
+ * built-in default) plus per-slug `overrides`.
+ */
+const createSnapshotResolver = <TMode extends string, TSlug extends string>(
+  scope: SnapshotScopeConfig<TMode, TSlug> | undefined,
+  fallbackMode: TMode,
+): ((slug: string) => TMode) => {
+  if (scope === undefined) {
+    return () => fallbackMode
+  }
+  if (typeof scope === 'string') {
+    return () => scope
+  }
+  const base = scope.default ?? fallbackMode
+  const overrides = (scope.overrides ?? {}) as Partial<Record<string, TMode>>
+  return (slug) => overrides[slug] ?? base
 }
 
 const resolveUserCollections = (
@@ -68,7 +93,14 @@ export const activityLogPlugin = (pluginConfig: ActivityLogPluginConfig = {}): P
     }
 
     const events = { ...defaultEvents, ...pluginConfig.events }
-    const snapshot = pluginConfig.snapshot ?? defaultSnapshotMode
+    const resolveCollectionSnapshot = createSnapshotResolver(
+      pluginConfig.snapshot?.collections,
+      defaultCollectionSnapshotMode,
+    )
+    const resolveGlobalSnapshot = createSnapshotResolver(
+      pluginConfig.snapshot?.globals,
+      defaultGlobalSnapshotMode,
+    )
     const retention = pluginConfig.retention ?? null
     const userCollections = resolveUserCollections(config, pluginConfig)
     const shouldLogCollection = createSelector(pluginConfig.collections)
@@ -95,7 +127,10 @@ export const activityLogPlugin = (pluginConfig: ActivityLogPluginConfig = {}): P
       resolveUser: pluginConfig.resolveUser,
       resolveUserLabel: pluginConfig.resolveUserLabel,
       retention,
-      snapshot,
+      snapshot: {
+        collection: resolveCollectionSnapshot,
+        global: resolveGlobalSnapshot,
+      },
     }
 
     const loggedCollection = (collection: CollectionConfig): CollectionConfig => {
@@ -176,7 +211,10 @@ export const activityLogPlugin = (pluginConfig: ActivityLogPluginConfig = {}): P
       requestHost: resolveRequestHost !== null,
       resolveUserLabel: pluginConfig.resolveUserLabel ?? null,
       retention,
-      snapshot,
+      snapshot: {
+        collections: pluginConfig.snapshot?.collections ?? defaultCollectionSnapshotMode,
+        globals: pluginConfig.snapshot?.globals ?? defaultGlobalSnapshotMode,
+      },
       userCollections,
     }
 

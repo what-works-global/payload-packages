@@ -4,17 +4,19 @@ export {
 } from './collections/getActivityLogCollection.js'
 export {
   defaultCollectionSlug,
+  defaultCollectionSnapshotMode,
   defaultEvents,
+  defaultGlobalSnapshotMode,
   defaultResolveDocumentLabel,
   defaultResolveIpAddress,
   defaultResolveRequestHost,
   defaultResolveUserLabel,
-  defaultSnapshotMode,
 } from './defaults.js'
 export {
   type ActivityHookContext,
   createActivityEntry,
   type CreateActivityEntryArgs,
+  shouldSnapshotChange,
 } from './hooks/createActivityEntry.js'
 export { logAfterLogin, logAfterLogout } from './hooks/logAuthActivity.js'
 export {
@@ -38,13 +40,16 @@ export type {
   ActivityLogEvents,
   ActivityLogPluginConfig,
   ActivityOperation,
-  ActivitySnapshotMode,
+  ActivitySnapshotConfig,
   ActivityUserRef,
+  CollectionSnapshotMode,
+  GlobalSnapshotMode,
   ResolveActivityDocumentLabel,
   ResolveActivityIpAddress,
   ResolveActivityRequestHost,
   ResolveActivityUser,
   ResolveActivityUserLabel,
+  SnapshotScopeConfig,
 } from './types.js'
 export { getChangedFields } from './utilities/getChangedFields.js'
 export { normalizeUserRef } from './utilities/normalizeUserRef.js'

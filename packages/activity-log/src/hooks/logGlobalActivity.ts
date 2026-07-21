@@ -9,6 +9,7 @@ import {
   resolveEventDocumentLabel,
   resolveEventUser,
   resolveEventUserLabel,
+  shouldSnapshotChange,
   toSnapshot,
 } from './createActivityEntry.js'
 import { getIgnoredChangedFields } from './logCollectionActivity.js'
@@ -83,7 +84,9 @@ export const logGlobalAfterChange = (context: ActivityHookContext): GlobalAfterC
       globalSlug: global.slug,
       operation,
       req,
-      snapshot: context.snapshot === 'always' ? toSnapshot(doc) : undefined,
+      snapshot: shouldSnapshotChange(context.snapshot.global(global.slug), Boolean(global.versions))
+        ? toSnapshot(doc)
+        : undefined,
       user,
       userLabel,
       versionId,

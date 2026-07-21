@@ -1,5 +1,7 @@
 import type {
   ActivityLogEvents,
+  CollectionSnapshotMode,
+  GlobalSnapshotMode,
   ResolveActivityDocumentLabel,
   ResolveActivityIpAddress,
   ResolveActivityRequestHost,
@@ -19,7 +21,11 @@ export const defaultEvents: Required<ActivityLogEvents> = {
   update: true,
 }
 
-export const defaultSnapshotMode = 'delete'
+/** Snapshot on permanent delete only — versioned collections rely on the version link. */
+export const defaultCollectionSnapshotMode: CollectionSnapshotMode = 'delete'
+
+/** Globals aren't snapshotted by default; opt in per global (or set the scope default). */
+export const defaultGlobalSnapshotMode: GlobalSnapshotMode = 'never'
 
 /**
  * Default IP resolution when `ipAddress: true`: the standard reverse-proxy

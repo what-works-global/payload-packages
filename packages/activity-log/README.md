@@ -79,10 +79,21 @@ activityLogPlugin({
     autosave: false, // default false — autosaves fire every few seconds while editing
   },
 
-  // When to store a full JSON snapshot of the affected document:
-  // 'delete' (default) — only on permanent delete, where it's the only surviving
-  // record; 'always' — every change (watch your database size); 'never'.
-  snapshot: 'delete',
+  // When to store a full JSON snapshot of the affected document, configured
+  // separately for collections and globals. A snapshot is a fallback for the
+  // version link — worth storing only when a durable version won't be there to
+  // recover the data from. Each scope takes a single mode, or { default, overrides }
+  // to tune individual slugs.
+  //   'never'    — never store document data.
+  //   'delete'   — (collections only) on permanent delete, the sole surviving record.
+  //   'fallback' — on delete, plus every change to an entity with NO versions
+  //                enabled; versioned entities rely on the version link instead.
+  //   'always'   — on every change (watch your database size).
+  // Defaults: collections 'delete', globals 'never'.
+  snapshot: {
+    collections: 'delete',
+    globals: { default: 'never', overrides: { 'site-settings': 'always' } },
+  },
 
   // Opt-in IP address tracking. When enabled, an `ipAddress` field is added to
   // the log collection and every entry stores the requester's address.
@@ -151,6 +162,23 @@ activityLogPlugin({
 Payload saves a change's version _before_ `afterChange` hooks run, so each log entry can record the ID of the exact version its change produced. The **Version** column links straight to that version's diff view. For entities without versions the column shows `—`, and the entry's changed-field names still tell you what was touched.
 
 Cells only link to destinations that still resolve: once a document is permanently deleted (its versions are deleted with it) the version cell shows a muted "Document deleted" and the document cell shows the stored title without a link; a version pruned by `versions.maxPerDoc` shows `—`. The actor gets the same treatment — a deleted user's label loses its link (in the list and on the entry view). Documents and users sitting in the trash link under the trash route. The existence checks are batched per render pass — one query per collection for a whole page of rows, not one per cell — and the actor checks share the same batch.
+
+## Snapshots
+
+A snapshot is a full JSON copy of the affected document, stored on the log entry. It's a **fallback for the version link** — the plugin prefers to link to the version a change produced rather than duplicate data, and only stores a snapshot when a durable version won't be there to recover from. There are exactly two such cases: a **permanent delete** (Payload deletes a document's versions with it) and an entity with **no versions enabled** (there's no version to link to).
+
+The four modes form a ladder from least to most stored — `never` < `delete` < `fallback` < `always` — set per scope:
+
+| mode       | on change (create/update/trash/restore)     | on permanent delete |
+| ---------- | ------------------------------------------- | ------------------- |
+| `never`    | —                                           | —                   |
+| `delete`   | —                                           | snapshot            |
+| `fallback` | snapshot **iff the entity has no versions** | snapshot            |
+| `always`   | snapshot                                    | snapshot            |
+
+- **Collections default to `'delete'`** — the version link carries normal change history; the snapshot only fills the one gap deletes leave.
+- **Globals default to `'never'`** — globals can't be deleted, so there's no delete gap to fill, and versioned globals are already covered by the version link. Opt individual globals in with `'fallback'` (unversioned globals) or `'always'`, e.g. `globals: { default: 'never', overrides: { 'site-settings': 'always' } }`. `'delete'` is not a valid global mode.
+- Snapshotting is independent of logging: a global set to `'never'` is still logged (actor, changed fields, version link) — it just stores no JSON copy.
 
 ## Using with @whatworks/payload-audit-fields
 

@@ -147,15 +147,58 @@ export type ActivityLogEvents = {
 }
 
 /**
- * When to store a full JSON snapshot of the affected document on the log entry.
+ * When to store a full JSON snapshot of a collection document on the log entry.
+ * A snapshot is a fallback for the version link — worth storing only when a durable
+ * version won't be there to recover the data from. The modes form a ladder from
+ * least to most stored: `never` < `delete` < `fallback` < `always`.
  *
- * - `'delete'` (default) — only on delete, where the document (and its versions)
- *   are gone and the snapshot is the only surviving record.
- * - `'always'` — on every logged change. Consider your database size; prefer
- *   versions + the stored version link instead.
- * - `'never'` — never store document data.
+ * - `'never'` — never store document data, not even on permanent delete.
+ * - `'delete'` (default) — only on permanent delete, where the document (and its
+ *   versions) are gone and the snapshot is the only surviving record.
+ * - `'fallback'` — on permanent delete, plus on every change to a collection with
+ *   **no versions enabled**, where there is no version link to fall back on.
+ *   Versioned collections rely on the version link for their change history.
+ * - `'always'` — on every logged change. Consider your database size; this
+ *   duplicates data the version link already captures.
  */
-export type ActivitySnapshotMode = 'always' | 'delete' | 'never'
+export type CollectionSnapshotMode = 'always' | 'delete' | 'fallback' | 'never'
+
+/**
+ * When to store a full JSON snapshot of a global on the log entry. Same meaning as
+ * {@link CollectionSnapshotMode} minus `'delete'` — globals can't be deleted, so
+ * there is no delete event to snapshot.
+ *
+ * - `'never'` (default) — never store the global's data.
+ * - `'fallback'` — snapshot every change to a global with **no versions enabled**;
+ *   versioned globals rely on the version link.
+ * - `'always'` — snapshot on every change, even when the version link covers it.
+ */
+export type GlobalSnapshotMode = 'always' | 'fallback' | 'never'
+
+/**
+ * Snapshot configuration for one scope (collections or globals): either a single
+ * mode applied to every entity, or a `default` mode plus per-slug `overrides`.
+ */
+export type SnapshotScopeConfig<TMode extends string, TSlug extends string> =
+  | {
+      /** Mode for entities without an explicit override. Falls back to the scope default. */
+      default?: TMode
+      /** Per-slug modes, keyed by collection/global slug. */
+      overrides?: Partial<Record<TSlug, TMode>>
+    }
+  | TMode
+
+/**
+ * When to store a full JSON snapshot of the affected document, configured
+ * independently for collections and globals. See {@link CollectionSnapshotMode}
+ * and {@link GlobalSnapshotMode}.
+ *
+ * @default { collections: 'delete', globals: 'never' }
+ */
+export type ActivitySnapshotConfig = {
+  collections?: SnapshotScopeConfig<CollectionSnapshotMode, CollectionSlug>
+  globals?: SnapshotScopeConfig<GlobalSnapshotMode, GlobalSlug>
+}
 
 export type ActivityLogPluginConfig = {
   /**
@@ -251,12 +294,12 @@ export type ActivityLogPluginConfig = {
     maxAgeDays: number
   }
   /**
-   * When to store a full JSON snapshot of the affected document.
-   * See {@link ActivitySnapshotMode}.
+   * When to store a full JSON snapshot of the affected document, configured
+   * per scope. See {@link ActivitySnapshotConfig}.
    *
-   * @default 'delete'
+   * @default { collections: 'delete', globals: 'never' }
    */
-  snapshot?: ActivitySnapshotMode
+  snapshot?: ActivitySnapshotConfig
   /**
    * Auth-enabled collections whose users can appear as actors (and whose
    * logins/logouts are logged). Defaults to every auth-enabled collection in the

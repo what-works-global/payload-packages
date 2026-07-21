@@ -1,6 +1,10 @@
 import type { Config } from 'payload'
 
-import type { ActivityLogEvents, ActivitySnapshotMode, ResolveActivityUserLabel } from './types.js'
+import type {
+  ActivityLogEvents,
+  ActivitySnapshotConfig,
+  ResolveActivityUserLabel,
+} from './types.js'
 
 export const pluginKey = '@whatworks/payload-activity-log'
 
@@ -37,7 +41,8 @@ export type ActivityLogCustomConfig = {
   requestHost: boolean
   resolveUserLabel: null | ResolveActivityUserLabel
   retention: { maxAgeDays: number } | null
-  snapshot: ActivitySnapshotMode
+  /** Effective per-scope snapshot config, with scope defaults filled in. */
+  snapshot: Required<ActivitySnapshotConfig>
   userCollections: string[]
 }
 

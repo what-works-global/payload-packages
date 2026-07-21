@@ -2,6 +2,8 @@ import type { CollectionConfig, Config, PayloadRequest } from 'payload'
 
 import { describe, expect, it, vi } from 'vitest'
 
+import type { CollectionSnapshotMode, GlobalSnapshotMode } from '../src/index.js'
+
 import { createBatcher } from '../src/cells/getLoggedDocumentStatus.js'
 import {
   activityLogPlugin,
@@ -12,10 +14,20 @@ import {
   getChangedFields,
   logCollectionAfterChange,
   logCollectionAfterDelete,
+  logGlobalAfterChange,
   pluginKey,
   userCellComponentPath,
   userFieldComponentPath,
 } from '../src/index.js'
+
+/**
+ * Builds the per-scope snapshot resolvers a hook context expects. Defaults mirror
+ * the plugin defaults: collections `'delete'`, globals `'never'`.
+ */
+const snapshotResolvers = (
+  collection: CollectionSnapshotMode = 'delete',
+  global: GlobalSnapshotMode = 'never',
+) => ({ collection: () => collection, global: () => global })
 
 const baseConfig = (): Partial<Config> => ({
   admin: { user: 'users' },
@@ -51,6 +63,7 @@ const buildReq = (overrides: Record<string, unknown> = {}) => {
         created.push(args)
         return Promise.resolve({ id: 'log-entry' })
       }),
+      findGlobalVersions: vi.fn(() => Promise.resolve({ docs: [{ id: 'gversion-1' }] })),
       findVersions: vi.fn(() => Promise.resolve({ docs: [{ id: 'version-1' }] })),
       logger: { error: vi.fn() },
     },
@@ -94,7 +107,7 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       requestHost: false,
       resolveUserLabel: null,
       retention: null,
-      snapshot: 'delete',
+      snapshot: { collections: 'delete', globals: 'never' },
       userCollections: ['users'],
     })
   })
@@ -130,7 +143,7 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       events: defaultEvents,
       logSlug: 'activity-log',
       retention: null,
-      snapshot: 'delete',
+      snapshot: snapshotResolvers('delete'),
     } as const
     const hook = logCollectionAfterChange(context)
     const collection = { slug: 'posts', versions: { drafts: true } } as never
@@ -178,7 +191,7 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       events: defaultEvents,
       logSlug: 'activity-log',
       retention: null,
-      snapshot: 'delete',
+      snapshot: snapshotResolvers('delete'),
     } as const
     const hook = logCollectionAfterChange(context)
     const collection = { slug: 'posts', trash: true } as never
@@ -210,7 +223,7 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       events: defaultEvents,
       logSlug: 'activity-log',
       retention: null,
-      snapshot: 'delete',
+      snapshot: snapshotResolvers('delete'),
     } as const
     const hook = logCollectionAfterChange(context)
     const collection = { slug: 'posts' } as never
@@ -246,7 +259,7 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       events: defaultEvents,
       logSlug: 'activity-log',
       retention: null,
-      snapshot: 'delete',
+      snapshot: snapshotResolvers('delete'),
     })({ id: 'post-1', collection, context: {}, doc, req: withSnapshot.req } as never)
     expect(withSnapshot.created[0].data).toMatchObject({
       operation: 'delete',
@@ -258,9 +271,97 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       events: defaultEvents,
       logSlug: 'activity-log',
       retention: null,
-      snapshot: 'never',
+      snapshot: snapshotResolvers('never'),
     })({ id: 'post-1', collection, context: {}, doc, req: withoutSnapshot.req } as never)
     expect(withoutSnapshot.created[0].data.snapshot).toBeUndefined()
+  })
+
+  it('snapshots collection changes per mode and version state', async () => {
+    const versioned = { slug: 'posts', versions: { drafts: true } } as never
+    const unversioned = { slug: 'tags' } as never
+    const doc = { id: 'x-1', title: 'Hello' }
+    const runChange = async (mode: CollectionSnapshotMode, collection: unknown) => {
+      const { created, req } = buildReq()
+      await logCollectionAfterChange({
+        events: defaultEvents,
+        logSlug: 'activity-log',
+        retention: null,
+        snapshot: snapshotResolvers(mode),
+      })({ collection, context: {}, doc, operation: 'create', req } as never)
+      return created[0].data.snapshot
+    }
+
+    // 'delete' never snapshots on a change; 'always' always does.
+    expect(await runChange('delete', versioned)).toBeUndefined()
+    expect(await runChange('always', versioned)).toMatchObject({ id: 'x-1' })
+    // 'fallback' snapshots only when there is no version link to fall back on.
+    expect(await runChange('fallback', versioned)).toBeUndefined()
+    expect(await runChange('fallback', unversioned)).toMatchObject({ id: 'x-1' })
+  })
+
+  it('snapshots global changes per mode and version state', async () => {
+    const versioned = { slug: 'settings', versions: true } as never
+    const unversioned = { slug: 'settings' } as never
+    const runChange = async (mode: GlobalSnapshotMode, global: unknown) => {
+      const { created, req } = buildReq()
+      await logGlobalAfterChange({
+        events: defaultEvents,
+        logSlug: 'activity-log',
+        retention: null,
+        snapshot: snapshotResolvers('delete', mode),
+      })({
+        doc: { id: 'settings', title: 'Hello' },
+        global,
+        previousDoc: { id: 'settings' },
+        req,
+      } as never)
+      return created[0].data.snapshot
+    }
+
+    // 'never' (the global default) keeps no copy; 'always' always does.
+    expect(await runChange('never', versioned)).toBeUndefined()
+    expect(await runChange('always', versioned)).toMatchObject({ id: 'settings' })
+    // 'fallback' snapshots only an unversioned global.
+    expect(await runChange('fallback', versioned)).toBeUndefined()
+    expect(await runChange('fallback', unversioned)).toMatchObject({ id: 'settings' })
+  })
+
+  it('resolves per-slug snapshot overrides through the plugin', async () => {
+    const result = await activityLogPlugin({
+      snapshot: {
+        collections: { default: 'never', overrides: { posts: 'always' } },
+        globals: { default: 'never', overrides: { settings: 'always' } },
+      },
+    })(baseConfig() as Config)
+
+    const changeArgs = { context: {}, doc: { id: 'd-1', title: 'Hello' }, operation: 'create' }
+
+    // posts is overridden to 'always'; tags falls to the 'never' default.
+    const posts = buildReq()
+    await getCollection(result, 'posts').hooks?.afterChange?.[0]?.({
+      ...changeArgs,
+      collection: { slug: 'posts', versions: { drafts: true } },
+      req: posts.req,
+    } as never)
+    expect(posts.created[0].data.snapshot).toMatchObject({ id: 'd-1' })
+
+    const tags = buildReq()
+    await getCollection(result, 'tags').hooks?.afterChange?.[0]?.({
+      ...changeArgs,
+      collection: { slug: 'tags' },
+      req: tags.req,
+    } as never)
+    expect(tags.created[0].data.snapshot).toBeUndefined()
+
+    // The 'settings' global is overridden to 'always' despite having versions.
+    const settings = buildReq()
+    await result.globals?.[0]?.hooks?.afterChange?.[0]?.({
+      doc: { id: 'settings', title: 'Hello' },
+      global: { slug: 'settings', versions: true },
+      previousDoc: { id: 'settings' },
+      req: settings.req,
+    } as never)
+    expect(settings.created[0].data.snapshot).toMatchObject({ id: 'settings' })
   })
 
   it('reuses audit-fields resolveUserLabel from config.custom when not overridden', async () => {
@@ -274,7 +375,7 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
       events: defaultEvents,
       logSlug: 'activity-log',
       retention: null,
-      snapshot: 'delete',
+      snapshot: snapshotResolvers('delete'),
     })({ collection, context: {}, doc: { id: 'post-1' }, operation: 'create', req } as never)
 
     expect(created[0].data.userLabel).toBe('from-audit-fields')
@@ -437,13 +538,14 @@ describe('@whatworks/payload-activity-log peer smoke', () => {
     const result = await activityLogPlugin({
       resolveUserLabel,
       retention: { maxAgeDays: 30 },
-      snapshot: 'never',
+      snapshot: { collections: 'never' },
     })(baseConfig() as Config)
 
+    // Scope defaults are filled in: only `collections` was given, `globals` defaults.
     expect(result.custom?.[pluginKey]).toMatchObject({
       resolveUserLabel,
       retention: { maxAgeDays: 30 },
-      snapshot: 'never',
+      snapshot: { collections: 'never', globals: 'never' },
     })
   })
 

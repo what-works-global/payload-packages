@@ -16,6 +16,7 @@ import {
   resolveEventDocumentLabel,
   resolveEventUser,
   resolveEventUserLabel,
+  shouldSnapshotChange,
   toSnapshot,
 } from './createActivityEntry.js'
 
@@ -128,7 +129,12 @@ export const logCollectionAfterChange = (
       documentTitle,
       operation,
       req,
-      snapshot: context.snapshot === 'always' ? toSnapshot(doc) : undefined,
+      snapshot: shouldSnapshotChange(
+        context.snapshot.collection(collection.slug),
+        Boolean(collection.versions),
+      )
+        ? toSnapshot(doc)
+        : undefined,
       user,
       userLabel,
       versionId,
@@ -170,8 +176,9 @@ export const logCollectionAfterDelete = (
       operation: 'delete',
       req,
       // A deleted document's versions are deleted with it, so the snapshot is the
-      // only surviving record — stored unless snapshots are fully disabled.
-      snapshot: context.snapshot === 'never' ? undefined : toSnapshot(doc),
+      // only surviving record — stored for every mode except 'never'.
+      snapshot:
+        context.snapshot.collection(collection.slug) === 'never' ? undefined : toSnapshot(doc),
       user,
       userLabel,
     })
