@@ -14,7 +14,6 @@ permissions:
 jobs:
   resolve:
     name: Resolve affected packages & matrix
-    if: github.head_ref == 'changeset-release/main'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
@@ -87,7 +86,7 @@ jobs:
   ci-gate:
     name: CI Gate
     needs: [check, peer-matrix]
-    if: always() && github.head_ref == 'changeset-release/main'
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verify no required job failed
