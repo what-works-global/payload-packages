@@ -1,0 +1,142 @@
+{
+  "name": "@whatworks/payload-paths",
+  "version": "0.1.0",
+  "description": "Stored, queryable document paths for Payload page trees — a computed `path` field with publish-time uniqueness, hierarchy cascades (nested-docs or standalone), prefix-free storage with a virtual `url`, an onInit backfill, and a framework-agnostic resolver with pluggable caches (Next.js unstable_cache adapter included).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsdown",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
+    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "dev": "next dev dev",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "dev:payload": "cd dev && cross-env PAYLOAD_CONFIG_PATH=./payload.config.ts payload",
+    "generate:importmap": "pnpm dev:generate-importmap",
+    "generate:types": "pnpm dev:generate-types",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
+    "test": "vitest run",
+    "test:peer": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typecheck:dev": "tsc -p dev/tsconfig.json --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/what-works-global/payload-packages",
+    "directory": "packages/paths"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./cache": {
+      "types": "./src/exports/cache.ts",
+      "import": "./src/exports/cache.ts",
+      "default": "./src/exports/cache.ts"
+    },
+    "./next": {
+      "types": "./src/exports/next.ts",
+      "import": "./src/exports/next.ts",
+      "default": "./src/exports/next.ts"
+    },
+    "./next/plugin": {
+      "types": "./src/exports/next-plugin.ts",
+      "import": "./src/exports/next-plugin.ts",
+      "default": "./src/exports/next-plugin.ts"
+    },
+    "./resolver": {
+      "types": "./src/exports/resolver.ts",
+      "import": "./src/exports/resolver.ts",
+      "default": "./src/exports/resolver.ts"
+    }
+  },
+  "peerDependencies": {
+    "next": ">=15.0.0 <17",
+    "payload": ">=3.54.0 <4",
+    "react": ">=19.0.0 <20"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "whatworks": {
+    "peerMatrix": {
+      "payload": {
+        "min": "3.54.0"
+      }
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
+    "@payloadcms/db-sqlite": "catalog:",
+    "@payloadcms/eslint-config": "catalog:",
+    "@payloadcms/next": "catalog:",
+    "@payloadcms/plugin-nested-docs": "3.84.1",
+    "@payloadcms/ui": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "cross-env": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-next": "catalog:",
+    "next": "catalog:",
+    "payload": "catalog:",
+    "publint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "rimraf": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./cache": {
+        "types": "./dist/exports/cache.d.ts",
+        "import": "./dist/exports/cache.js",
+        "default": "./dist/exports/cache.js"
+      },
+      "./next": {
+        "types": "./dist/exports/next.d.ts",
+        "import": "./dist/exports/next.js",
+        "default": "./dist/exports/next.js"
+      },
+      "./next/plugin": {
+        "types": "./dist/exports/next-plugin.d.ts",
+        "import": "./dist/exports/next-plugin.js",
+        "default": "./dist/exports/next-plugin.js"
+      },
+      "./resolver": {
+        "types": "./dist/exports/resolver.d.ts",
+        "import": "./dist/exports/resolver.js",
+        "default": "./dist/exports/resolver.js"
+      }
+    }
+  }
+}

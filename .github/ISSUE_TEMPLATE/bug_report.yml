@@ -20,6 +20,7 @@ body:
         - "@whatworks/payload-block-settings"
         - "@whatworks/payload-heading-field"
         - "@whatworks/payload-utilities"
+        - "@whatworks/payload-paths"
         - "@whatworks/payload-rbac"
         - "@whatworks/payload-redirects"
         - "@whatworks/payload-select-search-field"

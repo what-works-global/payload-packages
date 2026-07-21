@@ -20,6 +20,7 @@ A monorepo of [Payload CMS](https://payloadcms.com) plugins, fields, and utiliti
 | [`audit-fields`](./packages/audit-fields)               | Track `createdBy`/`lastModifiedBy` on every collection and global, with a per-version "Modified By" column.                                   |
 | [`block-settings`](./packages/block-settings)           | Hide extra fields for blocks behind a visibility toggle button.                                                                               |
 | [`heading-field`](./packages/heading-field)             | Let editors choose the rendered heading tag (`h1`–`h6`) for a text, textarea, or richText field.                                              |
+| [`paths`](./packages/paths)                             | Stored, queryable document paths for page trees — duplicate slugs at different levels, publish-time uniqueness, cascades, and a resolver.     |
 | [`rbac`](./packages/rbac)                               | Database-backed role-based access control with a CRUD permissions matrix, privilege-escalation protection, and a locked admin role.           |
 | [`redirects`](./packages/redirects)                     | Managed redirects with a cache-backed Next.js middleware matcher — match types + regex, query forwarding, loop-safe chains, and hit tracking. |
 | [`select-search-field`](./packages/select-search-field) | Server-backed search select field and plugin for Payload.                                                                                     |
