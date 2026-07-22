@@ -17,7 +17,7 @@ Role based access control for Payload where the roles live in the database. Edit
 - **Role assignment requires `roles:update`** — for everyone else the roles field renders read-only in the admin panel. And a role your remaining roles could not re-grant cannot be removed from your own account, so you can never accidentally strip your own access.
 - **Built-in admin role** (`adminRole`): a role the plugin locks to full access (`['*']`) — it can never be downgraded, renamed, or deleted through the API, so you can never lose your last full-access role. Only its holders can assign it (even `'*'` through another role is not enough). It is auto-assigned to the first user created, and at least one user always holds it — removing it from (or deleting) the last administrator is blocked, and if the database is damaged so badly that nobody holds it, any signed-in user can claim it for themselves. Other roles can opt into the same code-locking with `protected: true`.
 - **Administrators can only be managed by administrators**: a user who does not hold the admin role cannot create, update, or delete an account that does — no matter what `users:*` permissions they hold, even full access through another role. See [below](#administrators-can-only-be-managed-by-administrators).
-- **Per-role credential protection** (`credentialChanges: 'self'`): the password, email, and username of users holding such a role can only be changed by the account owner — anyone else sends a password-reset email instead. Always on for the admin role, so an administrator account can never be taken over by another user with `users:update`.
+- **Credential protection** (on by default): the password, email, and username of any user holding a role — predefined or created in the admin panel — can be changed only by the account owner; anyone else sends a password-reset email instead. Opt a **predefined** role out with `credentialChanges: 'anyone'`. Always on for the admin role, so an administrator account can never be taken over by another user with `users:update`.
 - Users can always read/update their own account document (configurable), so the admin account view keeps working for low-privilege users.
 
 ## Demo
@@ -184,9 +184,11 @@ Two boundaries to know:
 
 ## Self-only credentials
 
-Permissions alone cannot protect an account from other users: `users:update` is enough to set someone else's password — or to change their email and request a password reset to it — and take the account over. So credential changes get their own rule, per role: the password, email, and username of a user holding a `credentialChanges: 'self'` role can only be changed by that user, no matter what permissions everyone else holds. Helping a locked-out colleague means sending them a password-reset email. Email and username are locked together with password deliberately — an editable email plus the reset flow would take the account over anyway.
+Permissions alone cannot protect an account from other users: `users:update` is enough to set someone else's password — or to change their email and request a password reset to it — and take the account over. So credential changes get their own rule: the password, email, and username of a user can only be changed by that user, no matter what permissions everyone else holds. Helping a locked-out colleague means sending them a password-reset email. Email and username are locked together with password deliberately — an editable email plus the reset flow would take the account over anyway.
 
-The `adminRole` is always `'self'`; opt other roles in per role. The protection follows the role name, so pair `'self'` with `protected: true` to prevent the role being renamed away from it. Writes without a user (local API, seeds) are never restricted, like the other guards.
+**This is on by default for every role** — the ones you predefine in code _and_ the ones editors create in the admin panel — so credential takeover is closed out of the box, no per-role setting required. The only way to open it back up is to mark a **predefined** role `credentialChanges: 'anyone'`, restoring Payload's default where anyone with update access can change its holders' credentials. A user is exempt only when _every_ role they hold is opted out that way; hold one self-only role — including any database-defined role — and you stay protected (most restrictive wins). The `adminRole` is always `'self'` and cannot be opted out.
+
+Because the opt-out lives on the predefined role definition, it follows the role name: pair `credentialChanges: 'anyone'` with `protected: true` if you need it to survive a rename. Writes without a user (local API, seeds) and a user editing their own account are never restricted, like the other guards.
 
 ### Protecting the developer account from client admins
 
@@ -251,9 +253,10 @@ rbacPlugin({
 
   // Additional roles seeded on init when no role with the same name exists.
   // `protected: true` locks a role to its code definition the same way the
-  // adminRole is locked (default: false — the database wins). `credentialChanges:
-  // 'self'` makes holders' password/email/username changeable only by themselves
-  // (default: 'anyone'; the adminRole is always 'self').
+  // adminRole is locked (default: false — the database wins). Holders' credentials
+  // (password/email/username) are self-only by default; set `credentialChanges:
+  // 'anyone'` to let anyone with update access change them instead. The adminRole
+  // is always 'self'.
   roles: [{ name: 'Editor', permissions: ['posts:read', 'posts:update'] }],
 
   // Users may read/update their own user document without holding the collection

@@ -923,12 +923,14 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     expect(users.hooks?.beforeDelete).toHaveLength(2)
   })
 
-  it("locks credentials of users holding a credentialChanges: 'self' role to themselves", async () => {
+  it('locks every user’s credentials to the account owner by default, exempting only opted-out roles', async () => {
     const result = await rbacPlugin({ adminRole: 'Super Admin' })(baseConfig())
+    // Only 'Admin' is opted out with credentialChanges: 'anyone'. Everything else
+    // — the admin role, and the database-only 'Custom' role — is self-only.
     const hook = createProtectCredentialsHook({
+      anyoneRoleNames: ['Admin'],
       rolesCollectionSlug: 'roles',
       rolesFieldName: 'roles',
-      selfOnlyRoleNames: ['Super Admin'],
       userCollectionSlug: 'users',
     })
     const roleDb = () => ({
@@ -936,6 +938,7 @@ describe('@whatworks/payload-rbac peer smoke', () => {
         const all = [
           { id: 9, name: 'Super Admin' },
           { id: 3, name: 'Admin' },
+          { id: 7, name: 'Custom' },
         ]
         const ids = findArgs.where?.id?.in
         return Promise.resolve({ docs: ids ? all.filter((r) => ids.includes(r.id)) : all })
@@ -982,7 +985,29 @@ describe('@whatworks/payload-rbac peer smoke', () => {
       } as never),
     ).resolves.toBeTruthy()
 
-    // Users without a self-only role stay editable.
+    // A holder of a database-only role is protected too — self-only is the
+    // built-in default, not something a role has to opt into.
+    await expect(
+      hook({
+        data: { password: 'reset-by-admin' },
+        operation: 'update',
+        originalDoc: { id: 6, roles: [7] },
+        req: clientReq(),
+      } as never),
+    ).rejects.toThrow(/password-reset email/)
+
+    // Any self-only role protects, even alongside an opted-out one (most
+    // restrictive wins).
+    await expect(
+      hook({
+        data: { password: 'reset-by-admin' },
+        operation: 'update',
+        originalDoc: { id: 6, roles: [3, 7] },
+        req: clientReq(),
+      } as never),
+    ).rejects.toThrow(/password-reset email/)
+
+    // A user whose every role is opted out stays editable by others.
     await expect(
       hook({
         data: { password: 'reset-by-admin' },
@@ -1004,6 +1029,18 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     ).resolves.toBeTruthy()
     expect(noCredentialWrite.payload.find).not.toHaveBeenCalled()
 
+    // A user with no roles has nothing to protect — editable, no lookup.
+    const noRoleTarget = clientReq()
+    await expect(
+      hook({
+        data: { password: 'onboard' },
+        operation: 'update',
+        originalDoc: { id: 8, roles: [] },
+        req: noRoleTarget,
+      } as never),
+    ).resolves.toBeTruthy()
+    expect(noRoleTarget.payload.find).not.toHaveBeenCalled()
+
     // Creates and system writes (no user) pass through.
     await expect(
       hook({ data: { password: 'x' }, operation: 'create', req: clientReq() } as never),
@@ -1017,16 +1054,11 @@ describe('@whatworks/payload-rbac peer smoke', () => {
       } as never),
     ).resolves.toBeTruthy()
 
-    // Wiring: the adminRole always installs the guard; other roles opt in with
-    // credentialChanges: 'self'.
-    const optIn = await rbacPlugin({
-      roles: [{ name: 'Manager', credentialChanges: 'self', permissions: ['posts:read'] }],
-    })(baseConfig())
-    expect(getCollection(optIn, 'users').hooks?.beforeChange).toHaveLength(2)
-    const none = await rbacPlugin({
-      roles: [{ name: 'Manager', permissions: ['posts:read'] }],
-    })(baseConfig())
-    expect(getCollection(none, 'users').hooks?.beforeChange).toHaveLength(1)
+    // Wiring: the guard is installed unconditionally — credentials are self-only
+    // for every role by default, and database-defined roles are unknown at config
+    // time. With escalation off and no admin role, it is the only beforeChange hook.
+    const bare = await rbacPlugin({ preventPrivilegeEscalation: false })(baseConfig())
+    expect(getCollection(bare, 'users').hooks?.beforeChange).toHaveLength(1)
   })
 
   it('keeps at least one user holding the admin role', async () => {

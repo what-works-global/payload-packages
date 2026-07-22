@@ -23,17 +23,18 @@ export type PredefinedRole = {
   /**
    * Who may change the credentials — password, email, and username — of users
    * holding this role:
-   * - `'anyone'` — anyone with update access to the user (the default).
-   * - `'self'` — only the account owner. Everyone else gets a 403 regardless of
-   *   their permissions and should send a password-reset email instead. Email and
-   *   username are locked together with password deliberately: an editable email
-   *   plus the reset flow would take the account over anyway.
+   * - `'self'` — only the account owner (the default). Everyone else gets a 403
+   *   regardless of their permissions and should send a password-reset email
+   *   instead. Email and username are locked together with password deliberately:
+   *   an editable email plus the reset flow would take the account over anyway.
+   * - `'anyone'` — anyone with update access to the user may change them, the way
+   *   Payload behaves without this plugin.
    *
    * The role defined by `adminRole` is always `'self'`. The protection follows
    * the role name, so pair `'self'` with `protected: true` to prevent the role
    * being renamed away from it.
    *
-   * @default 'anyone'
+   * @default 'self'
    */
   credentialChanges?: 'anyone' | 'self'
   description?: string

@@ -115,8 +115,11 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
     ]
     const protectedRoles = predefinedRoles.filter((role) => role.protected)
     const protectedRoleNames = protectedRoles.map((role) => role.name)
-    const selfOnlyCredentialRoleNames = predefinedRoles
-      .filter((role) => role.credentialChanges === 'self')
+    // Credentials are self-only for every role — including roles defined only in
+    // the database — so the guard only needs the explicit opt-outs. Everything
+    // not on this list (the default) is protected.
+    const anyoneCredentialRoleNames = predefinedRoles
+      .filter((role) => role.credentialChanges === 'anyone')
       .map((role) => role.name)
 
     if ((config.collections ?? []).some((collection) => collection.slug === rolesCollectionSlug)) {
@@ -252,16 +255,17 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
         beforeChange.push(createProtectAdminUsersChangeHook(protectAdminUsersArgs))
         beforeDelete.push(createProtectAdminUsersDeleteHook(protectAdminUsersArgs))
       }
-      if (selfOnlyCredentialRoleNames.length > 0) {
-        beforeChange.push(
-          createProtectCredentialsHook({
-            rolesCollectionSlug,
-            rolesFieldName,
-            selfOnlyRoleNames: selfOnlyCredentialRoleNames,
-            userCollectionSlug: collection.slug,
-          }),
-        )
-      }
+      // Always installed: credentials are self-only by default for every role,
+      // and roles created in the database aren't known at config time, so the
+      // guard has to be present even when no role is predefined.
+      beforeChange.push(
+        createProtectCredentialsHook({
+          anyoneRoleNames: anyoneCredentialRoleNames,
+          rolesCollectionSlug,
+          rolesFieldName,
+          userCollectionSlug: collection.slug,
+        }),
+      )
       if (preventEscalation || adminRole.name) {
         beforeChange.push(
           createProtectRolesFieldHook({

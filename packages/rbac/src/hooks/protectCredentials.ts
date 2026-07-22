@@ -5,10 +5,15 @@ import { APIError } from 'payload'
 import { normalizeRoleIds } from './protectRolesField.js'
 
 export type ProtectCredentialsArgs = {
+  /**
+   * Names of predefined roles opted out of credential protection with
+   * `credentialChanges: 'anyone'`. Every other role — including every role
+   * defined only in the database — is self-only, so a user is exempt only when
+   * every role they hold appears on this list.
+   */
+  anyoneRoleNames: string[]
   rolesCollectionSlug: string
   rolesFieldName: string
-  /** Names of the `credentialChanges: 'self'` roles (the adminRole always is one). */
-  selfOnlyRoleNames: string[]
   /** Slug of the user collection this hook is installed on. */
   userCollectionSlug: string
 }
@@ -17,20 +22,22 @@ const identityFields = ['email', 'username'] as const
 
 /**
  * Credential guard installed on each user collection: the password, email, and
- * username of a user holding a `credentialChanges: 'self'` role can only be
- * changed by that user — everyone else gets a 403 no matter what permissions
- * they hold, and should send a password-reset email instead. Email and username
- * are locked together with password deliberately: an editable email plus the
- * reset flow would take the account over anyway. Writes without a user (seeds,
- * local API scripts) pass through, matching the other guards.
+ * username of a user can only be changed by that user — everyone else gets a 403
+ * no matter what permissions they hold, and should send a password-reset email
+ * instead. This is the default for every role, including roles defined only in
+ * the database; a user is exempt only when every role they hold is a predefined
+ * role opted out with `credentialChanges: 'anyone'`. Email and username are
+ * locked together with password deliberately: an editable email plus the reset
+ * flow would take the account over anyway. Writes without a user (seeds, local
+ * API scripts) and a user editing their own account pass through.
  */
 export const createProtectCredentialsHook = ({
+  anyoneRoleNames,
   rolesCollectionSlug,
   rolesFieldName,
-  selfOnlyRoleNames,
   userCollectionSlug,
 }: ProtectCredentialsArgs): CollectionBeforeChangeHook => {
-  const selfOnly = new Set(selfOnlyRoleNames)
+  const anyone = new Set(anyoneRoleNames)
   return async ({ data, operation, originalDoc, req }) => {
     if (!req.user || !data || operation !== 'update') {
       return data
@@ -67,7 +74,11 @@ export const createProtectCredentialsHook = ({
       req,
       where: { id: { in: targetRoleIds } },
     })
-    const protectedRole = docs.find((doc) => typeof doc.name === 'string' && selfOnly.has(doc.name))
+    // Self-only unless the role is an explicit opt-out — so a database-defined
+    // role (never on the opt-out list) always protects its holders.
+    const protectedRole = docs.find(
+      (doc) => !(typeof doc.name === 'string' && anyone.has(doc.name)),
+    )
     if (!protectedRole) {
       return data
     }
