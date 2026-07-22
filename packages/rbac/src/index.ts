@@ -17,6 +17,11 @@ export {
   createAssignFirstUserRoleHook,
 } from './hooks/assignFirstUserRole.js'
 export {
+  createProtectAdminUsersChangeHook,
+  createProtectAdminUsersDeleteHook,
+  type ProtectAdminUsersArgs,
+} from './hooks/protectAdminUsers.js'
+export {
   createProtectCredentialsHook,
   type ProtectCredentialsArgs,
 } from './hooks/protectCredentials.js'
@@ -82,3 +87,4 @@ export {
   retryOnWriteConflict,
   type RetryOnWriteConflictOptions,
 } from './utilities/retryOnWriteConflict.js'
+export { findRoleIdByName } from './utilities/roleLookup.js'

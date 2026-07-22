@@ -12,6 +12,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   createAssignFirstUserRoleHook,
+  createProtectAdminUsersChangeHook,
+  createProtectAdminUsersDeleteHook,
   createProtectCredentialsHook,
   createProtectedRolesChangeHook,
   createProtectedRolesDeleteHook,
@@ -913,11 +915,12 @@ describe('@whatworks/payload-rbac peer smoke', () => {
       } as never),
     ).toEqual({ email: 'c@d.co' })
 
-    // Credential guard, escalation guard, last-admin guard, and first-user
-    // assignment on the admin user collection, plus the last-admin delete guard.
+    // Admin-user guard, credential guard, escalation guard, last-admin guard, and
+    // first-user assignment on the admin user collection; the admin-user and
+    // last-admin delete guards.
     const users = getCollection(result, 'users')
-    expect(users.hooks?.beforeChange).toHaveLength(4)
-    expect(users.hooks?.beforeDelete).toHaveLength(1)
+    expect(users.hooks?.beforeChange).toHaveLength(5)
+    expect(users.hooks?.beforeDelete).toHaveLength(2)
   })
 
   it("locks credentials of users holding a credentialChanges: 'self' role to themselves", async () => {
@@ -1090,6 +1093,127 @@ describe('@whatworks/payload-rbac peer smoke', () => {
         req: makeReq(result, null),
       } as never),
     ).resolves.toEqual({ roles: [] })
+  })
+
+  it('blocks users below the admin tier from creating, modifying, or deleting administrators', async () => {
+    const result = await rbacPlugin({ adminRole: 'Administrator' })(baseConfig())
+    const args = {
+      adminRoleName: 'Administrator',
+      rolesCollectionSlug: 'roles',
+      rolesFieldName: 'roles',
+      userCollectionSlug: 'users',
+    }
+    const changeHook = createProtectAdminUsersChangeHook(args)
+    const deleteHook = createProtectAdminUsersDeleteHook(args)
+    const usersCollection = { slug: 'users' }
+
+    // The admin role resolves to id 9; findByID returns the account being deleted.
+    const db = (deleteTarget?: Record<string, unknown>) => ({
+      find: vi.fn(() => Promise.resolve({ docs: [{ id: 9, name: 'Administrator' }] })),
+      findByID: vi.fn(() => Promise.resolve(deleteTarget ?? null)),
+    })
+
+    // A '*' client who does not hold the admin role — the developer/agency
+    // account is off-limits despite full access.
+    const client = { id: 2, collection: 'users', roles: [role(3, ['*'])] }
+    const adminAccount = { id: 1, roles: [9] }
+
+    // Cannot update an administrator's document…
+    await expect(
+      changeHook({
+        collection: usersCollection,
+        data: { firstName: 'Renamed' },
+        operation: 'update',
+        originalDoc: adminAccount,
+        req: makeReq(result, client, db()),
+      } as never),
+    ).rejects.toThrow(/can modify an account that holds it/)
+
+    // …cannot mint a new administrator…
+    await expect(
+      changeHook({
+        collection: usersCollection,
+        data: { email: 'new@admin.co', roles: [9] },
+        operation: 'create',
+        req: makeReq(result, client, db()),
+      } as never),
+    ).rejects.toThrow(/can create an account with that role/)
+
+    // …and cannot delete one, even when other administrators remain.
+    await expect(
+      deleteHook({ id: 1, req: makeReq(result, client, db(adminAccount)) } as never),
+    ).rejects.toThrow(/can delete an account that holds it/)
+
+    // A holder of the admin role manages other administrators freely.
+    const admin = { id: 5, collection: 'users', roles: [9] }
+    await expect(
+      changeHook({
+        collection: usersCollection,
+        data: { firstName: 'Renamed' },
+        operation: 'update',
+        originalDoc: adminAccount,
+        req: makeReq(result, admin, db()),
+      } as never),
+    ).resolves.toBeTruthy()
+    await expect(
+      deleteHook({ id: 1, req: makeReq(result, admin, db(adminAccount)) } as never),
+    ).resolves.toBe(undefined)
+
+    // Non-administrator accounts stay editable and deletable by anyone with the
+    // collection permission — the guard only shields administrators.
+    const editorAccount = { id: 7, roles: [3] }
+    await expect(
+      changeHook({
+        collection: usersCollection,
+        data: { firstName: 'Renamed' },
+        operation: 'update',
+        originalDoc: editorAccount,
+        req: makeReq(result, client, db()),
+      } as never),
+    ).resolves.toBeTruthy()
+    await expect(
+      deleteHook({ id: 7, req: makeReq(result, client, db(editorAccount)) } as never),
+    ).resolves.toBe(undefined)
+
+    // Adding the admin role to an existing non-admin is an assignment (guarded by
+    // the roles-field holder-only rule), not "modifying an admin": this guard keys
+    // off the account's existing roles, so it stands aside here.
+    await expect(
+      changeHook({
+        collection: usersCollection,
+        data: { roles: [9] },
+        operation: 'update',
+        originalDoc: { id: 7, roles: [] },
+        req: makeReq(result, client, db()),
+      } as never),
+    ).resolves.toBeTruthy()
+
+    // System writes (no user) — seeds, first-user bootstrap, break-glass self-claim
+    // of an account that does not yet hold the role — pass through.
+    await expect(
+      changeHook({
+        collection: usersCollection,
+        data: { email: 'seed@admin.co', roles: [9] },
+        operation: 'create',
+        req: makeReq(result, null, db()),
+      } as never),
+    ).resolves.toBeTruthy()
+    await expect(
+      deleteHook({ id: 1, req: makeReq(result, null, db(adminAccount)) } as never),
+    ).resolves.toBe(undefined)
+
+    // An account with no roles never triggers the role lookup.
+    const noRoleWrite = makeReq(result, client, db())
+    await expect(
+      changeHook({
+        collection: usersCollection,
+        data: { firstName: 'x' },
+        operation: 'update',
+        originalDoc: { id: 8, roles: [] },
+        req: noRoleWrite,
+      } as never),
+    ).resolves.toBeTruthy()
+    expect(noRoleWrite.payload.find).not.toHaveBeenCalled()
   })
 
   it('seeds predefined roles that are missing and never overwrites existing ones', async () => {

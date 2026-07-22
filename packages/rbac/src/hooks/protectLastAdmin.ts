@@ -6,6 +6,7 @@ import type {
 
 import { APIError } from 'payload'
 
+import { findRoleIdByName } from '../utilities/roleLookup.js'
 import { normalizeRoleIds } from './protectRolesField.js'
 
 export type ProtectLastAdminArgs = {
@@ -16,22 +17,6 @@ export type ProtectLastAdminArgs = {
   userCollections: string[]
   /** Slug of the user collection this hook is installed on. */
   userCollectionSlug: string
-}
-
-const getAdminRoleId = async (
-  req: PayloadRequest,
-  { adminRoleName, rolesCollectionSlug }: ProtectLastAdminArgs,
-): Promise<number | string | undefined> => {
-  const { docs } = await req.payload.find({
-    collection: rolesCollectionSlug,
-    depth: 0,
-    limit: 1,
-    overrideAccess: true,
-    req,
-    where: { name: { equals: adminRoleName } },
-  })
-  const id = (docs[0] as { id?: unknown } | undefined)?.id
-  return typeof id === 'number' || typeof id === 'string' ? id : undefined
 }
 
 const otherAdminUsersExist = async (
@@ -82,7 +67,7 @@ export const createProtectLastAdminChangeHook = (
       return data
     }
 
-    const adminRoleId = await getAdminRoleId(req, args)
+    const adminRoleId = await findRoleIdByName(req, args.rolesCollectionSlug, args.adminRoleName)
     if (adminRoleId === undefined || !removedIds.some((id) => String(id) === String(adminRoleId))) {
       return data
     }
@@ -125,7 +110,7 @@ export const createProtectLastAdminDeleteHook = (
       return
     }
 
-    const adminRoleId = await getAdminRoleId(req, args)
+    const adminRoleId = await findRoleIdByName(req, args.rolesCollectionSlug, args.adminRoleName)
     if (adminRoleId === undefined || !roleIds.includes(String(adminRoleId))) {
       return
     }

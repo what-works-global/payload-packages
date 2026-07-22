@@ -16,6 +16,7 @@ Role based access control for Payload where the roles live in the database. Edit
 - **Privilege-escalation protection**: users can only assign roles, and only add permissions to roles, that their own roles already cover.
 - **Role assignment requires `roles:update`** — for everyone else the roles field renders read-only in the admin panel. And a role your remaining roles could not re-grant cannot be removed from your own account, so you can never accidentally strip your own access.
 - **Built-in admin role** (`adminRole`): a role the plugin locks to full access (`['*']`) — it can never be downgraded, renamed, or deleted through the API, so you can never lose your last full-access role. Only its holders can assign it (even `'*'` through another role is not enough). It is auto-assigned to the first user created, and at least one user always holds it — removing it from (or deleting) the last administrator is blocked, and if the database is damaged so badly that nobody holds it, any signed-in user can claim it for themselves. Other roles can opt into the same code-locking with `protected: true`.
+- **Administrators can only be managed by administrators**: a user who does not hold the admin role cannot create, update, or delete an account that does — no matter what `users:*` permissions they hold, even full access through another role. See [below](#administrators-can-only-be-managed-by-administrators).
 - **Per-role credential protection** (`credentialChanges: 'self'`): the password, email, and username of users holding such a role can only be changed by the account owner — anyone else sends a password-reset email instead. Always on for the admin role, so an administrator account can never be taken over by another user with `users:update`.
 - Users can always read/update their own account document (configurable), so the admin account view keeps working for low-privilege users.
 
@@ -209,11 +210,21 @@ rbacPlugin({
 
 The client runs the whole site — content, users, roles, future collections — but the developer account stays out of reach:
 
-- They cannot change the developer's password, email, or username (the admin role is always `credentialChanges: 'self'`), so credential takeover is closed.
+- **They cannot create, modify, or delete a `'Super Admin'` account at all.** Managing an administrator requires _being_ one: `users:create`/`users:update`/`users:delete` — even full access (`'*'`) through another role — is not enough. This covers the developer's password, email, and username (credential takeover is closed) and every other field on the document. See [administrators can only be managed by administrators](#administrators-can-only-be-managed-by-administrators) below.
 - They cannot hold or hand out `'Super Admin'`: even with `'*'`, assigning the admin role requires already holding it.
-- They cannot strip the role from — or delete — the last developer account, and the role itself cannot be renamed, downgraded, or deleted.
+- The role itself cannot be renamed, downgraded, or deleted, and at least one holder always remains.
 
-Note the last-holder guard only protects the _last_ holder: with two or more Super Admin accounts, a user with `users:update`/`users:delete` can still strip or delete all but one of them (their credentials stay protected regardless).
+Because managing an administrator requires being one, only another Super Admin can touch a Super Admin account — and even they cannot strip the role from, or delete, the _last_ holder. Administrators trust each other; with two or more Super Admins, one can still remove or delete another down to the last.
+
+### Administrators can only be managed by administrators
+
+When an `adminRole` is configured, a user who does not hold it cannot **create**, **update**, or **delete** an account that does — regardless of their `users:*` permissions, and regardless of full access held through some other role. Holding the admin role is the only key.
+
+- **Create**: assigning the admin role to a new (or duplicated) user is rejected unless the creator holds it — the same holder-only rule that governs [assigning it to existing users](#privilege-escalation-protection).
+- **Update**: every field of an administrator's document — credentials included — is off-limits to non-administrators. (Adding the admin role to a not-yet-admin user is an _assignment_, so it follows the holder-only rule above rather than this one.)
+- **Delete**: a non-administrator cannot delete any administrator, not just the last one. Deleting the last administrator is blocked for everyone (see [lockout prevention](#the-admin-role-and-protected-roles-lockout-prevention)).
+
+An administrator manages other administrators normally, subject to the last-holder guard. Writes without a user (local API, seeds, the first-user bootstrap) are never restricted, matching the other guards — and the [break-glass self-claim](#the-admin-role-and-protected-roles-lockout-prevention) still works, since the account being claimed does not yet hold the role at the moment of the write.
 
 ## Options
 

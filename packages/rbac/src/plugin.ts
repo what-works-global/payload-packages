@@ -8,6 +8,10 @@ import { createRolesFieldAccess } from './access/rolesFieldAccess.js'
 import { createRolesCollection } from './collections/createRolesCollection.js'
 import { createRolesField } from './fields/createRolesField.js'
 import { createAssignFirstUserRoleHook } from './hooks/assignFirstUserRole.js'
+import {
+  createProtectAdminUsersChangeHook,
+  createProtectAdminUsersDeleteHook,
+} from './hooks/protectAdminUsers.js'
 import { createProtectCredentialsHook } from './hooks/protectCredentials.js'
 import {
   createProtectedRolesChangeHook,
@@ -234,6 +238,20 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
 
       const beforeChange = [...(collection.hooks?.beforeChange ?? [])]
       const beforeDelete = [...(collection.hooks?.beforeDelete ?? [])]
+      if (adminRole.name) {
+        // Runs before the other admin guards so a user below the admin tier gets
+        // one clear "only an administrator can touch this account" answer for any
+        // create/update/delete of an administrator, rather than a per-aspect
+        // message from the credential, roles-field, or last-admin guards.
+        const protectAdminUsersArgs = {
+          adminRoleName: adminRole.name,
+          rolesCollectionSlug,
+          rolesFieldName,
+          userCollectionSlug: collection.slug,
+        }
+        beforeChange.push(createProtectAdminUsersChangeHook(protectAdminUsersArgs))
+        beforeDelete.push(createProtectAdminUsersDeleteHook(protectAdminUsersArgs))
+      }
       if (selfOnlyCredentialRoleNames.length > 0) {
         beforeChange.push(
           createProtectCredentialsHook({
