@@ -1,5 +1,25 @@
 # @whatworks/payload-rbac
 
+## 0.3.0
+
+### Minor Changes
+
+- 03fbafd: Credential protection is now on by default for every user with a role. The password, email, and username of a user can be changed only by the account owner — anyone else is directed to a password-reset email — unless the user's roles are all opted out. This closes credential takeover out of the box instead of requiring a per-role opt-in.
+
+  - **`credentialChanges` defaults to `'self'`** (was `'anyone'`).
+  - **Roles created in the admin panel are self-only too**, always — the protection is built in, not a per-role setting, so it needs no field on the roles collection. `'anyone'` exists only as an explicit opt-out on a role you predefine in code.
+  - A user is exempt only when **every** role they hold is a predefined role marked `credentialChanges: 'anyone'`; holding one self-only role (including any database-defined role) keeps them protected. The `adminRole` is always `'self'`.
+
+  **Behavior change:** if you relied on the previous default — any user with `users:update` changing another user's credentials — mark the relevant predefined roles `credentialChanges: 'anyone'`. A user whose only roles are database-defined can no longer have their credentials changed by others at all; give them a predefined `'anyone'` role if that is required.
+
+  **API:** `ProtectCredentialsArgs` now takes `anyoneRoleNames` (the opt-out list) instead of `selfOnlyRoleNames`; the guard is installed on every user collection unconditionally.
+
+- fb824b8: Administrators can only be managed by administrators. When an `adminRole` is configured, a user who does not hold it can no longer create, update, or delete an account that does — regardless of their `users:create`/`users:update`/`users:delete` permissions, and regardless of full access (`'*'`) held through another role. Holding the admin role is the only key.
+
+  This closes two gaps left by the existing guards: a non-administrator could previously edit non-credential fields of an administrator's document (only credentials were locked), and could delete any administrator except the last one (only the final holder was guarded). Both are now blocked outright.
+
+  Administrators still manage each other normally, subject to the last-holder guard; writes without a user (local API, seeds, first-user bootstrap) and the break-glass self-claim are unaffected. Exposes `createProtectAdminUsersChangeHook`, `createProtectAdminUsersDeleteHook`, and `findRoleIdByName`.
+
 ## 0.2.5
 
 ### Patch Changes
