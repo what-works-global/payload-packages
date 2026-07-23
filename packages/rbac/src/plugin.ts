@@ -147,7 +147,7 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
         slug: rolesCollectionSlug,
         actions: collectionActions,
         entity: 'collection' as const,
-        label: 'Roles',
+        label: 'User Roles',
       },
       ...(config.globals ?? [])
         .filter((global) => shouldControlGlobal(global.slug))
@@ -366,17 +366,30 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
       protectedRoleNames,
     })
 
+    const mappedCollections = (config.collections ?? []).map((collection) => {
+      let result = shouldControlCollection(collection.slug)
+        ? withCollectionAccess(collection)
+        : collection
+      if (userCollections.includes(collection.slug)) {
+        result = withRolesField(result)
+      }
+      return result
+    })
+
+    // Slot the roles collection directly after the last user/auth collection it
+    // governs, so the admin nav keeps roles next to users instead of pushing them
+    // to the end. Falls back to appending when no user collection is present.
+    const lastUserCollectionIndex = mappedCollections.reduce(
+      (last, collection, index) => (userCollections.includes(collection.slug) ? index : last),
+      -1,
+    )
+    const insertAt =
+      lastUserCollectionIndex === -1 ? mappedCollections.length : lastUserCollectionIndex + 1
+
     config.collections = [
-      ...(config.collections ?? []).map((collection) => {
-        let result = shouldControlCollection(collection.slug)
-          ? withCollectionAccess(collection)
-          : collection
-        if (userCollections.includes(collection.slug)) {
-          result = withRolesField(result)
-        }
-        return result
-      }),
+      ...mappedCollections.slice(0, insertAt),
       rolesCollection,
+      ...mappedCollections.slice(insertAt),
     ]
 
     config.globals = (config.globals ?? []).map((global) =>

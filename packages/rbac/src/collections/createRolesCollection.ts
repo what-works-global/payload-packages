@@ -84,6 +84,10 @@ export const createRolesCollection = ({
       },
     ],
     hooks,
+    labels: {
+      plural: 'User Roles',
+      singular: 'User Role',
+    },
   }
 
   return override ? override(collection) : collection
