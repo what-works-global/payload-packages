@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-rbac",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Role based access control plugin for Payload. Roles live in the database with a per-collection Create/Read/Update/Delete permission matrix, can be predefined in code and seeded on init, and are enforced across all collections and globals.",
   "license": "MIT",
   "type": "module",
