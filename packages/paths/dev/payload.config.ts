@@ -57,7 +57,12 @@ export default buildDevConfig({
       generateURL: createNestedDocsGenerateURL({ homeSlug: 'home' }),
     }),
     // Must come AFTER nestedDocsPlugin so the breadcrumbs field exists.
-    nextPathsPlugin(pathsConfig),
+    nextPathsPlugin({
+      ...pathsConfig,
+      // Serves the frontend edit button (mounted in the frontend layout):
+      // the auth-gated resolve endpoint + the admin localStorage hint.
+      editButton: true,
+    }),
   ],
   // Payload spawns `payload generate:types` on every dev init; the e2e harness
   // kills the sandbox process group, orphaning any in-flight worker. Disable

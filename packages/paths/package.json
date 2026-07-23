@@ -46,10 +46,20 @@
       "import": "./src/exports/cache.ts",
       "default": "./src/exports/cache.ts"
     },
+    "./client": {
+      "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    },
     "./next": {
       "types": "./src/exports/next.ts",
       "import": "./src/exports/next.ts",
       "default": "./src/exports/next.ts"
+    },
+    "./next/exit-preview": {
+      "types": "./src/exports/next-exit-preview.ts",
+      "import": "./src/exports/next-exit-preview.ts",
+      "default": "./src/exports/next-exit-preview.ts"
     },
     "./next/plugin": {
       "types": "./src/exports/next-plugin.ts",
@@ -122,10 +132,20 @@
         "import": "./dist/exports/cache.js",
         "default": "./dist/exports/cache.js"
       },
+      "./client": {
+        "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
+        "default": "./dist/exports/client.js"
+      },
       "./next": {
         "types": "./dist/exports/next.d.ts",
         "import": "./dist/exports/next.js",
         "default": "./dist/exports/next.js"
+      },
+      "./next/exit-preview": {
+        "types": "./dist/exports/next-exit-preview.d.ts",
+        "import": "./dist/exports/next-exit-preview.js",
+        "default": "./dist/exports/next-exit-preview.js"
       },
       "./next/plugin": {
         "types": "./dist/exports/next-plugin.d.ts",

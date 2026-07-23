@@ -18,6 +18,16 @@ export type {
 export { backfillPaths, verifyPathIntegrity } from './core/backfill.js'
 export type { BackfillCollectionReport, BackfillReport, IntegrityIssue } from './core/backfill.js'
 export { computeDocPath, extractRelationId } from './core/computePath.js'
+export { DEFAULT_EDIT_BUTTON_ENDPOINT_PATH } from './core/editButtonContract.js'
+export type {
+  EditButtonAncestor,
+  EditButtonContext,
+  EditButtonDoc,
+  EditButtonDocStatus,
+  EditButtonURLs,
+  EditButtonUser,
+} from './core/editButtonContract.js'
+export { createEditButtonEndpoint } from './core/editButtonEndpoint.js'
 export {
   getPathnameWithoutPageNumber,
   getPathnameWithPageNumber,
@@ -52,7 +62,13 @@ export type {
   SharedPathsConfig,
 } from './core/shared.js'
 export { createParentField, pathsPlugin } from './plugin.js'
-export type { BackfillMode, OnPathChanged, PathChangedEvent, PathsPluginConfig } from './types.js'
+export type {
+  BackfillMode,
+  EditButtonOptions,
+  OnPathChanged,
+  PathChangedEvent,
+  PathsPluginConfig,
+} from './types.js'
 
 /**
  * Typed accessor for a document's stored path. Throws when the path is

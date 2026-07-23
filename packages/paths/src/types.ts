@@ -77,6 +77,15 @@ export interface PathsPluginConfig extends SharedPathsConfig {
    */
   dropStaleSlugUniqueIndex?: boolean
   /**
+   * Enable the frontend edit button's server half: an authenticated GET
+   * endpoint that maps a pathname back to its document (collection, id,
+   * status, ancestors, ready-made admin URLs), plus an admin provider that
+   * marks editors' browsers so the public never calls it. Pair with the
+   * `<PathsEditButton />` component from `@whatworks/payload-paths/client`.
+   * @default false
+   */
+  editButton?: boolean | EditButtonOptions
+  /**
    * When a parent's path changes, its whole subtree is checked for collisions
    * before the save is accepted. Subtrees larger than this skip the pre-flight
    * (with a warning) to keep saves fast.
@@ -85,6 +94,33 @@ export interface PathsPluginConfig extends SharedPathsConfig {
   maxCascadePreflight?: number
   /** Called after a document's path changes (including cascaded descendants). */
   onPathChanged?: OnPathChanged | OnPathChanged[]
+}
+
+/** Options for the edit-button endpoint + admin hint (`editButton: true` = all defaults). */
+export type EditButtonOptions = {
+  /**
+   * Replaces the default authorization gate (a user from the ADMIN auth
+   * collection, `config.admin.user`). A non-null `req.user` is always required
+   * first; return `false` to respond 403. Use this to open the button to other
+   * auth collections or restrict it to a role:
+   * `({ req }) => req.user?.roles?.includes('editor')`.
+   */
+  access?: (args: { req: PayloadRequest }) => boolean | Promise<boolean>
+  /**
+   * Register a tiny admin provider (`PathsEditorHintProvider` from
+   * `@whatworks/payload-paths/client`) that marks the browser as belonging to
+   * an editor via `localStorage`. The frontend button only calls the endpoint on
+   * browsers carrying that mark, so anonymous visitors generate ZERO extra
+   * requests. Requires regenerating the import map. Set `false` to skip; the
+   * button then checks once per session per browser instead.
+   * @default true
+   */
+  adminHint?: boolean
+  /**
+   * Path of the GET endpoint under Payload's API route.
+   * @default '/paths/edit-button'
+   */
+  endpointPath?: string
 }
 
 /** Internal resolved view stored on `config.custom.payloadPaths`. */

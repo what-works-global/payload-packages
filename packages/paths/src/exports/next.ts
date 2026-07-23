@@ -20,6 +20,10 @@ import { pathToSegments } from '../core/shared.js'
 import { nextPathsCache } from './next-plugin.js'
 import { createPathsResolver, createResolverChain } from './resolver.js'
 
+// `createExitPreviewRoute` is deliberately NOT here: route handlers are
+// `app-route` modules, where this entry's `next/navigation` import is
+// unparsable — it lives in `@whatworks/payload-paths/next/exit-preview`.
+export { NextPathsEditButton, type NextPathsEditButtonProps } from '../next/NextEditButton.js'
 export type { OnPathChanged, PathChangedEvent, PathsPluginConfig } from '../types.js'
 // Re-exported for back-compat: the config-side helpers now live in
 // `@whatworks/payload-paths/next/plugin` (a `next/navigation`-free entry, so it

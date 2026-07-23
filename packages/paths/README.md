@@ -35,17 +35,19 @@ The common Payload setup makes `slug` globally unique and, at request time, rebu
 pnpm add @whatworks/payload-paths
 ```
 
-`next` and `react` are optional peer dependencies — needed only for the `@whatworks/payload-paths/next` entry. The core plugin, resolver, and cache adapters import neither. Requires `payload >= 3.54`.
+`next` and `react` are optional peer dependencies — needed only for the `@whatworks/payload-paths/next` entries (`next` + `react`) and the `/client` edit button (`react`). The core plugin, resolver, and cache adapters import neither. Requires `payload >= 3.54`.
 
 ## Entry points
 
-| Import                                 | Contains                                                                                                            | Pulls in `next`?        |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `@whatworks/payload-paths`             | The plugin (`pathsPlugin`), config helpers, field helpers, and every script utility (backfill, adoption, integrity) | No                      |
-| `@whatworks/payload-paths/resolver`    | The framework-agnostic resolver (`createPathsResolver`, `createResolverChain`) and pagination primitives            | No                      |
-| `@whatworks/payload-paths/cache`       | Framework-free cache adapters (`noopPathsCache`, `memoryPathsCache`)                                                | No                      |
-| `@whatworks/payload-paths/next/plugin` | Config-side Next sugar for `payload.config.ts`: `nextPathsPlugin`, `nextPathsCache`, `revalidatePathsOnChange`      | Yes (`next/cache` only) |
-| `@whatworks/payload-paths/next`        | Request-time Next sugar: `createPathResolver`, `createMultiPathResolver`, `createGenerateStaticParams`              | Yes (incl. navigation)  |
+| Import                                       | Contains                                                                                                                      | Pulls in `next`?          |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `@whatworks/payload-paths`                   | The plugin (`pathsPlugin`), config helpers, field helpers, and every script utility (backfill, adoption, integrity)           | No                        |
+| `@whatworks/payload-paths/resolver`          | The framework-agnostic resolver (`createPathsResolver`, `createResolverChain`) and pagination primitives                      | No                        |
+| `@whatworks/payload-paths/cache`             | Framework-free cache adapters (`noopPathsCache`, `memoryPathsCache`)                                                          | No                        |
+| `@whatworks/payload-paths/client`            | The floating [edit button](#edit-button) (`PathsEditButton`, `usePathsEditButton`) — framework-agnostic React                 | No (`react` only)         |
+| `@whatworks/payload-paths/next/plugin`       | Config-side Next sugar for `payload.config.ts`: `nextPathsPlugin`, `nextPathsCache`, `revalidatePathsOnChange`                | Yes (`next/cache` only)   |
+| `@whatworks/payload-paths/next`              | Request-time Next sugar: `createPathResolver`, `createMultiPathResolver`, `createGenerateStaticParams`, `NextPathsEditButton` | Yes (incl. navigation)    |
+| `@whatworks/payload-paths/next/exit-preview` | `createExitPreviewRoute` for route handlers (safe in `app-route` modules)                                                     | Yes (`next/headers` only) |
 
 > **Why the plugin has its own entry.** A Payload config is imported by the REST route handlers, which Next bundles as `app-route` route modules. `next/navigation` (used by the request-time resolver in `/next`) resolves an `app-router-context` that Next only vendors for `app-page`/`pages` — not `app-route` — so importing anything from `/next` into `payload.config.ts` crashes the API with `MODULE_UNPARSABLE`. Import `nextPathsPlugin` from `/next/plugin` (which only touches `next/cache`) in the config; import the resolver from `/next` in your pages. The config helpers are still re-exported from `/next` for back-compat, but don't import them there from a Payload config.
 
@@ -277,6 +279,59 @@ Lookups are single indexed queries, so caching is optional. Three adapters ship,
 - **`nextPathsCache()`** (`@whatworks/payload-paths/next/plugin`, also re-exported from `/next`) — backed by `unstable_cache`/`revalidateTag`; the default for `nextPathsPlugin` and `createPathResolver`. Works on Next 15 & 16, self-hosted and on Vercel.
 
 The plugin invalidates by tag on every path change; the Next plugin additionally `revalidatePath`s the affected URLs (full-route/ISR cache) via the built-in `revalidatePathsOnChange` handler.
+
+## Edit button
+
+A floating, draggable edit button for your frontend: it deep-links the page you are looking at straight to its document in the admin — because this package owns the pathname → document mapping, it works on every page with zero per-page wiring. Anonymous visitors never see it and (unlike a `/me`-polling admin bar) never trigger a request for it.
+
+<p>
+  <img alt="The collapsed edit button: a small dark pill with a pencil icon and a green published-status dot, pinned to the bottom-right corner of a frontend page" src="./docs/assets/demo-1.png" width="49%">
+  <img alt="The expanded edit button: an “Edit page” pill with its menu open, showing the document title, its collection and URL, a Published status with last-updated time, Edit page / Versions / API actions, a Parents trail, Dashboard, Account, Log out, and a corner picker" src="./docs/assets/demo-2.png" width="49%">
+</p>
+
+**1. Enable the server half on the plugin** (an authenticated GET endpoint + an admin provider):
+
+```ts
+nextPathsPlugin({ ...pathsConfig, editButton: true }) // or pathsPlugin({ ... })
+```
+
+Then regenerate your import map (`payload generate:importmap`) so the admin provider resolves.
+
+**2. Mount the component once**, in your frontend root layout:
+
+```tsx
+// Next.js — draft-mode aware (server wrapper):
+import { NextPathsEditButton } from '@whatworks/payload-paths/next'
+;<NextPathsEditButton exitPreviewURL="/exit-preview" />
+
+// Any other React frontend (framework-agnostic client component):
+import { PathsEditButton } from '@whatworks/payload-paths/client'
+;<PathsEditButton />
+```
+
+```ts
+// app/exit-preview/route.ts — ends draft-mode sessions (Next only)
+import { createExitPreviewRoute } from '@whatworks/payload-paths/next/exit-preview'
+export const GET = createExitPreviewRoute()
+```
+
+What you get: a corner-pinned dot that expands on hover into **Edit page** (the primary action — one click into the exact admin document), plus a menu with the document's status (`Published` / `Changed` / `Draft`, drafts-enabled collections only), last-updated time, an **ancestor trail** (edit any parent in the tree), Live preview / Versions / API views (when configured), Dashboard, Account, Exit preview (draft mode), and Log out. Drag the dot to any viewport corner — the choice persists per browser, like Next's dev indicator.
+
+### Visibility & request budget
+
+The button must know "is this visitor an editor?" without costing the public anything. Three layers keep it frugal:
+
+1. **The editor hint.** The plugin registers a tiny admin provider that stamps `localStorage` on every admin visit (the admin and frontend share an origin in the standard monolith). Browsers without the stamp — every anonymous visitor — **make zero requests**. A fresh browser shows the button after its first admin login (or immediately in draft mode).
+2. **One endpoint, both answers.** Hinted browsers call the plugin's endpoint (`GET /api/paths/edit-button?pathname=…`), which 401s for non-editors (the hint is cleared and a session-scoped verdict prevents re-asking) and otherwise returns the resolved document, its status/ancestors, and ready-made admin URLs. Confirmed editors pay about one request per new path per session — responses are memoized per pathname.
+3. **Draft mode skips the gate.** `NextPathsEditButton` reads `draftMode()` (static-safe) and passes it down; preview sessions always check and resolve newest-version content.
+
+The endpoint only answers users of the **admin** auth collection (`config.admin.user`) — logged-in members of public-facing auth collections (customers, members) get a 403 and never learn draft state. Override with `editButton: { access: ({ req }) => … }` (it replaces the collection check; a non-null user is always required). Other options: `endpointPath` (default `/paths/edit-button`) and `adminHint: false` to skip the admin provider (the button then checks once per browser session instead).
+
+### Component props
+
+All of `usePathsEditButton`'s options plus the shell's: `scope` (multi-tenant), `serverURL` + `apiRoute` (cross-origin Payload — requires CORS and cookie config), `draft`, `initial` (seed a server-resolved context and skip the first fetch), `defaultCorner`, `fallback: 'hide' | 'dashboard'` (what to render on pages that resolve to no document), `exitPreviewURL` / `onExitPreview`, `showInIframe` (default `false`, so it stays out of the admin's live-preview pane), `respectReducedMotion` (default `true` — honours `prefers-reduced-motion`; set `false` to animate regardless), and `zIndex`. Prefer your own UI? `usePathsEditButton()` is exported from `/client` — it returns the resolved context, pathname, and status, and handles all the gating above.
+
+The component is plain React with injected styles (no `@payloadcms/ui`, no CSS import): it tracks SPA navigations by listening to `popstate` and patching `history.pushState`/`replaceState` once (the standard toolbar technique), renders nothing until auth is confirmed (no flash, no hydration mismatch), and works in any React frontend that can reach Payload's REST API.
 
 ## Framework-agnostic usage
 

@@ -4,6 +4,7 @@ import type { ResolvedPathsCollection } from './core/shared.js'
 import type { PathsPluginConfig, ResolvedPathsPluginConfig } from './types.js'
 
 import { backfillPaths } from './core/backfill.js'
+import { createEditButtonEndpoint } from './core/editButtonEndpoint.js'
 import {
   createPathsAfterChangeHook,
   createPathsAfterDeleteHook,
@@ -211,6 +212,29 @@ export const pathsPlugin =
 
     if (pluginConfig.disabled) {
       return config
+    }
+
+    if (pluginConfig.editButton) {
+      const editButton = pluginConfig.editButton === true ? {} : pluginConfig.editButton
+      config.endpoints = [
+        ...(config.endpoints ?? []),
+        createEditButtonEndpoint(resolvedPlugin, editButton),
+      ]
+      if (editButton.adminHint !== false) {
+        // The hint provider stamps `localStorage` on every admin visit so the
+        // frontend button knows this browser MAY be an editor's — the gate
+        // that keeps anonymous visitors from ever calling the endpoint.
+        config.admin = {
+          ...config.admin,
+          components: {
+            ...config.admin?.components,
+            providers: [
+              ...(config.admin?.components?.providers ?? []),
+              '@whatworks/payload-paths/client#PathsEditorHintProvider',
+            ],
+          },
+        }
+      }
     }
 
     config.custom = { ...config.custom, payloadPaths: resolvedPlugin }
