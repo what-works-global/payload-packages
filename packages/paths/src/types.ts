@@ -43,13 +43,6 @@ export interface PathsPluginConfig extends SharedPathsConfig {
    */
   backfill?: BackfillMode
   /**
-   * At most this many documents are repaired per collection per boot; any
-   * remainder is logged and picked up on the next boot (or via
-   * `backfillPaths()`).
-   * @default 1000
-   */
-  backfillLimit?: number
-  /**
    * Cache the plugin invalidates when paths change. Defaults to a no-op (no
    * caching); Next.js apps should use `nextPathsPlugin` from
    * `@whatworks/payload-paths/next`, which defaults this to the
@@ -126,7 +119,6 @@ export type EditButtonOptions = {
 /** Internal resolved view stored on `config.custom.payloadPaths`. */
 export type ResolvedPathsPluginConfig = {
   backfill: BackfillMode
-  backfillLimit: number
   cache: PathsCache
   collections: Record<string, ResolvedPathsCollection>
   dropStaleSlugUniqueIndex: boolean

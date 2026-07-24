@@ -130,7 +130,6 @@ export const pathsPlugin =
   (config: Config): Config => {
     const resolvedPlugin: ResolvedPathsPluginConfig = {
       backfill: pluginConfig.backfill ?? 'fix',
-      backfillLimit: pluginConfig.backfillLimit ?? 1000,
       cache: pluginConfig.cache ?? noopPathsCache(),
       collections: {},
       dropStaleSlugUniqueIndex: pluginConfig.dropStaleSlugUniqueIndex ?? true,

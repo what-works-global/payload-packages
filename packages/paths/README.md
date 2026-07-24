@@ -184,7 +184,6 @@ Everything above, plus:
 | `cache`                    | no-op    | Cache invalidated on path changes. `nextPathsPlugin` defaults this to the `unstable_cache` adapter. |
 | `onPathChanged`            | —        | Handler (or array) fired after any path change, including cascaded descendants.                     |
 | `backfill`                 | `'fix'`  | Boot-time null-path repair: `'fix'` \| `'check'` \| `'off'`. A healthy collection costs one count.  |
-| `backfillLimit`            | `1000`   | Max documents repaired per collection per boot.                                                     |
 | `maxCascadePreflight`      | `500`    | Subtrees larger than this skip the pre-save collision pre-flight (with a warning).                  |
 | `dropStaleSlugUniqueIndex` | `true`   | On Mongo, drop a legacy unique slug index the config no longer declares. No-op on SQL.              |
 | `disabled`                 | `false`  | Register fields/indexes but skip hooks and backfill (keeps the schema stable for migrations).       |
