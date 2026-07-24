@@ -1,6 +1,5 @@
 import type { JsonObject, Payload, Where } from 'payload'
 
-import type { ResolvedPathsPluginConfig } from '../types.js'
 import type { ResolvedPathsCollection } from './shared.js'
 
 import { computeDocPath } from './computePath.js'
@@ -164,9 +163,7 @@ export const backfillPaths = async (
 
   const reports: BackfillCollectionReport[] = []
   for (let index = 0; index < targets.length; index += 1) {
-    reports.push(
-      await finishCollection(payload, resolvedPlugin, targets[index], gates[index], mode),
-    )
+    reports.push(await finishCollection(payload, targets[index], gates[index], mode))
   }
 
   return { collections: reports }
@@ -174,7 +171,6 @@ export const backfillPaths = async (
 
 const finishCollection = async (
   payload: Payload,
-  plugin: ResolvedPathsPluginConfig,
   resolved: ResolvedPathsCollection,
   gate: CollectionGate,
   mode: 'check' | 'fix',
@@ -204,13 +200,6 @@ const finishCollection = async (
 
   if (gate.missing > 0) {
     await fixMainRows(payload, resolved, report)
-    if (report.fixed > 0) {
-      try {
-        await plugin.cache.invalidate([collectionTag(resolved.slug)])
-      } catch {
-        // Cache invalidation is best-effort during boot.
-      }
-    }
   }
 
   // Version snapshots are repaired independently of the main-row count: a prior
@@ -218,13 +207,6 @@ const finishCollection = async (
   // even when every main row already has a path.
   if (gate.versionsMissing > 0) {
     report.versionsFixed = await fixVersionSnapshots(payload, resolved)
-    if (report.versionsFixed > 0) {
-      try {
-        await plugin.cache.invalidate([collectionTag(resolved.slug)])
-      } catch {
-        // Best-effort.
-      }
-    }
   }
 
   if (report.fixed > 0 || report.versionsFixed > 0) {
