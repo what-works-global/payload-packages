@@ -1,6 +1,6 @@
 {
   "name": "@whatworks/payload-paths",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Stored, queryable document paths for Payload page trees — a computed `path` field with publish-time uniqueness, hierarchy cascades (nested-docs or standalone), prefix-free storage with a virtual `url`, an onInit backfill, and a framework-agnostic resolver with pluggable caches (Next.js unstable_cache adapter included).",
   "license": "MIT",
   "type": "module",
