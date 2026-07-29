@@ -54,12 +54,21 @@ export const SwitchEnvButtonClient: FC<SwitchEnvButtonClientProps> = ({ env, qui
       setButtonLoading(false)
     },
     onSuccess: (data) => {
-      if (data.success) {
-        setTimeout(() => {
-          router.refresh()
-          hasRefreshed.current = false
-        }, 10)
+      // A refused switch (e.g. production schema drift) and an incomplete
+      // database copy both come back 200 with `success`/`status` in the body —
+      // without this the user sees nothing at all.
+      if (!data.success) {
+        toast.error(data.message, { duration: Infinity })
+        setButtonLoading(false)
+        return
       }
+      if (data.status === 'incomplete') {
+        toast.warning(data.message, { duration: Infinity })
+      }
+      setTimeout(() => {
+        router.refresh()
+        hasRefreshed.current = false
+      }, 10)
     },
   })
   const targetEnv = env === 'production' ? 'Development' : 'Production'

@@ -22,7 +22,7 @@ import {
 import { backupSql, restoreSql, type SqlBackupData } from '../db/sql.js'
 import { resolveSqlBaseTableName } from '../db/sqlShared.js'
 import { switchDbConnection } from '../db/switchDbConnection.js'
-import { describeDeferredReconcile, formatFileSize, getServerUrl } from '../utils.js'
+import { describeRestoreResult, formatFileSize, getServerUrl } from '../utils.js'
 
 export interface SwitchEndpointInput {
   copyDatabase: boolean
@@ -30,6 +30,12 @@ export interface SwitchEndpointInput {
 
 export interface SwitchEndpointOutput {
   message: string
+  /**
+   * `incomplete` means the switch happened but the copied database is not at
+   * the code's migration state — see CopyEndpointOutput. Absent when no SQL
+   * copy ran.
+   */
+  status?: 'incomplete' | 'ok'
   success: boolean
 }
 
@@ -169,7 +175,7 @@ export const switchEndpoint = ({
       await restore(payload.db.connection, mongoBackup, payload.logger)
     }
 
-    let deferredReconcile: string[] = []
+    let caveat: { detail: null | string; incomplete: boolean } = { detail: null, incomplete: false }
     if (sqlBackup) {
       logger.info('Restoring production database backup to local')
       const restoreResult = await restoreSql({
@@ -178,7 +184,7 @@ export const switchEndpoint = ({
         payload,
         targetAdapter: payload.db,
       })
-      deferredReconcile = restoreResult.deferredReconcile
+      caveat = describeRestoreResult(restoreResult)
     }
 
     if (newEnv === 'development') {
@@ -215,14 +221,20 @@ export const switchEndpoint = ({
     })
 
     logger.info('Switched to ' + newEnv + ' environment')
+    if (caveat.incomplete) {
+      logger.warn(`Switched to ${newEnv}, but the database copy is incomplete: ${caveat.detail}`)
+    }
 
     const message =
-      deferredReconcile.length === 0
+      caveat.detail === null
         ? 'Switched to ' + newEnv
-        : `Switched to ${newEnv}, but ${describeDeferredReconcile(deferredReconcile)}`
+        : `Switched to ${newEnv}, but ${caveat.detail}`
 
     const res: SwitchEndpointOutput = {
       message,
+      ...(sqlBackup
+        ? { status: caveat.incomplete ? ('incomplete' as const) : ('ok' as const) }
+        : {}),
       success: true,
     }
     return Response.json(res)

@@ -49,12 +49,22 @@ export const CopyDbButtonClient: FC<CopyDbButtonClientProps> = () => {
       setButtonLoading(false)
     },
     onSuccess: (data) => {
-      if (data.success) {
-        setTimeout(() => {
-          router.refresh()
-          hasRefreshed.current = false
-        }, 10)
+      // The endpoint reports refusals and incomplete copies in the payload, not
+      // as HTTP errors — without this they would be invisible in the UI.
+      if (!data.success) {
+        toast.error(data.message)
+        setButtonLoading(false)
+        return
       }
+      if (data.status === 'incomplete') {
+        toast.warning(data.message, { duration: Infinity })
+      } else {
+        toast.success(data.message)
+      }
+      setTimeout(() => {
+        router.refresh()
+        hasRefreshed.current = false
+      }, 10)
     },
   })
 

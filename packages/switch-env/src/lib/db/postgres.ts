@@ -1,20 +1,17 @@
 import type { DatabaseAdapter } from 'payload'
 
-import { existsSync } from 'node:fs'
-
 import type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } from './sqlShared.js'
 
 import { capturePostgresDdl, captureSchemaPrivileges, EXTENSION_DDL_PREFIX } from './postgresDdl.js'
 import {
-  applyDevSchema,
   filterLatestXPerParent,
   filterLatestXRows,
+  finalizeRestore,
   PAYLOAD_MIGRATIONS_TABLE,
+  preflightRestore,
   quoteIdent,
-  requireDrizzleKitApi,
   resolveBaseTableModes,
   resolveVersionTableModes,
-  runPendingMigrations,
 } from './sqlShared.js'
 
 interface PgQueryResult {
@@ -260,9 +257,9 @@ export const restorePostgres = async ({
   logger,
   targetAdapter,
 }: RestoreSqlArgs): Promise<RestoreSqlResult> => {
-  // Resolve before touching the target: the restore below is destructive, so a
-  // missing drizzle-kit must abort while the target is still intact.
-  requireDrizzleKitApi(targetAdapter)
+  // Everything below is destructive, so anything that can rule the copy out
+  // must be checked here, while the target is still intact.
+  preflightRestore({ backupData, targetAdapter })
   const { pool, schema } = getPgAdapter(targetAdapter)
 
   const client = await pool.connect()
@@ -317,8 +314,10 @@ export const restorePostgres = async ({
     )
 
     // payload.db.migrate prompts the user when it sees a batch=-1 ("dev") row —
-    // unworkable in headless contexts. Strip it; applyDevSchema re-inserts it
-    // below. Guarded: an empty source database has no migrations table at all.
+    // unworkable in headless contexts. Strip it; on a push-managed target
+    // applyDevSchema re-inserts it below, and a migration-managed target never
+    // gets this far with one (preflightRestore refuses the copy instead).
+    // Guarded: an empty source database has no migrations table at all.
     const migrationsTable = await client.query(`SELECT to_regclass($1) AS reg`, [
       qualify(schema, PAYLOAD_MIGRATIONS_TABLE),
     ])
@@ -340,13 +339,7 @@ export const restorePostgres = async ({
   // don't collide on the primary key.
   await resetSequences(pool, schema, [...Object.keys(backupData.tables), PAYLOAD_MIGRATIONS_TABLE])
 
-  // Apply any pending migration files (i.e. local migrations production hasn't
-  // run yet) against the freshly restored production schema + data, so their
-  // backfills and renames transform the production rows the way the migration
-  // author intended. Best-effort — see runPendingMigrations.
-  await runPendingMigrations(targetAdapter, existsSync, logger)
-
-  // Reconcile any remaining (unmigrated) dev-only schema changes against the
-  // live DB, non-interactively — or pause on rename-shaped ambiguity.
-  return applyDevSchema(targetAdapter, logger)
+  // Migrate the restored replica forward, then reconcile or report — see
+  // finalizeRestore.
+  return finalizeRestore({ logger, targetAdapter })
 }

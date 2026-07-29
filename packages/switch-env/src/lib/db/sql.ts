@@ -3,7 +3,13 @@ import type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } f
 import { backupPostgres, restorePostgres } from './postgres.js'
 import { backupSqlite, restoreSqlite } from './sqlite.js'
 
-export type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } from './sqlShared.js'
+export type {
+  BackupSqlArgs,
+  RestoreSchemaMode,
+  RestoreSqlArgs,
+  RestoreSqlResult,
+  SqlBackupData,
+} from './sqlShared.js'
 
 const isPostgres = (adapterName: string | undefined): boolean => adapterName === 'postgres'
 

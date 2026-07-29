@@ -1,20 +1,17 @@
 import type { DatabaseAdapter } from 'payload'
 
-import { existsSync } from 'node:fs'
-
 import type { BackupSqlArgs, RestoreSqlArgs, RestoreSqlResult, SqlBackupData } from './sqlShared.js'
 
 import {
-  applyDevSchema,
   filterLatestXPerParent,
   filterLatestXRows,
+  finalizeRestore,
   PAYLOAD_MIGRATIONS_TABLE,
+  preflightRestore,
   quoteIdent,
-  requireDrizzleKitApi,
   resolveBaseTableModes,
   resolveVersionTableModes,
   rowToObject,
-  runPendingMigrations,
 } from './sqlShared.js'
 
 type LibSqlInValue = ArrayBuffer | bigint | boolean | Date | null | number | string | Uint8Array
@@ -131,9 +128,9 @@ export const restoreSqlite = async ({
   logger,
   targetAdapter,
 }: RestoreSqlArgs): Promise<RestoreSqlResult> => {
-  // Resolve before touching the target: the restore below is destructive
-  // (drops every table), so a missing drizzle-kit must abort the whole operation.
-  requireDrizzleKitApi(targetAdapter)
+  // The restore below is destructive (drops every table), so anything that can
+  // rule the copy out must be checked here, while the target is still intact.
+  preflightRestore({ backupData, targetAdapter })
   const client = getClient(targetAdapter)
 
   const existingRs = await client.execute(
@@ -164,17 +161,13 @@ export const restoreSqlite = async ({
   await client.migrate([...dropIndexes, ...dropTables, ...backupData.schema, ...inserts])
 
   // payload.db.migrate prompts the user when it sees a batch=-1 ("dev") row —
-  // unworkable in headless contexts. Strip it; applyDevSchema re-inserts it below.
+  // unworkable in headless contexts. Strip it; on a push-managed target
+  // applyDevSchema re-inserts it below, and a migration-managed target never
+  // gets this far with one (preflightRestore refuses the copy instead).
   await client.execute(`DELETE FROM ${quoteIdent(PAYLOAD_MIGRATIONS_TABLE)} WHERE batch = -1`)
 
-  // Apply any pending migration files (e.g. renames the dev wrote but prod
-  // hasn't run yet). Best-effort — see runPendingMigrations.
-  await runPendingMigrations(targetAdapter, existsSync, logger)
-
-  // Source schema is now on the target, but the dev's Drizzle schema may know
-  // about columns/tables that don't exist yet (i.e. unmigrated dev changes).
-  // Reconcile by running drizzle-kit's push against the live DB, without
-  // pushDevSchema's interactive data-loss prompt — or pause on rename-shaped
-  // ambiguity.
-  return applyDevSchema(targetAdapter, logger)
+  // The source schema is now on the target, but the code's Drizzle schema may
+  // know about columns/tables that don't exist yet (unmigrated changes).
+  // Migrate forward, then reconcile or report — see finalizeRestore.
+  return finalizeRestore({ logger, targetAdapter })
 }

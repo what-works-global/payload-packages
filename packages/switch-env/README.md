@@ -184,13 +184,55 @@ Both Drizzle adapters are supported. The flow reads from production and rewrites
 1. **Capture.** Production's schema DDL is captured alongside its rows — from `sqlite_master` on SQLite, from the system catalogs on Postgres (extensions, enums, sequences, tables, constraints, indexes — a `pg_dump` equivalent with no external binary required). Only extensions installed _inside_ the copied schema are carried over; provider-managed extensions living in their own schemas (Supabase's `extensions`/`vault`, Neon's `neon`) are not part of the replica and are skipped with a warning if they can't be recreated locally.
 2. **Replay.** The development database is wiped (every table on SQLite; `DROP SCHEMA ... CASCADE` on Postgres, inside a transaction so a failed copy rolls back untouched) and production's DDL is replayed — production's rows always fit exactly, regardless of local schema drift.
 3. **Load.** Rows are bulk-loaded. On Postgres, foreign-key enforcement is suspended with `SET LOCAL session_replication_role = 'replica'` (requires a sufficiently privileged role on the **development** connection — the local user you normally develop against is fine), and identity sequences are advanced past the restored rows so later inserts don't collide.
-4. **Migrate forward.** Local migration files that production hasn't run yet are applied (best-effort), so their renames and backfills transform the production data the way the migration author intended.
-5. **Reconcile.** Remaining unmigrated dev-only schema changes are applied with a **non-interactive** Drizzle push. Data-loss warnings are logged instead of prompted — it's your development database, which the copy just deliberately rewrote. Unambiguous drift (added fields, removed fields, new or deleted collections, and any rename covered by a migration file) always reconciles automatically. Views owned by an extension installed in the schema itself (e.g. `pg_stat_statements` on setups where `CREATE EXTENSION` defaulted to `public`) can never be dropped by a push; the reconcile skips them with a warning instead of failing.
+4. **Migrate forward.** Local migration files that the source hasn't run yet are applied, so their renames and backfills transform the production data the way the migration author intended.
+5. **Reconcile.** Remaining unmigrated dev-only schema changes are applied with a **non-interactive** Drizzle push — _on a push-managed target only_, see below. Data-loss warnings are logged instead of prompted — it's your development database, which the copy just deliberately rewrote. Unambiguous drift (added fields, removed fields, new or deleted collections, and any rename covered by a migration file) always reconciles automatically. Views owned by an extension installed in the schema itself (e.g. `pg_stat_statements` on setups where `CREATE EXTENSION` defaulted to `public`) can never be dropped by a push; the reconcile skips them with a warning instead of failing.
 
 An _unmigrated_ rename is the one thing the reconcile refuses to guess: it is indistinguishable from a remove+add, and drizzle-kit's push would normally stop and ask "created or renamed?" on stdin — impossible inside an endpoint, and answering wrong silently empties the renamed field. When the reconcile detects that shape (a table, column, or enum type that was both created and deleted), it **pauses**: the reconcile is skipped and the response lists the ambiguous pairs. Your development database is left as a pure production replica (plus applied migrations), so nothing is lost. Then either:
 
 - **In development** — restart the dev server: Payload's own boot-time schema push resolves the renames interactively in your terminal. Or add a migration for the rename and copy again.
 - **On a staging deployment** (`buttonMode: 'copy'`, where Payload never runs its dev push) — a pause means this environment is missing the migrations for those schema changes. Deploy them; `payload migrate` runs against the freshly copied database and resolves the difference in place, no re-copy needed.
+
+### Migration-managed targets (hosted staging)
+
+Step 5 only applies to a database whose schema is owned by Drizzle push — your local development database. A **migration-managed** target (one whose schema only ever changes through `payload migrate`, typically a hosted staging environment) is never pushed to, and the copy behaves differently. The plugin decides which it is with exactly the inverse of the gate Payload's own adapters use before pushing:
+
+```js
+// @payloadcms/db-postgres, db-sqlite — connect()
+if (
+  process.env.NODE_ENV !== 'production' &&
+  process.env.PAYLOAD_MIGRATING !== 'true' &&
+  this.push !== false
+) {
+  await pushDevSchema(this)
+}
+```
+
+So a target is treated as migration-managed when **`push: false`** is set on it, or when it runs with **`NODE_ENV=production`** (which Vercel and most hosts set for _every_ environment, staging included). No guessing from `buttonMode` or environment names is involved — it is the adapter's own schema policy.
+
+On such a target the copy:
+
+- **never writes the `batch = -1` "dev" row.** That row is Payload's record of a schema change made outside migration history, and `payload migrate` refuses to run non-interactively while one exists — it prompts _"It looks like you've run Payload in dev mode … data loss will occur. Would you like to proceed?"_ on stdin, which stops a CI/Vercel build dead. A copy that only restored a replica and ran migrations has no such change to record.
+- **never pushes schema.** If migrations leave the schema short of what the code expects, that is reported, not papered over — a push can reproduce DDL but never a migration's data backfill.
+- **refuses a source that itself carries `batch = -1`**, before anything on the target is touched. Such a source's live schema isn't fully described by its migration history, so the marker can neither be carried over (it would block the target's next migrate) nor dropped (that would claim a schema the migrations don't produce). Fix the source first.
+- **reports an incomplete copy** (`status: 'incomplete'` in the endpoint response, plus a warning toast and a server-log warning) when a migration fails or when migration files on disk have no `payload_migrations` row afterwards. A failing migration is caught even though Payload's runner answers one with `process.exit(1)`.
+
+For a hosted staging app, declaring the policy explicitly is worth it even though `NODE_ENV=production` already implies it:
+
+```ts
+switchEnvPlugin({
+  db: {
+    function: postgresAdapter,
+    developmentArgs: {
+      pool: { connectionString: process.env.DEVELOPMENT_DATABASE_URI },
+      // Staging's schema comes from `payload migrate` in the build, never from a push.
+      ...(process.env.APP_ENV === 'staging' ? { push: false } : {}),
+    },
+    productionArgs: { pool: { connectionString: process.env.DATABASE_URI } },
+  },
+})
+```
+
+> Migration completeness is checked by comparing the files in `migrationDir` against the `payload_migrations` rows. A serverless bundle usually doesn't ship the `.ts` migration sources, in which case the check reports "unchecked" rather than "clean". The read-only Drizzle diff that runs alongside it is logged as advisory only: drizzle-kit re-emits no-op statements (a `numeric` column with a numeric default — every Payload app has one in `login_attempts`) against a database that already matches the code exactly, and this mode has no in-sync baseline database to subtract that noise against.
 
 ## Caution
 

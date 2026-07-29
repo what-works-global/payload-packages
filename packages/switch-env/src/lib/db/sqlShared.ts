@@ -1,9 +1,18 @@
 import type { BasePayload, DatabaseAdapter } from 'payload'
 
+import { existsSync } from 'node:fs'
+
 import type { CopyConfig } from '../../types.js'
 import type { DrizzleSnapshot } from './renameAmbiguity.js'
 
+import {
+  findUnappliedMigrations,
+  hasDevPushMarker,
+  isMigrationManagedTarget,
+  listMigrationFileNames,
+} from './migrationState.js'
 import { detectRenameAmbiguities } from './renameAmbiguity.js'
+import { getSqlSchemaDrift } from './schemaDrift.js'
 
 export interface SqlBackupData {
   /**
@@ -39,7 +48,10 @@ export interface RestoreSqlArgs {
   targetAdapter: DatabaseAdapter
 }
 
-export interface RestoreSqlResult {
+/** How the restore treated the target database — see isMigrationManagedTarget. */
+export type RestoreSchemaMode = 'migration-managed' | 'push-managed'
+
+export interface DevSchemaResult {
   /**
    * Non-empty when the final dev-schema reconcile was paused because of
    * rename-shaped ambiguity: the target holds a pure production replica plus
@@ -50,6 +62,41 @@ export interface RestoreSqlResult {
    */
   deferredReconcile: string[]
 }
+
+export interface RestoreSqlResult extends DevSchemaResult {
+  /**
+   * Set when `db.migrate()` threw. The rows are already loaded, so the copy is
+   * not rolled back — but the target sits at the SOURCE's migration state, and
+   * in migration-managed mode nothing was pushed in place of the migrations.
+   */
+  migrationError?: string
+  /**
+   * False when migration completeness could NOT be established: push-managed
+   * mode (the dev push reconciles the schema instead, so it doesn't apply), or
+   * no readable migration directory — the norm on a serverless deployment,
+   * whose bundle doesn't ship the `.ts` migration sources. An empty
+   * `pendingMigrations` only means "migration-clean" when this is true.
+   */
+  migrationsChecked: boolean
+  /** Migration files on disk with no `payload_migrations` row after the restore. */
+  pendingMigrations: string[]
+  schemaMode: RestoreSchemaMode
+  /**
+   * Migration-managed mode only: the DDL a Drizzle push *would* run against the
+   * restored database, gathered read-only (nothing is applied). Advisory — with
+   * no in-sync baseline database available in this mode, drizzle-kit's
+   * non-idempotent no-op statements (see schemaDrift.ts) cannot be subtracted,
+   * so a non-empty list is not proof of genuine drift. `pendingMigrations` is
+   * the authoritative "is this database at the code's migration head" signal.
+   */
+  unresolvedDrift: string[]
+}
+
+/** Outcome of the pending-migration step, so a failure can't read as success. */
+export type MigrationRunOutcome =
+  | { error: unknown; status: 'failed' }
+  | { reason: 'no-migrate-function' | 'no-migration-dir'; status: 'skipped' }
+  | { status: 'applied' }
 
 export const PAYLOAD_MIGRATIONS_TABLE = 'payload_migrations'
 
@@ -165,11 +212,16 @@ const isUndroppableExtensionView = (statement: string, error: unknown): boolean 
  * drizzle's rename prompt in the terminal. Purely additive or purely
  * destructive drift never pauses: drizzle's resolvers pass it through without
  * prompting, so the push runs headless (deletions surface as logged warnings).
+ *
+ * Only ever called for a push-managed target (see isMigrationManagedTarget):
+ * the `batch = -1` row it writes is the truthful record of a schema change made
+ * outside migration history, and writing it to a migration-managed database
+ * would block that database's next non-interactive `payload migrate`.
  */
 export const applyDevSchema = async (
   targetAdapter: DatabaseAdapter,
   logger?: BasePayload['logger'],
-): Promise<RestoreSqlResult> => {
+): Promise<DevSchemaResult> => {
   const adapter = targetAdapter as unknown as DrizzleAdapterLike
   const { generateDrizzleJson, pushSchema } = requireDrizzleKitApi(targetAdapter)
   const { extensions = {}, tablesFilter } = adapter
@@ -270,42 +322,276 @@ export const applyDevSchema = async (
 }
 
 /**
+ * Run `fn` with `process.exit` swapped for a throw.
+ *
+ * Payload's migration runner does not surface a failing migration as a rejected
+ * promise: `runMigrationFile` logs the error and calls `process.exit(1)`, and
+ * the dev-mode data-loss prompt exits 0 on decline or cancel (@payloadcms/drizzle
+ * migrate.js, unchanged 3.54 → 3.85). That is reasonable for `payload migrate`
+ * on a CLI; inside a copy endpoint it kills the running server mid-request, so
+ * the operator gets no response at all — the least honest possible reporting of
+ * a failed migration. Converting the exit into a catchable error lets the copy
+ * report what actually happened. The window is one awaited call in a code path
+ * where nothing else has any business exiting.
+ */
+const withExitAsThrow = async <T>(fn: () => Promise<T>): Promise<T> => {
+  // The unbound reference is the point: it is what gets put back afterwards.
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const originalExit = typeof process !== 'undefined' ? process.exit : undefined
+  if (typeof originalExit !== 'function') {
+    return fn()
+  }
+  process.exit = ((code?: number) => {
+    throw new Error(
+      `[switch-env] the migration run tried to exit the process (code ${code ?? 0}) instead of ` +
+        'returning. Payload does this when a migration throws, and when its dev-mode data-loss ' +
+        'prompt is declined or cannot be answered. Check the logged migration error above.',
+    )
+  }) as typeof process.exit
+  try {
+    return await fn()
+  } finally {
+    process.exit = originalExit
+  }
+}
+
+export interface RunPendingMigrationsArgs {
+  logger?: BasePayload['logger']
+  /** Injected for tests; defaults to `node:fs`'s existsSync. */
+  migrationDirExists?: (dir: string) => boolean
+  /** Changes only what is LOGGED — the outcome is reported either way. */
+  migrationManaged: boolean
+  targetAdapter: DatabaseAdapter
+}
+
+/**
  * Apply any pending migration files on disk (e.g. renames the dev wrote but the
  * target hasn't run yet). `payload.db.migrate` is what Payload itself calls for
  * `payload migrate`; it reads from `db.migrationDir`. Skipped when there's no
  * `migrationDir` on disk — `readMigrationFiles` logs an ERROR in that case even
  * though it gracefully returns `[]`.
  *
- * Best-effort by design: `db.migrate` dynamically `import()`s each on-disk
- * migration file, and Payload's generated migrations import types as values
- * (`import { MigrateUpArgs, MigrateDownArgs, sql } from '@payloadcms/db-*'`).
- * Outside Payload's own CLI (which transpiles first) the Node ESM loader can't
- * resolve those type-only names — they aren't real runtime exports — so the
- * import throws with e.g. `does not provide an export named 'MigrateDownArgs'`.
- * The copy doesn't need migrations to succeed: the caller reconciles the dev
- * schema with `applyDevSchema` immediately afterwards, so a load failure is
- * logged and swallowed rather than aborting a copy whose data is already loaded.
+ * Never throws: the rows are already loaded by the time this runs, and aborting
+ * would leave the caller unable to report what state the target is in. Both
+ * ways a migration run can fail are captured — the file failing to load, and
+ * the migration itself failing (which Payload turns into a `process.exit`, see
+ * withExitAsThrow). The outcome is returned instead, and it matters differently
+ * per mode:
+ *
+ * - Push-managed: best-effort. `db.migrate` dynamically `import()`s each on-disk
+ *   migration file, and Payload's generated migrations import types as values
+ *   (`import { MigrateUpArgs, MigrateDownArgs, sql } from '@payloadcms/db-*'`).
+ *   Outside Payload's own CLI (which transpiles first) the Node ESM loader can't
+ *   resolve those type-only names — they aren't real runtime exports — so the
+ *   import throws with e.g. `does not provide an export named 'MigrateDownArgs'`.
+ *   The dev schema push that follows reconciles the schema anyway.
+ * - Migration-managed: there is no push to fall back on, and a push could not
+ *   substitute for one regardless — it reproduces DDL, never a migration's data
+ *   backfill. A failure here means the copy is incomplete and must be reported
+ *   as such.
  */
-export const runPendingMigrations = async (
-  targetAdapter: DatabaseAdapter,
-  migrationDirExists: (dir: string) => boolean,
-  logger?: BasePayload['logger'],
-): Promise<void> => {
+export const runPendingMigrations = async ({
+  logger,
+  migrationDirExists = existsSync,
+  migrationManaged,
+  targetAdapter,
+}: RunPendingMigrationsArgs): Promise<MigrationRunOutcome> => {
   const migrationDir = (targetAdapter as unknown as { migrationDir?: string }).migrationDir
   const migrate = (targetAdapter as unknown as { migrate?: () => Promise<void> }).migrate
-  if (typeof migrate !== 'function' || !migrationDir || !migrationDirExists(migrationDir)) {
-    return
+  if (typeof migrate !== 'function') {
+    return { reason: 'no-migrate-function', status: 'skipped' }
+  }
+  if (!migrationDir || !migrationDirExists(migrationDir)) {
+    return { reason: 'no-migration-dir', status: 'skipped' }
   }
   try {
-    await migrate.call(targetAdapter)
+    await withExitAsThrow(() => migrate.call(targetAdapter))
+    return { status: 'applied' }
   } catch (error) {
     logger?.warn(
       { err: error },
-      '[switch-env] could not apply on-disk migration files during copy; continuing with a ' +
-        'dev schema push instead. This is expected when migration files import types from the ' +
-        'database adapter (the runtime ESM loader cannot resolve type-only imports) and is safe ' +
-        'for a development copy — the schema is reconciled by the push that follows.',
+      migrationManaged
+        ? '[switch-env] could not apply on-disk migration files during copy. This database is ' +
+            'migration-managed, so NO schema push was run in their place — it now holds the ' +
+            "source's data at the source's migration state. Run `payload migrate` against it " +
+            '(e.g. by deploying) to finish the copy.'
+        : '[switch-env] could not apply on-disk migration files during copy; continuing with a ' +
+            'dev schema push instead. This is expected when migration files import types from the ' +
+            'database adapter (the runtime ESM loader cannot resolve type-only imports) and is safe ' +
+            'for a development copy — the schema is reconciled by the push that follows.',
     )
+    return { error, status: 'failed' }
+  }
+}
+
+/** `payload_migrations.name` values recorded in the target, or [] if unreadable. */
+const readAppliedMigrationNames = async (targetAdapter: DatabaseAdapter): Promise<string[]> => {
+  const adapter = targetAdapter as unknown as DrizzleAdapterLike
+  const table = adapter.schemaName
+    ? `"${adapter.schemaName}"."${PAYLOAD_MIGRATIONS_TABLE}"`
+    : `"${PAYLOAD_MIGRATIONS_TABLE}"`
+  const result = await adapter.execute({
+    drizzle: adapter.drizzle,
+    raw: `SELECT name FROM ${table}`,
+  })
+  return result.rows.map((row) => String(row.name))
+}
+
+/**
+ * Migration files on disk that the target has no row for. Empty when the
+ * migration directory isn't readable from here — which is the norm on a
+ * serverless deployment, where the copy runs from a bundle that doesn't ship
+ * the `.ts` migration sources. That is reported as "unknown", not as "clean":
+ * the caller only claims migration-clean when it could actually check.
+ */
+const findPendingMigrations = async (
+  targetAdapter: DatabaseAdapter,
+  migrationDirExists: (dir: string) => boolean,
+): Promise<{ checked: boolean; pending: string[] }> => {
+  const migrationDir = (targetAdapter as unknown as { migrationDir?: string }).migrationDir
+  if (!migrationDir || !migrationDirExists(migrationDir)) {
+    return { checked: false, pending: [] }
+  }
+  const onDisk = listMigrationFileNames(migrationDir)
+  if (onDisk.length === 0) {
+    return { checked: true, pending: [] }
+  }
+  const applied = await readAppliedMigrationNames(targetAdapter)
+  return { checked: true, pending: findUnappliedMigrations(onDisk, applied) }
+}
+
+/**
+ * Checks that must pass BEFORE the restore touches the target — everything
+ * after this point is destructive.
+ */
+export const preflightRestore = ({
+  backupData,
+  targetAdapter,
+}: Pick<RestoreSqlArgs, 'backupData' | 'targetAdapter'>): void => {
+  if (!isMigrationManagedTarget(targetAdapter)) {
+    // A push-managed restore ends in a Drizzle push, so drizzle-kit must be
+    // resolvable before the target is wiped. Migration-managed restores never
+    // push, so they must not hard-fail on a deployment that (correctly) ships
+    // no drizzle-kit — the schema reporting degrades instead, see below.
+    requireDrizzleKitApi(targetAdapter)
+    return
+  }
+  if (hasDevPushMarker(backupData.migrations)) {
+    throw new Error(
+      '[switch-env] refusing to copy: the source database carries a dev schema-push marker ' +
+        '(a `payload_migrations` row with batch = -1), so its live schema is not fully described ' +
+        'by its migration history. This target is migration-managed (`push: false` and/or ' +
+        'NODE_ENV=production), so the marker can neither be carried over — it would block the ' +
+        "target's next non-interactive `payload migrate` — nor be dropped, which would claim a " +
+        'schema the migrations do not produce. Nothing was changed. Resolve it on the source ' +
+        'first: bring its schema under migration control, then delete that row.',
+    )
+  }
+}
+
+/**
+ * Shared tail of both dialects' restore: bring the freshly loaded replica
+ * forward to the code's schema, in the only way the target's schema policy
+ * allows, and report exactly how far it got.
+ */
+export const finalizeRestore = async ({
+  logger,
+  migrationDirExists = existsSync,
+  targetAdapter,
+}: {
+  logger: BasePayload['logger']
+  migrationDirExists?: (dir: string) => boolean
+  targetAdapter: DatabaseAdapter
+}): Promise<RestoreSqlResult> => {
+  const migrationManaged = isMigrationManagedTarget(targetAdapter)
+
+  // Apply any migration files production hasn't run yet, so their renames and
+  // backfills transform the restored production rows the way the migration
+  // author intended.
+  const outcome = await runPendingMigrations({
+    logger,
+    migrationDirExists,
+    migrationManaged,
+    targetAdapter,
+  })
+  const migrationError =
+    outcome.status === 'failed'
+      ? outcome.error instanceof Error
+        ? outcome.error.message
+        : String(outcome.error)
+      : undefined
+
+  if (!migrationManaged) {
+    // Reconcile remaining (unmigrated) dev-only schema changes against the live
+    // database, non-interactively — or pause on rename-shaped ambiguity.
+    const { deferredReconcile } = await applyDevSchema(targetAdapter, logger)
+    return {
+      deferredReconcile,
+      migrationError,
+      migrationsChecked: false,
+      pendingMigrations: [],
+      schemaMode: 'push-managed',
+      unresolvedDrift: [],
+    }
+  }
+
+  const { checked, pending } = await findPendingMigrations(targetAdapter, migrationDirExists)
+  if (pending.length > 0) {
+    logger.warn(
+      `[switch-env] ${pending.length} migration(s) on disk are not recorded in this database ` +
+        `after the copy: ${pending.join(', ')}. It is migration-managed, so no schema push was ` +
+        'run in their place — run `payload migrate` against it to finish.',
+    )
+  }
+
+  // Read-only schema reporting. Never applies anything, and stays advisory: it
+  // is the operator's early warning, not a gate.
+  let deferredReconcile: string[] = []
+  let unresolvedDrift: string[] = []
+  try {
+    const { generateDrizzleJson } = requireDrizzleKitApi(targetAdapter)
+    const adapter = targetAdapter as unknown as DrizzleAdapterLike
+    const snapshot = await generateDrizzleJson(adapter.schema)
+    // Must run before any drizzle-kit diff: its resolvers prompt on stdin when
+    // created and deleted objects of the same kind coexist, which would hang
+    // the endpoint. Rename-shaped drift here means this environment is missing
+    // the migration for that rename.
+    deferredReconcile = await detectRenameAmbiguities(targetAdapter, snapshot)
+    if (deferredReconcile.length === 0) {
+      const drift = await getSqlSchemaDrift({ schemaAdapter: targetAdapter, targetAdapter })
+      unresolvedDrift = drift.statements
+      if (unresolvedDrift.length > 0) {
+        logger.info(
+          `[switch-env] ${unresolvedDrift.length} schema statement(s) would still be required to ` +
+            'match the code schema. Some are drizzle-kit no-ops that reappear on every diff; if ' +
+            'they are real, this environment is missing migrations:\n' +
+            unresolvedDrift.join('\n'),
+        )
+      }
+    } else {
+      logger.warn(
+        `[switch-env] possible rename(s) detected after the copy:\n${deferredReconcile.join('\n')}\n` +
+          'This database is migration-managed, so nothing was pushed — it is missing the ' +
+          'migrations for these changes. Run `payload migrate` against it.',
+      )
+    }
+  } catch (error) {
+    // drizzle-kit is a dev dependency of the adapters; a production bundle may
+    // not carry it. Nothing above is required for a correct copy.
+    logger.warn(
+      { err: error },
+      '[switch-env] skipped post-copy schema reporting (drizzle-kit unavailable). The copy ' +
+        'itself is unaffected — a migration-managed target is never schema-pushed.',
+    )
+  }
+
+  return {
+    deferredReconcile,
+    migrationError,
+    migrationsChecked: checked,
+    pendingMigrations: pending,
+    schemaMode: 'migration-managed',
+    unresolvedDrift,
   }
 }
 

@@ -12,13 +12,20 @@ import { backup, restore } from '../db/mongo.js'
 import { openAdapter } from '../db/openAdapter.js'
 import { backupSql, restoreSql } from '../db/sql.js'
 import { switchDbConnection } from '../db/switchDbConnection.js'
-import { describeDeferredReconcile, formatFileSize } from '../utils.js'
+import { describeRestoreResult, formatFileSize } from '../utils.js'
 
 // No parameters needed - always copies from production to development
 export type CopyEndpointInput = Record<string, never>
 
 export interface CopyEndpointOutput {
   message: string
+  /**
+   * `incomplete` means the data was copied but the target is not at the code's
+   * migration state — e.g. a migration failed, or a migration-managed target is
+   * still missing migrations (no dev schema push is ever run in their place).
+   * Absent on the non-SQL paths and on responses that never reached the copy.
+   */
+  status?: 'incomplete' | 'ok'
   success: boolean
 }
 
@@ -39,7 +46,10 @@ export const copyEndpoint = ({
     const payload = req.payload
     const logger = payload.logger
     const currentEnv = await getEnv(payload)
-    let deferredReconcile: string[] = []
+    let caveat: { detail: null | string; incomplete: boolean } = {
+      detail: null,
+      incomplete: false,
+    }
 
     if (currentEnv !== 'development') {
       return Response.json({
@@ -100,7 +110,7 @@ export const copyEndpoint = ({
             payload,
             targetAdapter: payload.db,
           })
-          deferredReconcile = restoreResult.deferredReconcile
+          caveat = describeRestoreResult(restoreResult)
         } finally {
           if (typeof sourceAdapter.destroy === 'function') {
             await sourceAdapter.destroy()
@@ -110,13 +120,20 @@ export const copyEndpoint = ({
         throw new Error(`switch-env: unsupported db adapter "${adapterName}"`)
       }
 
-      logger.info(`Successfully copied production database to development environment`)
+      if (caveat.incomplete) {
+        logger.warn(
+          `Copied production database to development, but the copy is incomplete: ${caveat.detail}`,
+        )
+      } else {
+        logger.info(`Successfully copied production database to development environment`)
+      }
 
       const res: CopyEndpointOutput = {
         message:
-          deferredReconcile.length === 0
+          caveat.detail === null
             ? 'Successfully copied production database to development'
-            : `Copied production database to development, but ${describeDeferredReconcile(deferredReconcile)}`,
+            : `Copied production database to development, but ${caveat.detail}`,
+        status: caveat.incomplete ? 'incomplete' : 'ok',
         success: true,
       }
       return Response.json(res)
