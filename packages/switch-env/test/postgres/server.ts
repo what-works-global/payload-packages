@@ -5,12 +5,24 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 export interface PostgresTestServer {
+  /**
+   * Opens a connected `pg` client on a database of the cluster — a raw query
+   * surface for tests that exercise SQL helpers directly, with no Payload boot.
+   * The caller owns it and must `end()` it.
+   */
+  connectClient: (database: string) => Promise<PgTestClient>
   /** Builds a connection string for a database on the running cluster. */
   connectionString: (database: string) => string
   /** Creates a database on the cluster. */
   createDatabase: (name: string) => Promise<void>
   /** Stops the cluster and removes its data directory. */
   stop: () => Promise<void>
+}
+
+/** The slice of `pg.Client` the tests use — also satisfies `PgQueryRunner`. */
+export interface PgTestClient {
+  end: () => Promise<void>
+  query: (text: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>
 }
 
 const PG_USER = 'postgres'
@@ -52,6 +64,13 @@ export const startPostgres = async (): Promise<PostgresTestServer> => {
   await postgres.start()
 
   return {
+    connectClient: async (database: string) => {
+      const client = postgres.getPgClient(database) as unknown as {
+        connect: () => Promise<void>
+      } & PgTestClient
+      await client.connect()
+      return client
+    },
     connectionString: (database: string) =>
       `postgresql://${PG_USER}:${PG_PASSWORD}@127.0.0.1:${port}/${database}`,
     createDatabase: (name: string) => postgres.createDatabase(name),
