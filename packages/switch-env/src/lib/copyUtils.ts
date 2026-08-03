@@ -6,12 +6,17 @@ import type {
   CopyModeOverrides,
   CopyTargetConfig,
   CopyVersionsMode,
+  UnregisteredCopyConfig,
 } from '../types.js'
 
 type CopyMode = CopyDocumentsMode
 type RuntimeCopyVersionsMode = Exclude<CopyVersionsMode, { mode: 'none' }>
 const DEFAULT_COPY_MODE: CopyMode = { mode: 'all' }
+/** Unregistered collections are opt-in: skipped unless configured otherwise. */
+const DEFAULT_UNREGISTERED_COPY_MODE: CopyMode = { mode: 'none' }
 const INTERNAL_MAX_LATEST_X = 100
+/** Payload names a version collection `_<base>_versions` on the mongo adapter. */
+const VERSION_COLLECTION_NAME_PATTERN = /^_.+_versions$/
 
 type CollectionModeOverrides<TMode extends CopyMode> = CopyModeOverrides<string, TMode>
 type GlobalModeOverrides<TMode extends CopyMode> = CopyModeOverrides<string, TMode>
@@ -22,8 +27,20 @@ export interface ResolvedCopyTargetConfig<TMode extends CopyMode> {
   globals?: GlobalModeOverrides<TMode>
 }
 
+export interface ResolvedUnregisteredCopyConfig {
+  collections?: CollectionModeOverrides<CopyDocumentsMode>
+  default: CopyDocumentsMode
+  /**
+   * Applied to unregistered *version* collections that no override names, so a
+   * bounded versions copy stays bounded for unregistered collections too.
+   * Inherited from `copy.versions.default`.
+   */
+  versionsDefault: RuntimeCopyVersionsMode
+}
+
 export interface ResolvedCopyConfig {
   documents: ResolvedCopyTargetConfig<CopyDocumentsMode>
+  unregistered: ResolvedUnregisteredCopyConfig
   versions: ResolvedCopyTargetConfig<RuntimeCopyVersionsMode>
 }
 
@@ -49,6 +66,23 @@ interface ResolvePayloadCollectionScopesArgs {
   payload: Payload
 }
 
+interface ResolveUnregisteredCopyTargetsArgs {
+  /** Collection names that exist in the source database. */
+  existingCollectionNames: Iterable<string>
+  /**
+   * Database collection names already covered by a registered collection,
+   * global, or version collection — these are handled by `copy.documents` /
+   * `copy.versions` and must not be re-added here.
+   */
+  registeredCollectionNames: Iterable<string>
+  unregistered: ResolvedUnregisteredCopyConfig | undefined
+}
+
+export interface UnregisteredCopyTargets {
+  collectionScopes: PayloadCollectionScopes
+  versionCollectionModes: VersionCollectionModes
+}
+
 export interface VersionCollectionModes {
   [collectionName: string]: RuntimeCopyVersionsMode
 }
@@ -70,12 +104,19 @@ export const normalizeCopyConfig = ({
   const maxX = INTERNAL_MAX_LATEST_X
 
   const normalizedVersions = normalizeTargetConfig(fromObject.versions, 'copy.versions', maxX, warn)
+  const versionsDefault = coerceVersionMode(normalizedVersions.default)
 
   return {
     documents: normalizeTargetConfig(fromObject.documents, 'copy.documents', maxX, warn),
+    unregistered: normalizeUnregisteredConfig({
+      config: fromObject.unregistered,
+      maxX,
+      versionsDefault,
+      warn,
+    }),
     versions: {
       collections: coerceVersionOverrides(normalizedVersions.collections),
-      default: coerceVersionMode(normalizedVersions.default),
+      default: versionsDefault,
       globals: coerceVersionOverrides(normalizedVersions.globals),
     },
   }
@@ -126,6 +167,7 @@ export const warnOnInvalidOverrideTargets = ({
     requireVersionsEnabled: true,
     warn,
   })
+  warnOnUnregisteredOverrides({ collections, copy, warn })
 }
 
 export const resolveVersionCollectionModes = ({
@@ -170,8 +212,10 @@ export const resolvePayloadCollectionScopes = ({
   }
 
   const globalsCollectionName = getGlobalsCollectionName(payload)
+  const registeredGlobalSlugs: string[] = []
   for (const global of payload.config.globals || []) {
     const mode = copy.documents.globals?.[global.slug] ?? copy.documents.default
+    registeredGlobalSlugs.push(global.slug)
     addCollectionScope(collectionScopes, globalsCollectionName, {
       filter: {
         globalType: global.slug,
@@ -180,8 +224,83 @@ export const resolvePayloadCollectionScopes = ({
     })
   }
 
+  // Every global lives in the single `globals` collection, so a global this
+  // config doesn't register is invisible to the per-slug scopes above — the
+  // collection itself is registered, so the unregistered-collection pass never
+  // sees it either. Add a scope for the leftovers when unregistered copying is
+  // on, so a sibling deployment's globals survive the copy.
+  const unregisteredGlobalsMode =
+    copy.unregistered.collections?.[globalsCollectionName] ?? copy.unregistered.default
+  if (registeredGlobalSlugs.length > 0 && unregisteredGlobalsMode.mode !== 'none') {
+    addCollectionScope(collectionScopes, globalsCollectionName, {
+      filter: {
+        globalType: { $nin: registeredGlobalSlugs },
+      },
+      mode: unregisteredGlobalsMode,
+    })
+  }
+
   return collectionScopes
 }
+
+/**
+ * Splits the source database's leftover collections — the ones no registered
+ * collection, global, or version collection maps to — into base-document scopes
+ * and version-collection modes, according to `copy.unregistered`.
+ *
+ * Nothing is returned unless the caller opted in: with the default
+ * `{ mode: 'none' }` and no overrides, unregistered collections stay skipped.
+ */
+export const resolveUnregisteredCopyTargets = ({
+  existingCollectionNames,
+  registeredCollectionNames,
+  unregistered,
+}: ResolveUnregisteredCopyTargetsArgs): UnregisteredCopyTargets => {
+  const targets: UnregisteredCopyTargets = {
+    collectionScopes: {},
+    versionCollectionModes: {},
+  }
+
+  if (!unregistered) {
+    return targets
+  }
+
+  const registered = new Set(registeredCollectionNames)
+
+  for (const collectionName of existingCollectionNames) {
+    if (registered.has(collectionName) || isInternalDatabaseCollectionName(collectionName)) {
+      continue
+    }
+
+    const override = unregistered.collections?.[collectionName]
+    const mode = override ?? unregistered.default
+    if (mode.mode === 'none') {
+      continue
+    }
+
+    if (VERSION_COLLECTION_NAME_PATTERN.test(collectionName)) {
+      // Sized like a registered collection's versions (latest-x is per parent),
+      // so `copy.versions.default` still bounds the copy. An override naming
+      // this collection wins.
+      targets.versionCollectionModes[collectionName] = override
+        ? coerceVersionMode(override)
+        : unregistered.versionsDefault
+      continue
+    }
+
+    addCollectionScope(targets.collectionScopes, collectionName, { mode })
+  }
+
+  return targets
+}
+
+/**
+ * MongoDB's own bookkeeping collections (`system.views`, `system.profile`, ...).
+ * They are server-managed and can't be inserted into, so they must never be
+ * treated as copyable data.
+ */
+const isInternalDatabaseCollectionName = (collectionName: string): boolean =>
+  collectionName.startsWith('system.')
 
 const addCollectionScope = (
   collectionScopes: PayloadCollectionScopes,
@@ -228,6 +347,7 @@ const normalizeOverrides = (
   contextPrefix: string,
   maxX: number,
   warn?: (message: string) => void,
+  fallback?: CopyMode,
 ) => {
   if (!overrides) {
     return undefined
@@ -242,6 +362,7 @@ const normalizeOverrides = (
 
     normalized[slug] = normalizeMode(mode, {
       context: `${contextPrefix}.${slug}`,
+      fallback,
       maxX,
       warn,
     })
@@ -250,19 +371,59 @@ const normalizeOverrides = (
   return normalized
 }
 
+const normalizeUnregisteredConfig = ({
+  config,
+  maxX,
+  versionsDefault,
+  warn,
+}: {
+  config: undefined | UnregisteredCopyConfig
+  maxX: number
+  versionsDefault: RuntimeCopyVersionsMode
+  warn?: (message: string) => void
+}): ResolvedUnregisteredCopyConfig => {
+  const unregisteredConfig = config || {}
+  const contextPrefix = 'copy.unregistered'
+
+  return {
+    collections: normalizeOverrides(
+      unregisteredConfig.collections,
+      `${contextPrefix}.collections`,
+      maxX,
+      warn,
+      DEFAULT_UNREGISTERED_COPY_MODE,
+    ),
+    default: normalizeMode(unregisteredConfig.default || DEFAULT_UNREGISTERED_COPY_MODE, {
+      context: `${contextPrefix}.default`,
+      fallback: DEFAULT_UNREGISTERED_COPY_MODE,
+      maxX,
+      warn,
+    }),
+    versionsDefault,
+  }
+}
+
 const normalizeMode = (
   mode: CopyMode,
   options: {
     context: string
+    /**
+     * Mode used when the configured one is invalid. `{ mode: 'all' }` everywhere
+     * except `copy.unregistered`, where invalid input must not silently opt the
+     * copy into collections it was never meant to include.
+     */
+    fallback?: CopyMode
     maxX: number
     warn?: (message: string) => void
   },
 ): CopyMode => {
+  const fallback = options.fallback ?? { mode: 'all' }
+
   if (!mode || typeof mode !== 'object' || typeof mode.mode !== 'string') {
     options.warn?.(
-      `\`${options.context}\` must be a valid copy mode. Falling back to { mode: 'all' }.`,
+      `\`${options.context}\` must be a valid copy mode. Falling back to { mode: '${fallback.mode}' }.`,
     )
-    return { mode: 'all' }
+    return fallback
   }
 
   if (mode.mode === 'all' || mode.mode === 'none') {
@@ -272,9 +433,9 @@ const normalizeMode = (
   if (mode.mode === 'latest-x') {
     if (!Number.isInteger(mode.x) || mode.x < 1) {
       options.warn?.(
-        `\`${options.context}.x\` must be an integer greater than or equal to 1. Falling back to { mode: 'all' }.`,
+        `\`${options.context}.x\` must be an integer greater than or equal to 1. Falling back to { mode: '${fallback.mode}' }.`,
       )
-      return { mode: 'all' }
+      return fallback
     }
 
     if (mode.x > options.maxX) {
@@ -288,9 +449,9 @@ const normalizeMode = (
   }
 
   options.warn?.(
-    `\`${options.context}.mode\` must be one of: "all", "latest-x", "none". Falling back to { mode: 'all' }.`,
+    `\`${options.context}.mode\` must be one of: "all", "latest-x", "none". Falling back to { mode: '${fallback.mode}' }.`,
   )
-  return { mode: 'all' }
+  return fallback
 }
 
 const coerceVersionMode = (mode: CopyVersionsMode): RuntimeCopyVersionsMode => {
@@ -348,6 +509,42 @@ const warnOnEntityOverrides = ({
     if (requireVersionsEnabled && !enabledBySlug.get(slug)) {
       warn?.(
         `\`${pathPrefix}.${slug}\` is set, but ${entityName} "${slug}" does not have versions enabled.`,
+      )
+    }
+  }
+}
+
+/**
+ * `copy.unregistered.collections` is keyed by database collection name and only
+ * ever reaches collections this config does *not* register, so an entry naming a
+ * registered collection is a silent no-op — the user most likely meant
+ * `copy.documents.collections` (which is keyed by slug).
+ */
+const warnOnUnregisteredOverrides = ({
+  collections,
+  copy,
+  warn,
+}: {
+  collections: CollectionConfig[]
+  copy: ResolvedCopyConfig
+  warn?: (message: string) => void
+}) => {
+  const overrides = copy.unregistered.collections
+  if (!overrides) {
+    return
+  }
+
+  const registeredNames = new Map<string, string>()
+  for (const collection of collections) {
+    registeredNames.set(collection.slug, collection.slug)
+    registeredNames.set(resolveDBName(collection), collection.slug)
+  }
+
+  for (const collectionName of Object.keys(overrides)) {
+    const slug = registeredNames.get(collectionName)
+    if (slug) {
+      warn?.(
+        `\`copy.unregistered.collections.${collectionName}\` matches the configured collection "${slug}", so it has no effect. Use \`copy.documents.collections.${slug}\` instead.`,
       )
     }
   }

@@ -1,7 +1,14 @@
 import type { Connection, mongo } from 'mongoose'
 import type { BasePayload } from 'payload'
 
-import type { CollectionCopyScope, VersionCollectionModes } from '../copyUtils.js'
+import type {
+  CollectionCopyScope,
+  PayloadCollectionScopes,
+  ResolvedUnregisteredCopyConfig,
+  VersionCollectionModes,
+} from '../copyUtils.js'
+
+import { resolveUnregisteredCopyTargets } from '../copyUtils.js'
 
 type MongoDoc = mongo.Document
 type MongoCollection = mongo.Collection<MongoDoc>
@@ -18,6 +25,12 @@ export interface BackupOptions {
   payloadCollectionScopes?: {
     [collectionName: string]: CollectionCopyScope[]
   }
+  /**
+   * Copy behavior for collections in this database that no registered Payload
+   * collection, global, or version collection maps to. Omit (or leave at its
+   * `{ mode: 'none' }` default) to back up only registered collections.
+   */
+  unregisteredCollections?: ResolvedUnregisteredCopyConfig
   versionCollectionModes?: VersionCollectionModes
 }
 
@@ -36,10 +49,32 @@ export async function backup(
   }
   const collections = await db.listCollections().toArray()
   const existingCollectionNames = new Set(collections.map((collectionInfo) => collectionInfo.name))
-  const payloadCollectionScopesByName = options.payloadCollectionScopes || {}
-  const versionCollectionModesByName = options.versionCollectionModes || {}
+  const registeredCollectionScopesByName = options.payloadCollectionScopes || {}
+  const registeredVersionCollectionModesByName = options.versionCollectionModes || {}
+
+  // Views are read-only projections of other collections — restoring one would
+  // materialize duplicated data into a real collection, so leave them out.
+  const unregisteredTargets = resolveUnregisteredCopyTargets({
+    existingCollectionNames: collections
+      .filter((collectionInfo) => collectionInfo.type !== 'view')
+      .map((collectionInfo) => collectionInfo.name),
+    registeredCollectionNames: [
+      ...Object.keys(registeredCollectionScopesByName),
+      ...Object.keys(registeredVersionCollectionModesByName),
+    ],
+    unregistered: options.unregisteredCollections,
+  })
+
+  const baseCollectionScopesByName: PayloadCollectionScopes = {
+    ...registeredCollectionScopesByName,
+    ...unregisteredTargets.collectionScopes,
+  }
+  const versionCollectionModesByName: VersionCollectionModes = {
+    ...registeredVersionCollectionModesByName,
+    ...unregisteredTargets.versionCollectionModes,
+  }
   const targetCollectionNames = new Set([
-    ...Object.keys(payloadCollectionScopesByName),
+    ...Object.keys(baseCollectionScopesByName),
     ...Object.keys(versionCollectionModesByName),
   ])
 
@@ -55,12 +90,12 @@ export async function backup(
 
     const collection = db.collection(collectionName)
     const isBaseCollection = Object.prototype.hasOwnProperty.call(
-      payloadCollectionScopesByName,
+      baseCollectionScopesByName,
       collectionName,
     )
 
     if (isBaseCollection) {
-      const scopes = payloadCollectionScopesByName[collectionName] || []
+      const scopes = baseCollectionScopesByName[collectionName] || []
       backupData.collections[collectionName] = await getDocumentsByScopes(collection, scopes)
     } else {
       const versionMode = versionCollectionModesByName[collectionName]

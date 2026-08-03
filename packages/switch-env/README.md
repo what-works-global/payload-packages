@@ -120,11 +120,11 @@ export default buildConfig({
 | `developmentFileStorage` | object                                               | `{ mode: 'file-system' }` | Where dev uploads go: `{ mode: 'file-system' }` or `{ mode: 'cloud-storage', prefix, collections }`. In `cloud-storage` mode, `collections` mirrors the storage plugin's collection options; on Payload < 3.83.0 it must be the _same object_ you pass to the storage plugin (so prefix rewrites are visible to it), on >= 3.83.0 a separate object also works. |
 | `developmentSafetyMode`  | boolean                                              | `true`                    | When `NODE_ENV=development`, throws if `developmentArgs.url` is not `localhost`/`127.0.0.1`.                                                                                                                                                                                                                                                                    |
 | `logDatabaseSize`        | boolean                                              | `false`                   | Logs the serialized backup size when copying the DB (adds a serialization cost).                                                                                                                                                                                                                                                                                |
-| `copy`                   | object                                               | —                         | Control which documents and versions are copied to development. See below.                                                                                                                                                                                                                                                                                      |
+| `copy`                   | object                                               | —                         | Control which documents, versions, and unregistered collections are copied to development. See below.                                                                                                                                                                                                                                                           |
 
 ### `copy`
 
-Limit how much data is copied when replicating production to development. Both `documents` and `versions` accept a `default` mode plus per-`collections`/`globals` overrides:
+Control what is copied when replicating production to development. `documents` and `versions` limit how much of your registered collections comes across; `unregistered` (below) opts collections your config doesn't register into the copy at all. Both `documents` and `versions` accept a `default` mode plus per-`collections`/`globals` overrides:
 
 - `{ mode: 'all' }` — copy everything.
 - `{ mode: 'latest-x', x: number }` — copy only the latest `x` (documents, or versions per document).
@@ -141,6 +141,38 @@ copy: {
   },
 }
 ```
+
+#### Collections that aren't in your config — `copy.unregistered`
+
+**MongoDB only.** A copy walks the collections your Payload config registers, so anything else in the production database is left out — and because the restore rewrites the whole target database, those collections end up **empty** in the target. That bites hardest when two deployments share one database and each registers only its own collections (e.g. `WEBSITE=a` registers `pages-a`, `WEBSITE=b` registers `pages-b`): copying production from site A gives you a staging database with none of site B's pages.
+
+Set `copy.unregistered` to copy them too:
+
+```ts
+copy: {
+  versions: { default: { mode: 'latest-x', x: 3 } },
+  unregistered: {
+    // Copy every collection in the production database, registered or not.
+    default: { mode: 'all' },
+    // Optional per-collection overrides, keyed by *database collection name*
+    // (these collections have no Payload slug).
+    collections: { events: { mode: 'latest-x', x: 100 } },
+  },
+}
+```
+
+What it covers, once opted in:
+
+- **Unregistered collections** — copied with the configured mode (`{ mode: 'none' }`, the default, keeps the old skip-everything behavior).
+- **Their versions** — a `_<name>_versions` collection is copied with version semantics, bounded by `copy.versions.default` (so `latest-x` still means "per document") unless `collections` names it explicitly.
+- **Their globals** — every global lives in the single `globals` collection, so globals whose `globalType` your config doesn't register are copied as well.
+- **Their indexes** — recreated on the target like any other collection's.
+
+MongoDB's own `system.*` collections and database views are never copied. `copy.documents` / `copy.versions` stay in charge of everything your config _does_ register, so an entry in `copy.unregistered.collections` naming a registered collection is a no-op (the plugin logs a warning pointing at `copy.documents.collections`).
+
+Nothing here applies to Postgres or SQLite: those copies replay the source schema and load **every** table in it, so unregistered tables already come across.
+
+> If both sites can afford it, registering every collection in every deployment (and hiding the other site's with `admin.hidden` / access control) is the sturdier fix — one config that matches the database keeps generated types, migrations, and the SQL schema checks honest. `copy.unregistered` is for when the configs genuinely have to differ.
 
 ### Duplicate filenames in `cloud-storage` mode
 

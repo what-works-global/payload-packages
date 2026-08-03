@@ -95,6 +95,24 @@ export interface CopyTargetConfig<TMode> {
   globals?: CopyModeOverrides<GlobalSlug, TMode>
 }
 
+export interface UnregisteredCopyConfig {
+  /**
+   * Per-collection overrides keyed by the **database** collection name (not a
+   * Payload slug — these collections have none). For a version collection
+   * (`_<name>_versions`) the mode is applied per parent document, like
+   * `copy.versions`.
+   */
+  collections?: CopyModeOverrides<string, CopyDocumentsMode>
+  /**
+   * Copy behavior for unregistered collections.
+   * - `{ mode: 'none' }`: Skip them (the default — only registered collections are copied)
+   * - `{ mode: 'all' }`: Copy every document
+   * - `{ mode: 'latest-x'; x: number }`: Copy only the latest x documents
+   * @default { mode: 'none' }
+   */
+  default?: CopyDocumentsMode
+}
+
 export interface CopyConfig {
   /**
    * Configure how base documents are handled when copying the production database to development.
@@ -104,6 +122,26 @@ export interface CopyConfig {
    * @default { default: { mode: 'all' } }
    */
   documents?: CopyTargetConfig<CopyDocumentsMode>
+  /**
+   * **MongoDB only.** Configure collections that exist in the production database
+   * but are not registered in your Payload config — collections another app owns,
+   * collections left behind by a removed Payload collection, or (most commonly)
+   * collections a sibling deployment registers conditionally, e.g. when two sites
+   * share one database and each only registers its own `pages` collection.
+   *
+   * By default those collections are skipped, so a copy silently leaves them out
+   * of the target — and because the restore rewrites the whole target database,
+   * they end up empty there. Set `{ default: { mode: 'all' } }` to copy them too.
+   *
+   * Version collections of unregistered collections are copied as versions:
+   * bounded by `copy.versions.default` unless `collections` names them explicitly.
+   * Globals belonging to unregistered `globals` slugs are copied as well.
+   *
+   * SQL adapters already replicate every table in the schema, registered or not,
+   * so this option does not apply to them.
+   * @default { default: { mode: 'none' } }
+   */
+  unregistered?: UnregisteredCopyConfig
   /**
    * Configure how version documents are handled when copying the production database to development.
    * - `{ mode: 'all' }`: Copy all versions of all documents

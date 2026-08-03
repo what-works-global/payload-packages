@@ -74,6 +74,7 @@ export const switchEndpoint = ({
           const versionCollectionModes = resolveVersionCollectionModes({ copy, payload })
           mongoBackup = await backup(payload.db.connection, {
             payloadCollectionScopes,
+            unregisteredCollections: copy.unregistered,
             versionCollectionModes,
           })
           const databaseSize = logDatabaseSize

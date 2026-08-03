@@ -70,6 +70,7 @@ export const copyEndpoint = ({
         const versionCollectionModes = resolveVersionCollectionModes({ copy, payload })
         const backupData = await backup(payload.db.connection, {
           payloadCollectionScopes,
+          unregisteredCollections: copy.unregistered,
           versionCollectionModes,
         })
 
