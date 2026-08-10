@@ -44,20 +44,20 @@ export const addAccessSettingsToUploadCollection = (
           const result = oldDelete ? await oldDelete(args) : true
           const env = await getEnv(args.req.payload)
           if (env === 'development') {
-            if (args.data) {
-              return !!args.data.createdDuringDevelopment
-            } else {
-              const access = !(await operatingOnAnyDocumentNotCreatedDuringDevelopment(
-                args.req,
-                collection.slug,
-                args.id?.toString(),
-              ))
-              if (!access) {
+            const { allowed, identifiedDocuments } = await checkDevelopmentUploadWrite(
+              args,
+              collection.slug,
+            )
+            if (!allowed) {
+              if (identifiedDocuments) {
                 throw new APIError(
                   'Cannot delete upload collection documents that were not created during development, as it will delete the file(s) in cloud storage.',
+                  403,
+                  null,
+                  true,
                 )
               }
-              return result
+              return false
             }
           }
           return result
@@ -67,20 +67,20 @@ export const addAccessSettingsToUploadCollection = (
           const result = oldUpdate ? await oldUpdate(args) : true
           const env = await getEnv(args.req.payload)
           if (env === 'development') {
-            if (args.data) {
-              return !!args.data.createdDuringDevelopment
-            } else {
-              const access = !(await operatingOnAnyDocumentNotCreatedDuringDevelopment(
-                args.req,
-                collection.slug,
-                args.id?.toString(),
-              ))
-              if (!access) {
+            const { allowed, identifiedDocuments } = await checkDevelopmentUploadWrite(
+              args,
+              collection.slug,
+            )
+            if (!allowed) {
+              if (identifiedDocuments) {
                 throw new APIError(
                   'Cannot update upload collection documents that were not created during development, as it will potentially modify the file(s) in cloud storage.',
+                  403,
+                  null,
+                  true,
                 )
               }
-              return result
+              return false
             }
           }
           return result
@@ -659,24 +659,41 @@ export const modifyUploadCollections = (
     })
 }
 
-const operatingOnAnyDocumentNotCreatedDuringDevelopment = async (
-  req: PayloadRequest,
-  collectionSlug: CollectionSlug,
-  id?: string,
-) => {
+/**
+ * Query-string keys that carry document ids. Payload's REST layer takes `id`
+ * directly, and expresses selections as `where[id][…]` — optionally nested in an
+ * `and` / `or` group, which is what the admin's bulk delete sends
+ * (`where[and][0][id][in][0]`). Matching loosely on `key.includes('id')` would
+ * also collect any user field whose *name* merely contains "id"
+ * (`where[videoId][equals]=abc`) and feed those values into an `id in (…)`
+ * lookup, which a numeric-id database rejects outright.
+ */
+const idQueryParamKey = /^id$|^where(?:\[[^[\]]+\])*\[id\](?:\[|$)/
+
+/** The documents a write targets, from the route param and the query string. */
+const getTargetedDocumentIds = (req: PayloadRequest, id?: string): string[] => {
   const documentIds = Array.from(req.searchParams.entries())
-    .filter(([key, _]) => key.includes('id'))
+    .filter(([key, _]) => idQueryParamKey.test(key))
     .map(([_, value]) => value)
 
   if (id) {
     documentIds.push(id)
   }
 
-  if (documentIds.length == 0) {
-    return false
-  }
+  return documentIds
+}
+
+const anyDocumentNotCreatedDuringDevelopment = async (
+  req: PayloadRequest,
+  collectionSlug: CollectionSlug,
+  documentIds: string[],
+) => {
   const documents = await req.payload.find({
     collection: collectionSlug,
+    // Trashed documents are excluded by default, and permanently deleting from
+    // the trash view is precisely a write against one — without this the guard
+    // would wave through every already-trashed production document.
+    trash: true,
     where: {
       id: { in: documentIds },
     },
@@ -685,4 +702,37 @@ const operatingOnAnyDocumentNotCreatedDuringDevelopment = async (
     (doc) =>
       typeof doc.createdDuringDevelopment !== 'boolean' || doc.createdDuringDevelopment === false,
   )
+}
+
+/**
+ * Whether a development-mode write may touch the documents it targets, and
+ * whether it identified any documents at all.
+ *
+ * The *stored* `createdDuringDevelopment` flag is the authoritative signal, so
+ * resolve the targeted documents whenever the request names any. Incoming `data`
+ * is consulted only when it does not, because payload sends partial bodies for
+ * some writes — with `trash` enabled the admin's delete button is a
+ * `PATCH { deletedAt }` and nothing else. A flag missing from `data` therefore
+ * means "not stated", never "not created during development"; reading it from
+ * `data` alone denied every trash delete with a bare 403.
+ */
+const checkDevelopmentUploadWrite = async (
+  args: { data?: Record<string, unknown>; id?: number | string; req: PayloadRequest },
+  collectionSlug: CollectionSlug,
+): Promise<{ allowed: boolean; identifiedDocuments: boolean }> => {
+  const documentIds = getTargetedDocumentIds(args.req, args.id?.toString())
+
+  if (documentIds.length === 0) {
+    // An id-less bulk write: nothing to resolve, so fall back to what the write
+    // itself declares.
+    return {
+      allowed: args.data ? !!args.data.createdDuringDevelopment : true,
+      identifiedDocuments: false,
+    }
+  }
+
+  return {
+    allowed: !(await anyDocumentNotCreatedDuringDevelopment(args.req, collectionSlug, documentIds)),
+    identifiedDocuments: true,
+  }
 }
