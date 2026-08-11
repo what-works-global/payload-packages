@@ -69,9 +69,11 @@ export {
 export type {
   PredefinedRole,
   RbacEntitySelection,
+  RbacEntitySlug,
   RbacPermission,
   RbacPluginConfig,
 } from './types.js'
+export { andAccessResults, composeAccess } from './utilities/composeAccess.js'
 export { entityLabel } from './utilities/entityLabel.js'
 export {
   anyUserHoldsRole,
@@ -81,6 +83,12 @@ export {
   type WarnIfAdminRoleUnheldArgs,
 } from './utilities/fullAccessHolders.js'
 export { getUserPermissions, hasPermission } from './utilities/getUserPermissions.js'
+export {
+  type EntityWithOwnAccess,
+  formatOwnAccessNotice,
+  logOwnAccessNotice,
+  type LogOwnAccessNoticeArgs,
+} from './utilities/ownAccessNotice.js'
 export {
   isTransientMongoError,
   isWriteConflict,

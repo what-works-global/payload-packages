@@ -6,11 +6,14 @@ import type {
   PayloadRequest,
   RelationshipField,
   SelectField,
+  Where,
 } from 'payload'
 
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  andAccessResults,
+  composeAccess,
   createAssignFirstUserRoleHook,
   createProtectAdminUsersChangeHook,
   createProtectAdminUsersDeleteHook,
@@ -159,6 +162,195 @@ describe('@whatworks/payload-rbac peer smoke', () => {
     const settings = result.globals?.find((g) => g.slug === 'site-settings')
     expect(settings?.access?.read).toBeTypeOf('function')
     expect(settings?.access?.update).toBeTypeOf('function')
+  })
+
+  it('ANDs access results the way payload combines queries', () => {
+    const published: Where = { _status: { equals: 'published' } }
+    const mine: Where = { author: { equals: 1 } }
+
+    // A denial wins outright, whatever the other side says.
+    expect(andAccessResults(false, false)).toBe(false)
+    expect(andAccessResults(false, true)).toBe(false)
+    expect(andAccessResults(true, false)).toBe(false)
+    expect(andAccessResults(false, published)).toBe(false)
+    expect(andAccessResults(published, false)).toBe(false)
+
+    // An unconditional grant is the identity.
+    expect(andAccessResults(true, true)).toBe(true)
+    expect(andAccessResults(true, published)).toBe(published)
+    expect(andAccessResults(published, true)).toBe(published)
+
+    // Two constraints combine into one query, under payload's lowercase `and`.
+    expect(andAccessResults(published, mine)).toEqual({ and: [published, mine] })
+  })
+
+  it('composes two access functions into one that grants only what both grant', async () => {
+    const args = {
+      req: makeReq(baseConfig(), { id: 1, collection: 'users' }),
+    } as Parameters<Access>[0]
+
+    // The second function is never called once the first has denied.
+    const second = vi.fn(() => true)
+    expect(await composeAccess(() => false, second)(args)).toBe(false)
+    expect(second).not.toHaveBeenCalled()
+
+    // Both are awaited and both receive the exact same args object.
+    const asyncGrant = vi.fn(() => Promise.resolve(true))
+    const asyncConstraint = vi.fn(() => Promise.resolve({ _status: { equals: 'published' } }))
+    expect(await composeAccess(asyncGrant, asyncConstraint)(args)).toEqual({
+      _status: { equals: 'published' },
+    })
+    expect(asyncGrant).toHaveBeenCalledWith(args)
+    expect(asyncConstraint).toHaveBeenCalledWith(args)
+
+    // Two constraints are ANDed; a denial from the second still denies.
+    expect(
+      await composeAccess(
+        () => ({ _status: { equals: 'published' } }),
+        () => ({ author: { equals: 1 } }),
+      )(args),
+    ).toEqual({ and: [{ _status: { equals: 'published' } }, { author: { equals: 1 } }] })
+    expect(
+      await composeAccess(
+        () => ({ author: { equals: 1 } }),
+        () => false,
+      )(args),
+    ).toBe(false)
+  })
+
+  it('composes the role check into existing access only where compose opts in', async () => {
+    const config = baseConfig()
+    config.collections?.push({
+      slug: 'docs',
+      access: { read: () => ({ _status: { equals: 'published' } }) },
+      fields: [],
+    } as unknown as CollectionConfig)
+    const explicitTagsRead = getCollection(config, 'tags').access?.read
+    const result = await rbacPlugin({ compose: { docs: ['read'] } })(config)
+
+    // The opted-in operation is a new, composed function — not the original.
+    const docsRead = getCollection(result, 'docs').access?.read as Access
+    expect(docsRead).not.toBe(getCollection(config, 'docs').access?.read)
+
+    // Anonymous requests are denied even though the collection's own read grants
+    // everyone the published constraint — this is what composing buys.
+    expect(await docsRead({ req: makeReq(result, null) } as never)).toBe(false)
+
+    // A holder passes the role check, so the collection's own constraint stands.
+    const reader = makeReq(result, { id: 1, collection: 'users', roles: [role(1, ['docs:read'])] })
+    expect(await docsRead({ req: reader } as never)).toEqual({ _status: { equals: 'published' } })
+
+    // A user without the permission is denied, where gap-filling would have let
+    // them read every published document.
+    const other = makeReq(result, { id: 2, collection: 'users', roles: [role(2, ['posts:read'])] })
+    expect(await docsRead({ req: other } as never)).toBe(false)
+
+    // Entities and actions not listed are untouched: `tags.read` is still the
+    // config's own function, and `docs.update` is still a plain gap fill.
+    expect(getCollection(result, 'tags').access?.read).toBe(explicitTagsRead)
+    const docsUpdate = getCollection(result, 'docs').access?.update as Access
+    expect(await docsUpdate({ req: reader } as never)).toBe(false)
+  })
+
+  it('ANDs a composed query constraint with the own-account carve-out', async () => {
+    const config = baseConfig()
+    const users = config.collections?.find((collection) => collection.slug === 'users')
+    users!.access = { read: () => ({ tenant: { equals: 't1' } }) }
+    const result = await rbacPlugin({ compose: { users: ['read'] } })(config)
+    const read = getCollection(result, 'users').access?.read as Access
+
+    // No `users:read`, so the role check contributes the own-document constraint;
+    // both queries survive into a single `and`.
+    const self = makeReq(result, { id: 5, collection: 'users', roles: [] })
+    expect(await read({ req: self } as never)).toEqual({
+      and: [{ tenant: { equals: 't1' } }, { id: { equals: 5 } }],
+    })
+  })
+
+  it('composes read/update for globals and rejects actions they do not have', async () => {
+    const config = baseConfig()
+    const settings = config.globals?.find((global) => global.slug === 'site-settings')
+    settings!.access = { update: () => true }
+    const result = await rbacPlugin({ compose: { 'site-settings': ['update'] } })(config)
+    const update = result.globals?.find((global) => global.slug === 'site-settings')?.access
+      ?.update as Access
+
+    expect(await update({ req: makeReq(result, null) } as never)).toBe(false)
+    const editor = makeReq(result, {
+      id: 1,
+      collection: 'users',
+      roles: [role(1, ['site-settings:update'])],
+    })
+    expect(await update({ req: editor } as never)).toBe(true)
+
+    // Misconfiguration fails fast instead of silently doing nothing.
+    expect(() => rbacPlugin({ compose: { 'site-settings': ['delete'] } })(baseConfig())).toThrow(
+      /does not have it/,
+    )
+    expect(() => rbacPlugin({ compose: { nope: ['read'] } })(baseConfig())).toThrow(
+      /not a controlled collection or global/,
+    )
+    expect(() => rbacPlugin({ compose: { roles: ['read'] } })(baseConfig())).toThrow(
+      /access is defined by the plugin/,
+    )
+    expect(() =>
+      rbacPlugin({ collections: { exclude: ['tags'] }, compose: { tags: ['read'] } })(baseConfig()),
+    ).toThrow(/not a controlled collection or global/)
+  })
+
+  it('logs one informational notice naming entities whose own access it left alone', async () => {
+    const makePayload = (info = vi.fn()) =>
+      ({
+        create: vi.fn(),
+        db: { name: 'postgres' },
+        find: vi.fn(() => Promise.resolve({ docs: [] })),
+        logger: { info, warn: vi.fn() },
+      }) as unknown as Payload
+
+    const config = baseConfig()
+    const settings = config.globals?.find((global) => global.slug === 'site-settings')
+    settings!.access = { update: () => true }
+    const result = await rbacPlugin()(config)
+
+    const info = vi.fn()
+    const payload = makePayload(info)
+    await result.onInit?.(payload)
+
+    expect(info).toHaveBeenCalledTimes(1)
+    const message = info.mock.calls[0]?.[0] as string
+    expect(message).toContain('tags (collection): read')
+    expect(message).toContain('site-settings (global): update')
+    // Informational, not accusatory, and it names both fixes.
+    expect(message).toContain('may not apply')
+    expect(message).toContain('requirePermission')
+    expect(message).toContain('compose')
+    // The gap-filled operations are not reported.
+    expect(message).not.toContain('create')
+
+    // At most once per boot.
+    await result.onInit?.(payload)
+    expect(info).toHaveBeenCalledTimes(1)
+
+    // Silenced by `quiet`.
+    const quietInfo = vi.fn()
+    const quiet = await rbacPlugin({ quiet: true })(baseConfig())
+    await quiet.onInit?.(makePayload(quietInfo))
+    expect(quietInfo).not.toHaveBeenCalled()
+
+    // Nothing to report: no entity defines access of its own.
+    const bareConfig = baseConfig()
+    const tags = bareConfig.collections?.find((collection) => collection.slug === 'tags')
+    delete tags!.access
+    const bareInfo = vi.fn()
+    const bare = await rbacPlugin()(bareConfig)
+    await bare.onInit?.(makePayload(bareInfo))
+    expect(bareInfo).not.toHaveBeenCalled()
+
+    // Composed operations are not inert, so they are not reported either.
+    const composedInfo = vi.fn()
+    const composed = await rbacPlugin({ compose: { tags: ['read'] } })(baseConfig())
+    await composed.onInit?.(makePayload(composedInfo))
+    expect(composedInfo).not.toHaveBeenCalled()
   })
 
   it('denies anonymous requests and grants based on role permissions', async () => {

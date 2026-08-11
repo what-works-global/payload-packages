@@ -12,7 +12,7 @@ Role based access control for Payload where the roles live in the database. Edit
 - Adds a **roles collection** with a checkbox-matrix permissions editor — one row per collection (CRUD) and per global (Read/Update), plus a **Full access** toggle (`'*'`) that covers everything, including collections added later. Wildcard permissions (`'pages:*'`, `'*:read'`) are supported and render as checked, locked cells in the matrix.
 - **Predefine roles in code** — they are seeded on init when missing, and never overwritten afterwards, so the database stays the source of truth. Or mark a role `protected: true` to flip ownership: it stays [code-owned](#code-owned-roles) — locked in the admin panel and synced from code on every restart.
 - Adds a `roles` relationship field to your auth collections (multi-role; a user's permissions are the union of their roles).
-- **Applies access control automatically** to every collection and global. Access you define explicitly on a collection always wins for that operation — the plugin only fills the gaps.
+- **Applies access control automatically** to every collection and global. Access you define explicitly on a collection always wins for that operation — the plugin only fills the gaps, and names what it left alone in one informational log on init. Opt individual actions into having the role check [ANDed with your own function](#combining-your-access-with-the-role-check-compose) instead, with `compose`.
 - **Privilege-escalation protection**: users can only assign roles, and only add permissions to roles, that their own roles already cover.
 - **Role assignment requires `roles:update`** — for everyone else the roles field renders read-only in the admin panel. And a role your remaining roles could not re-grant cannot be removed from your own account, so you can never accidentally strip your own access.
 - **Built-in admin role** (`adminRole`): a role the plugin locks to full access (`['*']`) — it can never be downgraded, renamed, or deleted through the API, so you can never lose your last full-access role. Only its holders can assign it (even `'*'` through another role is not enough). It is auto-assigned to the first user created, and at least one user always holds it — removing it from (or deleting) the last administrator is blocked, and if the database is damaged so badly that nobody holds it, any signed-in user can claim it for themselves. Other roles can opt into the same code-locking with `protected: true`.
@@ -108,6 +108,43 @@ import { hasPermission, requirePermission } from '@whatworks/payload-rbac'
 ```
 
 `getUserPermissions(req)` returns the resolved permission set (memoized per request — the roles are fetched at most once per request, no matter how many access functions run).
+
+### Combining your access with the role check (`compose`)
+
+Gap-filling has a sharp edge: when a collection (or another plugin, or a plugin ordered before this one) defines `access.read`, the RBAC `read` permission for that collection never runs. Nothing errors — the permission is simply inert. `compose` is the opt-in fix, per entity and per action:
+
+```ts
+rbacPlugin({
+  compose: {
+    // read AND update on posts, update on the global — each becomes
+    // `yourAccess AND permissionCheck`.
+    posts: ['read', 'update'],
+    'site-settings': ['update'],
+  },
+})
+```
+
+- Both functions run with the same arguments and both are awaited. Results are ANDed the way Payload combines queries: a `false` from either denies, `true` is the identity, and two `Where` constraints become one `{ and: [yours, theirs] }` filter. Your function short-circuits the permission check when it denies.
+- An action you list that has **no** access function of its own is simply gap-filled, exactly as it would be without `compose`.
+- Actions you do not list keep gap-filling semantics — nothing else changes.
+- `readVersions` follows `read` and `unlock` follows `update`, matching how those operations map to permissions.
+- Keys must be slugs the plugin controls and the actions must exist on the entity (globals have only `read`/`update`); anything else throws at startup rather than silently doing nothing. The roles collection is off-limits — its access belongs to the plugin (use `rolesCollection.override`).
+
+The same AND is available directly for hand-written access: `composeAccess(yours, requirePermission('posts:read'))`, with `andAccessResults(first, second)` for the result-combining rule on its own.
+
+**Why gap-filling stays the default.** Composing everywhere would silently break public access. A collection whose `create` is `() => true` so anonymous visitors can submit a form would suddenly also require a role — and an anonymous request holds no roles at all, so every submission would 403. The plugin cannot tell a deliberate public rule from an oversight, so it never overrules what you wrote; `compose` is how you say which ones to tighten.
+
+### The startup notice
+
+Because an inert permission is quiet, the plugin logs one informational line on init naming every controlled entity that defines access of its own, and the operations affected:
+
+```
+[payload-rbac] These controlled entities define access of their own, so the plugin left those
+operations alone and their permissions may not apply — tags (collection): read;
+site-settings (global): update. …
+```
+
+It is informational, not a warning: whether those functions already check permissions themselves (`requirePermission`, `hasPermission`) is not knowable from the config, which is why it says permissions _may_ not apply. Operations you opted into `compose` are not listed — there the role check does run. Nothing is logged when there is nothing to report, and `quiet: true` silences it once you have reviewed the list.
 
 ## Privilege-escalation protection
 
@@ -242,6 +279,15 @@ rbacPlugin({
   // Which globals are controlled (read/update). Same semantics. Defaults to all.
   globals: true,
 
+  // Opt individual actions into `yourAccess AND permissionCheck` instead of the
+  // default gap-filling (which leaves an entity's own access alone). Per entity,
+  // per action; unlisted entities and actions are unaffected. Default: {}.
+  compose: { posts: ['read', 'update'], 'site-settings': ['update'] },
+
+  // Silence the init notice that names controlled entities whose own access the
+  // plugin left in place (whose permissions may therefore never run). Default: false.
+  quiet: false,
+
   // Auth collections that receive the roles field.
   // Defaults to every auth-enabled collection.
   userCollections: ['users'],
@@ -292,4 +338,5 @@ rbacPlugin({
 - **Admin panel login** (`access.admin`) is not restricted by the plugin; a user with no roles can log in but sees nothing. Add your own `access.admin` to auth collections if you want to gate the panel itself.
 - **Roles are resolved from the database** on each request (one indexed query, memoized per request), so permission changes apply immediately — no re-login needed. The role IDs are also stored on the JWT (`saveToJWT`) for consumers reading the token directly.
 - If a user collection already defines a field with the roles field name, the field is left entirely yours — the guard hooks still apply to it, but the `roles:update` field gate does not.
+- **An entity's own access can make a permission inert** — the plugin never overrules it (see [`compose`](#combining-your-access-with-the-role-check-compose)), and lists what it left alone in one `info` log per boot.
 - Predefined role permissions are validated at startup against the known collections and globals, so a typo fails fast with a clear error.

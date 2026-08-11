@@ -1,7 +1,8 @@
-import type { CollectionConfig, Config, Field, GlobalConfig, Plugin } from 'payload'
+import type { Access, CollectionConfig, Config, Field, GlobalConfig, Plugin } from 'payload'
 
-import type { MatrixRow, RbacCustomConfig } from './shared.js'
+import type { MatrixRow, RbacAction, RbacCustomConfig } from './shared.js'
 import type { RbacEntitySelection, RbacPluginConfig } from './types.js'
+import type { EntityWithOwnAccess } from './utilities/ownAccessNotice.js'
 
 import { createRbacAccess } from './access/rbacAccess.js'
 import { createRolesFieldAccess } from './access/rolesFieldAccess.js'
@@ -26,12 +27,47 @@ import { createProtectRolesFieldHook } from './hooks/protectRolesField.js'
 import { FULL_ACCESS, permissionFor } from './permissions.js'
 import { seedPredefinedRoles } from './seed.js'
 import { collectionActions, globalActions, pluginKey } from './shared.js'
+import { composeAccess } from './utilities/composeAccess.js'
 import { entityLabel } from './utilities/entityLabel.js'
 import {
   anyUserHoldsRole,
   findFullAccessRoleIds,
   warnIfAdminRoleUnheld,
 } from './utilities/fullAccessHolders.js'
+import { logOwnAccessNotice } from './utilities/ownAccessNotice.js'
+
+type CollectionAccessOperation = Exclude<keyof NonNullable<CollectionConfig['access']>, 'admin'>
+
+type GlobalAccessOperation = keyof NonNullable<GlobalConfig['access']>
+
+type ResolveAccessArgs = {
+  action: RbacAction
+  /** Actions this entity opted into `compose`. */
+  composedActions: ReadonlySet<RbacAction>
+  existing: Access | undefined
+  rbacAccess: Access
+}
+
+/**
+ * Which access function to install for one operation: the plugin's role check
+ * when the entity defines none (gap-filling — the default for every entity and
+ * action), that check ANDed with the entity's own function when the action opted
+ * into `compose`, or `undefined` to leave the entity's own access untouched.
+ */
+const resolveAccess = ({
+  action,
+  composedActions,
+  existing,
+  rbacAccess,
+}: ResolveAccessArgs): Access | undefined => {
+  if (existing === undefined) {
+    return rbacAccess
+  }
+  if (composedActions.has(action)) {
+    return composeAccess(existing, rbacAccess)
+  }
+  return undefined
+}
 
 const createSelector = <TSlug extends string>(
   selection: RbacEntitySelection<TSlug> | undefined,
@@ -179,35 +215,118 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
       }
     }
 
-    // Explicit access defined on a collection wins for that operation; the plugin
-    // only fills the gaps. Compose `requirePermission` into your own access
-    // functions to combine both.
-    const withCollectionAccess = (collection: CollectionConfig): CollectionConfig => {
-      const access = { ...collection.access }
-      for (const action of collectionActions) {
-        if (access[action] === undefined) {
-          access[action] = createRbacAccess({ slug: collection.slug, action, ownAccountActions })
+    // `compose` is checked against the entities the plugin actually controls: a
+    // typo, an excluded slug, or an action the entity does not have would
+    // otherwise silently do nothing — the same inert-configuration trap the
+    // startup notice exists to surface.
+    const composeSelection: Record<string, RbacAction[] | undefined> = pluginConfig.compose ?? {}
+    for (const [slug, actions] of Object.entries(composeSelection)) {
+      if (slug === rolesCollectionSlug) {
+        throw new Error(
+          `[payload-rbac] compose cannot list "${slug}" — the roles collection's access is defined by ` +
+            `the plugin. Use rolesCollection.override to change it.`,
+        )
+      }
+      const row = matrixRows.find((candidate) => candidate.slug === slug)
+      if (!row) {
+        throw new Error(
+          `[payload-rbac] compose lists "${slug}", which is not a controlled collection or global. ` +
+            `Keys must be slugs the plugin controls — check the slug, and the collections/globals options.`,
+        )
+      }
+      for (const action of actions ?? []) {
+        if (!row.actions.includes(action)) {
+          throw new Error(
+            `[payload-rbac] compose lists the action "${action}" for the ${row.entity} "${slug}", which ` +
+              `does not have it. Actions on a ${row.entity} are ${row.actions.join('/')}.`,
+          )
         }
       }
-      if (access.readVersions === undefined) {
-        access.readVersions = createRbacAccess({ slug: collection.slug, action: 'read' })
+    }
+
+    // Controlled entities whose own access the plugin left in place, reported once
+    // on init: the matching permissions may never run for those operations.
+    const entitiesWithOwnAccess: EntityWithOwnAccess[] = []
+
+    // Access defined on a collection wins for that operation; the plugin only
+    // fills the gaps, so a role check never displaces public or custom rules.
+    // Actions opted into `compose` are the exception — there the role check is
+    // ANDed with what is already defined. `readVersions` maps to the read
+    // permission and `unlock` to update, so both follow their action.
+    const withCollectionAccess = (collection: CollectionConfig): CollectionConfig => {
+      const access = { ...collection.access }
+      const composedActions = new Set(composeSelection[collection.slug] ?? [])
+      const ownAccessOperations: string[] = []
+
+      const operations: { action: RbacAction; operation: CollectionAccessOperation }[] = [
+        ...collectionActions.map((action) => ({ action, operation: action })),
+        { action: 'read' as const, operation: 'readVersions' as const },
+        { action: 'update' as const, operation: 'unlock' as const },
+      ]
+
+      for (const { action, operation } of operations) {
+        const resolved = resolveAccess({
+          action,
+          composedActions,
+          existing: access[operation],
+          // The own-account carve-out belongs to the collection's own operations,
+          // never to readVersions/unlock.
+          rbacAccess: createRbacAccess({
+            slug: collection.slug,
+            action,
+            ...(operation === action ? { ownAccountActions } : {}),
+          }),
+        })
+        if (resolved === undefined) {
+          ownAccessOperations.push(operation)
+        } else {
+          access[operation] = resolved
+        }
       }
-      if (access.unlock === undefined) {
-        access.unlock = createRbacAccess({ slug: collection.slug, action: 'update' })
+
+      if (ownAccessOperations.length > 0) {
+        entitiesWithOwnAccess.push({
+          slug: collection.slug,
+          entity: 'collection',
+          operations: ownAccessOperations,
+        })
       }
+
       return { ...collection, access }
     }
 
     const withGlobalAccess = (global: GlobalConfig): GlobalConfig => {
       const access = { ...global.access }
-      for (const action of globalActions) {
-        if (access[action] === undefined) {
-          access[action] = createRbacAccess({ slug: global.slug, action })
+      const composedActions = new Set(composeSelection[global.slug] ?? [])
+      const ownAccessOperations: string[] = []
+
+      const operations: { action: RbacAction; operation: GlobalAccessOperation }[] = [
+        ...globalActions.map((action) => ({ action, operation: action })),
+        { action: 'read' as const, operation: 'readVersions' as const },
+      ]
+
+      for (const { action, operation } of operations) {
+        const resolved = resolveAccess({
+          action,
+          composedActions,
+          existing: access[operation],
+          rbacAccess: createRbacAccess({ slug: global.slug, action }),
+        })
+        if (resolved === undefined) {
+          ownAccessOperations.push(operation)
+        } else {
+          access[operation] = resolved
         }
       }
-      if (access.readVersions === undefined) {
-        access.readVersions = createRbacAccess({ slug: global.slug, action: 'read' })
+
+      if (ownAccessOperations.length > 0) {
+        entitiesWithOwnAccess.push({
+          slug: global.slug,
+          entity: 'global',
+          operations: ownAccessOperations,
+        })
       }
+
       return { ...global, access }
     }
 
@@ -397,7 +516,15 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
     )
 
     const incomingOnInit = config.onInit
+    // Informational, and only once per boot: the plugin cannot tell whether an
+    // entity's own access already performs a role check, so this reports what it
+    // stood aside from rather than warning about a fault.
+    let hasLoggedOwnAccessNotice = false
     config.onInit = async (payload) => {
+      if (!pluginConfig.quiet && !hasLoggedOwnAccessNotice) {
+        hasLoggedOwnAccessNotice = true
+        logOwnAccessNotice({ entities: entitiesWithOwnAccess, logger: payload.logger })
+      }
       if (predefinedRoles.length > 0) {
         await seedPredefinedRoles(payload, { roles: predefinedRoles, rolesCollectionSlug })
       }

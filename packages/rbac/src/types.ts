@@ -65,6 +65,14 @@ export type PredefinedRole = {
  */
 export type RbacEntitySelection<TSlug extends string> = { exclude: TSlug[] } | true | TSlug[]
 
+/**
+ * The slug of any entity the plugin can control — a collection or a global. The
+ * two are distinct unions in a project with generated types; without them both
+ * fall back to `string`, which is why the duplication is expected here.
+ */
+// eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents -- see above
+export type RbacEntitySlug = CollectionSlug | GlobalSlug
+
 export type RbacPluginConfig = {
   /**
    * The built-in administrator role, passed as a role name or `{ name, description }`.
@@ -109,6 +117,33 @@ export type RbacPluginConfig = {
    */
   collections?: RbacEntitySelection<CollectionSlug>
   /**
+   * Per-entity, per-action opt-in to **combining** the plugin's role check with
+   * access the collection or global defines itself, instead of standing aside.
+   *
+   * By default the plugin only fills gaps: an operation with its own access
+   * function keeps it, and the matching permission never runs. List the actions
+   * to combine and the plugin installs `yourAccess AND permissionCheck` for them
+   * — both functions receive the same args, `boolean | Where` results are ANDed
+   * the way Payload combines queries, and yours short-circuits the permission
+   * check when it denies. Actions with no existing function, and actions left off
+   * the list, behave exactly as they do without this option.
+   *
+   * ```ts
+   * compose: { posts: ['read', 'update'], 'site-settings': ['update'] }
+   * ```
+   *
+   * Keys must be slugs the plugin controls, and the actions must exist on the
+   * entity (globals have only `read`/`update`) — anything else throws at startup
+   * rather than silently doing nothing. `readVersions` follows `read` and `unlock`
+   * follows `update`, matching how those operations map to permissions.
+   *
+   * Gap-filling stays the default deliberately: composing everywhere would break
+   * public access. A collection whose `create` is `() => true` for anonymous form
+   * submissions would suddenly require a role, and an anonymous request holds no
+   * roles at all.
+   */
+  compose?: Partial<Record<RbacEntitySlug, RbacAction[]>>
+  /**
    * Enables or disables the plugin.
    *
    * @default true
@@ -143,6 +178,15 @@ export type RbacPluginConfig = {
    * @default true
    */
   preventPrivilegeEscalation?: boolean
+  /**
+   * Silences the informational notice logged once on init that names every
+   * controlled collection and global whose own access the plugin left in place,
+   * and the operations affected — permissions for those operations may never run.
+   * Set this once you have reviewed the list (or wired up `compose`).
+   *
+   * @default false
+   */
+  quiet?: boolean
   /**
    * Roles predefined in code, seeded on init when missing. Roles marked `protected`
    * are additionally locked to their code definition. The `adminRole` is defined
