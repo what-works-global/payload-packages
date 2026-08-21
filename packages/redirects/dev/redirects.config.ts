@@ -28,10 +28,7 @@ export const redirectsConfig = defineRedirectsConfig({
     }),
     production: vercelRuntimeCache(),
   }),
-  // With a purge wired up, expiry no longer has to carry freshness. Gated on
-  // the same signal `envCache` uses, so local dev never calls a Vercel API that
-  // isn't there (it would only log, but on every save).
-  ...(process.env.NODE_ENV === 'development'
-    ? {}
-    : { list: { invalidate: vercelInvalidate, maxAge: 60 * 60 * 24 * 365 } }),
+  // `vercelInvalidate` is a safe no-op when there is no Vercel purge context, so
+  // it needs no environment gate — it simply does nothing during local dev.
+  list: { invalidate: vercelInvalidate, maxAge: 60 * 60 * 24 * 365 },
 })

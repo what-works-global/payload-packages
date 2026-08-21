@@ -456,6 +456,8 @@ defineRedirectsConfig({
 })
 ```
 
+No environment gate needed: `invalidateByTag` resolves the purge API from the ambient Vercel context and returns a resolved promise when there is none, so `vercelInvalidate` is a silent no-op during local development and on other platforms. Wire it up unconditionally.
+
 `invalidate` is called once per cache write — never by the read-through — so it is safe for it to be a real purge. On Vercel a tag purge clears the **CDN, Runtime, and Data caches together, in every region**, propagating globally in roughly 300ms, and it marks entries stale rather than deleting them: the next request is answered instantly from the stale copy while revalidation happens behind it. One call therefore invalidates both cached layers — the CDN copies of the list route _and_ every region's `vercelRuntimeCache` entry — which is why `list.tags` is the single source of truth for the tag both of them carry.
 
 The origin then sees roughly one request per region per edit. Off Vercel, either keep the short TTL or point `invalidate` at your own CDN's purge API.

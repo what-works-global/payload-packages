@@ -114,6 +114,11 @@ export const vercelRuntimeCache = (options: VercelRuntimeCacheOptions = {}): Red
  * carry the same tags, which they do by default (`list.tags` is handed to this
  * function, and the adapter defaults to the same tag).
  *
+ * Safe to wire up unconditionally: `invalidateByTag` resolves the purge API from
+ * the ambient Vercel context and returns a resolved promise when there is none,
+ * so this is a silent no-op during local development and on other platforms. It
+ * needs no environment gate.
+ *
  * It *invalidates* rather than deletes, so entries are marked stale instead of
  * dropped: the next request is answered instantly from the stale copy while the
  * revalidation happens behind it. No stampede, no latency spike.
