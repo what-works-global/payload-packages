@@ -13,7 +13,7 @@ import {
   redisCache,
 } from '../src/exports/cache.js'
 import { edgeConfigCache } from '../src/exports/edge-config.js'
-import { vercelRuntimeCache } from '../src/exports/vercel.js'
+import { vercelInvalidate, vercelRuntimeCache } from '../src/exports/vercel.js'
 
 const entry = (overrides: Partial<CachedRedirect> = {}): CachedRedirect => ({
   id: '1',
@@ -24,6 +24,7 @@ const entry = (overrides: Partial<CachedRedirect> = {}): CachedRedirect => ({
 })
 
 const runtimeStore = new Map<string, unknown>()
+const invalidated: unknown[] = []
 vi.mock('@vercel/functions', () => ({
   getCache: () => ({
     get: (key: string) => Promise.resolve(runtimeStore.get(key) ?? null),
@@ -32,6 +33,10 @@ vi.mock('@vercel/functions', () => ({
       return Promise.resolve()
     },
   }),
+  invalidateByTag: (tags: unknown) => {
+    invalidated.push(tags)
+    return Promise.resolve()
+  },
 }))
 
 const edgeConfigStore = new Map<string, unknown>()
@@ -43,6 +48,7 @@ vi.mock('@vercel/edge-config', () => ({
 
 afterEach(() => {
   runtimeStore.clear()
+  invalidated.length = 0
   edgeConfigStore.clear()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
@@ -101,6 +107,26 @@ describe('vercelRuntimeCache', () => {
     expect(await cache.get()).toEqual([entry()])
     runtimeStore.set('custom-key', 'not-an-array')
     expect(await cache.get()).toBeNull()
+  })
+})
+
+describe('vercelInvalidate', () => {
+  it('purges exactly the tags it is handed', async () => {
+    invalidated.length = 0
+    await vercelInvalidate(['payload-redirects'])
+    expect(invalidated).toEqual([['payload-redirects']])
+
+    invalidated.length = 0
+    await vercelInvalidate(['redirects', 'routing'])
+    expect(invalidated).toEqual([['redirects', 'routing']])
+  })
+
+  it('is not wired into the cache adapter, so reads never purge', async () => {
+    // The regression this guards: when the purge lived on `set`, the resolver's
+    // read-through seeding invalidated the CDN copy it had just fetched.
+    invalidated.length = 0
+    await vercelRuntimeCache().set([entry()])
+    expect(invalidated).toEqual([])
   })
 })
 

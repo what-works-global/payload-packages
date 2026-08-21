@@ -7,6 +7,61 @@
 /** Base path of the plugin's REST endpoints under the Payload API route. */
 export const DEFAULT_ENDPOINTS_PATH = '/payload-redirects'
 
+/** Sub-path of the redirect-list endpoint, within `endpointsPath`. */
+export const DEFAULT_LIST_SUBPATH = '/list'
+
+/**
+ * Freshness for the cached redirect list: one minute.
+ *
+ * Deliberately short, because purging a cache tag is platform-specific and the
+ * package cannot assume anything purges. A long TTL is only correct when
+ * something invalidates it — with no purge wired up, a year-long TTL would mean
+ * an edit never propagates past the CDN, which is a silent correctness bug.
+ * Expiry is therefore the floor that works anywhere, and
+ * {@link DEFAULT_LIST_STALE_WHILE_REVALIDATE} keeps the cost of it near zero.
+ *
+ * Wire up `list.invalidate` (on Vercel: `vercelInvalidate`) and raise this
+ * (`list: { maxAge: 60 * 60 * 24 * 365 }`) — the purge then carries freshness
+ * instead of expiry.
+ */
+export const DEFAULT_LIST_MAX_AGE = 60
+
+/**
+ * How long a shared cache may serve a stale list while revalidating behind the
+ * request. Makes a short `maxAge` cheap: the CDN answers instantly from its
+ * expired copy and refreshes out of band, so no visitor ever waits on the
+ * origin and the origin sees one request per PoP per window at most.
+ */
+export const DEFAULT_LIST_STALE_WHILE_REVALIDATE = 60 * 60 * 24
+
+/** CDN cache tag set on the list response and purged when redirects change. */
+export const DEFAULT_REDIRECTS_CACHE_TAG = 'payload-redirects'
+
+/**
+ * Response headers for the redirect list. `Vercel-CDN-Cache-Control` targets
+ * Vercel's CDN (and is stripped before the browser sees it); `CDN-Cache-Control`
+ * covers any other CDN in front. The plain `Cache-Control` keeps browsers and
+ * the resolver's own fetch from holding a copy past a purge — the shared caches
+ * are the ones meant to be doing the work here.
+ */
+export const listResponseHeaders = ({
+  maxAge,
+  staleWhileRevalidate = DEFAULT_LIST_STALE_WHILE_REVALIDATE,
+  tags,
+}: {
+  maxAge: number
+  staleWhileRevalidate?: number
+  tags: string[]
+}): Record<string, string> => {
+  const shared = `public, max-age=${maxAge}, stale-while-revalidate=${staleWhileRevalidate}`
+  return {
+    'Cache-Control': 'public, max-age=0, must-revalidate',
+    'CDN-Cache-Control': shared,
+    'Vercel-Cache-Tag': tags.join(','),
+    'Vercel-CDN-Cache-Control': shared,
+  }
+}
+
 export const DEFAULT_COLLECTION_SLUG = 'redirects'
 
 /** HTTP redirect status of a cached redirect: 301 permanent or 302 temporary. */

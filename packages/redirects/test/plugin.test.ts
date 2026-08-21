@@ -9,7 +9,7 @@ import type {
 
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RedirectsPluginConfig } from '../src/index.js'
+import type { RedirectsCache, RedirectsPluginConfig } from '../src/index.js'
 
 import { memoryCache } from '../src/exports/cache.js'
 import {
@@ -158,6 +158,7 @@ describe('redirectsPlugin config shaping', () => {
     expect(fieldByName(redirects.fields, 'lastAccess')).toBeUndefined()
     expect(result.endpoints?.map((endpoint) => endpoint.path)).toEqual([
       '/payload-redirects/refresh-cache',
+      '/payload-redirects/list',
     ])
   })
 
@@ -167,8 +168,29 @@ describe('redirectsPlugin config shaping', () => {
     )
     expect(result.endpoints?.map((endpoint) => endpoint.path)).toEqual([
       '/custom-redirects/refresh-cache',
+      '/custom-redirects/list',
       '/custom-redirects/hit/:id',
     ])
+  })
+
+  it('drops the list endpoint with list.disabled', async () => {
+    const result = await redirectsPlugin(pluginConfig({ list: { disabled: true } }))(baseConfig())
+    expect(result.endpoints?.map((endpoint) => endpoint.path)).toEqual([
+      '/payload-redirects/refresh-cache',
+      '/payload-redirects/hit/:id',
+    ])
+  })
+
+  it('resolves the list config, defaulting to a short TTL and the shared tag', async () => {
+    const result = await redirectsPlugin(pluginConfig())(baseConfig())
+    expect(getRedirectsConfig(result).list).toEqual({
+      disabled: false,
+      invalidate: undefined,
+      maxAge: 60,
+      path: undefined,
+      staleWhileRevalidate: 60 * 60 * 24,
+      tags: ['payload-redirects'],
+    })
   })
 
   it('applies collection overrides last', async () => {
@@ -543,6 +565,14 @@ describe('re-sync hooks', () => {
 })
 
 describe('onInit composition', () => {
+  const cacheOf = (result: Config): RedirectsCache => {
+    const { cache } = getRedirectsConfig(result)
+    if (!cache) {
+      throw new Error('Expected a cache on the resolved config')
+    }
+    return cache
+  }
+
   const stubPayload = (result: Config, logger: Record<string, unknown> = {}) =>
     makeReq(result, {
       logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), ...logger },
@@ -554,7 +584,7 @@ describe('onInit composition', () => {
     base.onInit = priorOnInit
     const result = await redirectsPlugin(pluginConfig())(base)
 
-    const setSpy = vi.spyOn(getRedirectsConfig(result).cache, 'set')
+    const setSpy = vi.spyOn(cacheOf(result), 'set')
     await result.onInit?.(stubPayload(result))
 
     expect(priorOnInit).toHaveBeenCalledTimes(1)
@@ -563,7 +593,7 @@ describe('onInit composition', () => {
 
   it('skips the init sync when syncOnInit is false', async () => {
     const result = await redirectsPlugin(pluginConfig({ syncOnInit: false }))(baseConfig())
-    const setSpy = vi.spyOn(getRedirectsConfig(result).cache, 'set')
+    const setSpy = vi.spyOn(cacheOf(result), 'set')
     await result.onInit?.(stubPayload(result))
     expect(setSpy).not.toHaveBeenCalled()
   })

@@ -6,7 +6,13 @@ import type {
   ResolvedRedirectsConfig,
 } from '../types.js'
 
-import { DEFAULT_COLLECTION_SLUG, DEFAULT_ENDPOINTS_PATH } from './shared.js'
+import {
+  DEFAULT_COLLECTION_SLUG,
+  DEFAULT_ENDPOINTS_PATH,
+  DEFAULT_LIST_MAX_AGE,
+  DEFAULT_LIST_STALE_WHILE_REVALIDATE,
+  DEFAULT_REDIRECTS_CACHE_TAG,
+} from './shared.js'
 
 export const resolveRedirectsConfig = (
   pluginConfig: RedirectsPluginConfig,
@@ -18,6 +24,15 @@ export const resolveRedirectsConfig = (
     InternalRedirectsCollectionConfig
   >,
   endpointsPath: pluginConfig.endpointsPath ?? DEFAULT_ENDPOINTS_PATH,
+  list: {
+    disabled: pluginConfig.list?.disabled === true,
+    invalidate: pluginConfig.list?.invalidate,
+    maxAge: pluginConfig.list?.maxAge ?? DEFAULT_LIST_MAX_AGE,
+    path: pluginConfig.list?.path,
+    staleWhileRevalidate:
+      pluginConfig.list?.staleWhileRevalidate ?? DEFAULT_LIST_STALE_WHILE_REVALIDATE,
+    tags: pluginConfig.list?.tags ?? [DEFAULT_REDIRECTS_CACHE_TAG],
+  },
   localized: pluginConfig.localized === true,
   secret: pluginConfig.secret,
   trackHits: pluginConfig.trackHits !== false,

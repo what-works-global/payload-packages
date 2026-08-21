@@ -39,6 +39,10 @@ const okFetch = () =>
 const firstUrl = (fetchMock: ReturnType<typeof okFetch>) =>
   String((fetchMock.mock.calls[0] as unknown as [URL])[0])
 
+/** Every URL the mock was called with — the miss path tries the list route first. */
+const urlsOf = (fetchMock: { mock: { calls: unknown[] } }) =>
+  fetchMock.mock.calls.map((call) => String((call as [URL])[0]))
+
 const headerOf = (init: RequestInit | undefined, name: string) =>
   (init?.headers as Record<string, string> | undefined)?.[name]
 
@@ -106,7 +110,20 @@ describe('createRedirectsResolver', () => {
     expect(await resolver('https://site.com/old', ctx)).toBeNull()
 
     await Promise.all(ctx.tasks)
-    expect(firstUrl(fetchMock)).toBe('https://site.com/api/payload-redirects/refresh-cache')
+    // The read-through is attempted first; the refresh POST is the fallback when
+    // the list route yields nothing usable.
+    expect(urlsOf(fetchMock)).toEqual([
+      'https://site.com/api/payload-redirects/list',
+      'https://site.com/api/payload-redirects/refresh-cache',
+    ])
+
+    // With the read-through opted out, the refresh POST is the only call.
+    fetchMock.mockClear()
+    const legacy = createRedirectsResolver({ cache: memoryCache(), list: { disabled: true } })
+    const legacyCtx = fakeCtx()
+    expect(await legacy('https://site.com/old', legacyCtx)).toBeNull()
+    await Promise.all(legacyCtx.tasks)
+    expect(urlsOf(fetchMock)).toEqual(['https://site.com/api/payload-redirects/refresh-cache'])
 
     // An empty list is a valid cached state, not a miss.
     fetchMock.mockClear()
@@ -115,7 +132,11 @@ describe('createRedirectsResolver', () => {
     expect(fetchMock).not.toHaveBeenCalled()
 
     // …and refreshOnMiss: false stays quiet entirely.
-    const disabled = createRedirectsResolver({ cache: memoryCache(), refreshOnMiss: false })
+    const disabled = createRedirectsResolver({
+      cache: memoryCache(),
+      list: { disabled: true },
+      refreshOnMiss: false,
+    })
     expect(await disabled('https://site.com/old', fakeCtx())).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -164,7 +185,11 @@ describe('createRedirectsResolver', () => {
 
     fetchMock.mockClear()
 
-    const onMiss = createRedirectsResolver({ cache: memoryCache(), secret: 'sesame' })
+    const onMiss = createRedirectsResolver({
+      cache: memoryCache(),
+      list: { disabled: true },
+      secret: 'sesame',
+    })
     const missCtx = fakeCtx()
     await onMiss('https://site.com/old', missCtx)
     await Promise.all(missCtx.tasks)
@@ -204,6 +229,7 @@ describe('createRedirectsResolver', () => {
     const onMiss = createRedirectsResolver({
       api: 'https://cms.example.com/api',
       cache: memoryCache(),
+      list: { disabled: true },
     })
     const missCtx = fakeCtx()
     await onMiss('https://site.com/old', missCtx)
@@ -321,6 +347,206 @@ describe('createRedirectsResolver', () => {
       },
     })
     expect(await broken('https://site.com/old')).toBeNull()
+  })
+})
+
+describe('read-through via list.path', () => {
+  /** A fetch mock that serves the list route and 200s everything else. */
+  const listFetch = (redirects: unknown) =>
+    vi.fn((input: string | URL, _init?: RequestInit) => {
+      if (String(input).includes('/list')) {
+        return Promise.resolve(new Response(JSON.stringify({ redirects }), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    })
+
+  it('answers the missed request from the list route and seeds the cache', async () => {
+    const fetchMock = listFetch([entry()])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cache = memoryCache()
+    const resolver = createRedirectsResolver({
+      cache,
+      list: { path: '/api/payload-redirects/list' },
+      trackHits: false,
+    })
+
+    // The very first request in a cold region must still redirect — that is the
+    // whole point, versus the old behaviour of returning null and rebuilding
+    // somewhere the reader cannot see.
+    const ctx = fakeCtx()
+    expect(await resolver('https://site.com/old', ctx)).toEqual({
+      destination: '/new',
+      redirect: entry(),
+      status: 301,
+    })
+    expect(firstUrl(fetchMock)).toBe('https://site.com/api/payload-redirects/list')
+
+    // …and the local cache is seeded, so the region stops missing.
+    await Promise.all(ctx.tasks)
+    expect(await cache.get()).toEqual([entry()])
+  })
+
+  it('runs with no cache at all, bounded by the memo', async () => {
+    const fetchMock = listFetch([entry()])
+    vi.stubGlobal('fetch', fetchMock)
+
+    // `cache` is optional: the list route is the source of truth, so omitting a
+    // store is a valid config — every memo expiry just costs a fetch.
+    const resolver = createRedirectsResolver({
+      cacheMemoMs: 60_000,
+      list: { path: '/list' },
+      trackHits: false,
+    })
+
+    const ctx = fakeCtx()
+    expect(await resolver('https://site.com/old', ctx)).toEqual({
+      destination: '/new',
+      redirect: entry(),
+      status: 301,
+    })
+    await Promise.all(ctx.tasks)
+    expect(urlsOf(fetchMock)).toEqual(['https://site.com/list'])
+
+    // Inside the memo window the list is not re-fetched, and nothing throws for
+    // want of a cache to seed.
+    fetchMock.mockClear()
+    expect(await resolver('https://site.com/old')).not.toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('reads through with an explicit path even when the endpoint is disabled', async () => {
+    const fetchMock = listFetch([entry()])
+    vi.stubGlobal('fetch', fetchMock)
+
+    // The "I serve the list myself" setup: `disabled` stops the plugin
+    // registering its endpoint, an explicit `path` still names the origin. This
+    // silently killed the read-through once — the exact multi-region bug back.
+    const resolver = createRedirectsResolver({
+      cache: memoryCache(),
+      list: { disabled: true, path: '/api/my-redirects/list' },
+      trackHits: false,
+    })
+
+    expect(await resolver('https://site.com/old')).not.toBeNull()
+    expect(urlsOf(fetchMock)).toEqual(['https://site.com/api/my-redirects/list'])
+  })
+
+  it('reads through when the cache backend throws, without trying to seed it', async () => {
+    const fetchMock = listFetch([entry()])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const set = vi.fn(() => Promise.resolve())
+    const resolver = createRedirectsResolver({
+      // A misconfigured accelerator (bad token, missing binding) must not take
+      // correctness down with it — the origin is still reachable.
+      cache: { get: () => Promise.reject(new Error('EDGE_CONFIG missing')), set },
+      list: { path: '/list' },
+      trackHits: false,
+    })
+
+    const ctx = fakeCtx()
+    expect(await resolver('https://site.com/old', ctx)).toEqual({
+      destination: '/new',
+      redirect: entry(),
+      status: 301,
+    })
+    await Promise.all(ctx.tasks)
+    // Seeding a store that is already throwing would be pointless noise.
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('collapses concurrent misses into a single list fetch', async () => {
+    const fetchMock = listFetch([entry()])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resolver = createRedirectsResolver({
+      cache: memoryCache(),
+      cacheMemoMs: 0,
+      list: { path: '/list' },
+      trackHits: false,
+    })
+
+    const results = await Promise.all([
+      resolver('https://site.com/old'),
+      resolver('https://site.com/old'),
+      resolver('https://site.com/old'),
+    ])
+
+    expect(results.every((result) => result?.status === 301)).toBe(true)
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes('/list'))).toHaveLength(
+      1,
+    )
+  })
+
+  it('sends the shared secret and honours an absolute list URL', async () => {
+    const fetchMock = listFetch([entry()])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resolver = createRedirectsResolver({
+      cache: memoryCache(),
+      list: { path: 'https://cms.example.com/api/payload-redirects/list' },
+      secret: 'sh',
+      trackHits: false,
+    })
+
+    expect((await resolver('https://site.com/old'))?.status).toBe(301)
+    expect(firstUrl(fetchMock)).toBe('https://cms.example.com/api/payload-redirects/list')
+    expect(
+      headerOf(
+        (fetchMock.mock.calls[0] as unknown as [URL, RequestInit | undefined])[1],
+        'x-payload-redirects-secret',
+      ),
+    ).toBe('sh')
+  })
+
+  it('falls back to the refresh POST when the list route fails', async () => {
+    const fetchMock = vi.fn((input: string | URL, _init?: RequestInit) =>
+      String(input).includes('/list')
+        ? Promise.resolve(new Response('nope', { status: 500 }))
+        : Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resolver = createRedirectsResolver({ cache: memoryCache(), list: { path: '/list' } })
+    const ctx = fakeCtx()
+    expect(await resolver('https://site.com/old', ctx)).toBeNull()
+
+    await Promise.all(ctx.tasks)
+    const urls = fetchMock.mock.calls.map(([input]) => String(input))
+    expect(urls).toContain('https://site.com/api/payload-redirects/refresh-cache')
+  })
+
+  it('ignores a malformed list payload and never fetches when the list is disabled', async () => {
+    const malformed = listFetch('not-an-array')
+    vi.stubGlobal('fetch', malformed)
+    const resolver = createRedirectsResolver({
+      cache: memoryCache(),
+      list: { path: '/list' },
+      refreshOnMiss: false,
+    })
+    expect(await resolver('https://site.com/old')).toBeNull()
+
+    // Individual bad entries are dropped, the good ones survive.
+    const mixed = listFetch([{ junk: true }, entry()])
+    vi.stubGlobal('fetch', mixed)
+    const lenient = createRedirectsResolver({
+      cache: memoryCache(),
+      list: { path: '/list' },
+      trackHits: false,
+    })
+    expect((await lenient('https://site.com/old'))?.status).toBe(301)
+
+    // list: { disabled: true } opts out — no list request at all.
+    const quiet = listFetch([entry()])
+    vi.stubGlobal('fetch', quiet)
+    const optedOut = createRedirectsResolver({
+      cache: memoryCache(),
+      list: { disabled: true },
+      refreshOnMiss: false,
+    })
+    expect(await optedOut('https://site.com/old')).toBeNull()
+    expect(quiet).not.toHaveBeenCalled()
   })
 })
 

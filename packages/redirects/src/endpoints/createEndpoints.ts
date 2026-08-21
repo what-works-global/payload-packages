@@ -2,13 +2,19 @@ import type { CollectionSlug, Endpoint, PayloadRequest, TypeWithID } from 'paylo
 
 import type { ResolvedRedirectsConfig } from '../types.js'
 
-import { syncRedirectsCache } from '../core/build.js'
+import { buildRedirectsCacheEntries, syncRedirectsCache } from '../core/build.js'
+import { DEFAULT_LIST_SUBPATH, listResponseHeaders } from '../core/shared.js'
 
 const SECRET_HEADER = 'x-payload-redirects-secret'
 
 /**
- * When a `secret` is configured, both endpoints require either the shared
- * secret header or an authenticated user. Unset → open (zero-config).
+ * When a `secret` is configured, the two POST endpoints (`refresh-cache` and
+ * `hit/:id`) require either the shared secret header or an authenticated user.
+ * Unset → open (zero-config).
+ *
+ * The GET list endpoint deliberately does NOT use this — see its docblock. A CDN
+ * cache key excludes request headers, so gating a cached response would hand it
+ * to unauthenticated callers anyway.
  */
 const isAuthorized = (req: PayloadRequest, config: ResolvedRedirectsConfig): boolean => {
   if (!config.secret) {
@@ -128,6 +134,37 @@ const createHitEndpoint = (config: ResolvedRedirectsConfig): Endpoint => ({
   path: `${config.endpointsPath}/hit/:id`,
 })
 
+/**
+ * The read-through origin. Serves the denormalized redirect list, built fresh
+ * from the database, under long-lived shared-cache headers and a purgeable cache
+ * tag — so a serving region that has never seen a cache write can still answer
+ * the request in front of it, from the CDN copy nearest itself.
+ *
+ * Deliberately **not** secret-gated, even when `secret` is set: a CDN cache key
+ * does not include request headers, so a gated-but-cached response would be
+ * handed to unauthenticated callers anyway. The list is `from`/`to` pairs that
+ * are discoverable by probing the site, so this is public information. Set
+ * `list: { disabled: true }` and serve it yourself if that is unacceptable.
+ */
+const createListEndpoint = (config: ResolvedRedirectsConfig): Endpoint => ({
+  handler: async (req) => {
+    const redirects = await buildRedirectsCacheEntries({ config, payload: req.payload, req })
+
+    return Response.json(
+      { redirects },
+      {
+        headers: listResponseHeaders({
+          maxAge: config.list.maxAge,
+          staleWhileRevalidate: config.list.staleWhileRevalidate,
+          tags: config.list.tags,
+        }),
+      },
+    )
+  },
+  method: 'get',
+  path: `${config.endpointsPath}${DEFAULT_LIST_SUBPATH}`,
+})
+
 const createRefreshCacheEndpoint = (config: ResolvedRedirectsConfig): Endpoint => ({
   handler: async (req) => {
     if (!isAuthorized(req, config)) {
@@ -142,5 +179,6 @@ const createRefreshCacheEndpoint = (config: ResolvedRedirectsConfig): Endpoint =
 
 export const createRedirectsEndpoints = (config: ResolvedRedirectsConfig): Endpoint[] => [
   createRefreshCacheEndpoint(config),
+  ...(config.list.disabled ? [] : [createListEndpoint(config)]),
   ...(config.trackHits ? [createHitEndpoint(config)] : []),
 ]

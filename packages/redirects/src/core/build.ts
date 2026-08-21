@@ -347,14 +347,53 @@ export const buildRedirectsCacheEntries = async ({
   return flattenChains(entries, payload)
 }
 
+export type SyncRedirectsCacheOptions = {
+  /**
+   * Call `list.invalidate` after the write. Pass `false` when nothing actually
+   * changed — a boot-time prime, say — so a cold start does not issue a global
+   * cache purge. Every purge is platform-wide and, on serverless, cold starts are
+   * far more frequent than edits.
+   * @default true
+   */
+  invalidate?: boolean
+}
+
 /**
- * Rebuilds the redirects cache from the database. The plugin calls this from
- * its hooks and the refresh endpoint; call it yourself after seeding
- * redirects programmatically. Pass `req` when running inside a Payload
- * request so the rebuild sees uncommitted transaction state.
+ * Rebuilds the redirects cache from the database, then invalidates the list
+ * route's cache tags so every other region picks the change up. The plugin calls
+ * this from its hooks and the refresh endpoint; call it yourself after seeding
+ * redirects programmatically. Pass `req` when running inside a Payload request so
+ * the rebuild sees uncommitted transaction state.
  */
-export const syncRedirectsCache = async (payload: Payload, req?: PayloadRequest): Promise<void> => {
+export const syncRedirectsCache = async (
+  payload: Payload,
+  req?: PayloadRequest,
+  options: SyncRedirectsCacheOptions = {},
+): Promise<void> => {
   const config = getRedirectsConfig(payload.config)
   const entries = await buildRedirectsCacheEntries({ config, payload, req })
-  await config.cache.set(entries)
+
+  // Writes the store this instance can see. When the store and the list route
+  // share a cache tag — the recommended Vercel setup — the invalidation below
+  // immediately marks this entry stale too, and the next read re-seeds it. That
+  // is fine and deliberate: this `set` is what keeps single-region stores
+  // (`fileCache`, `memoryCache`, a single-region `redisCache`) working at all.
+  await config.cache?.set(entries)
+
+  // Purging belongs to the write path ALONE. The serving side's read-through
+  // seeds `cache` through the very same `set` call, so a purge hidden behind
+  // `set` would fire on every read and invalidate the copy it had just fetched.
+  if (config.list.invalidate && options.invalidate !== false) {
+    try {
+      await config.list.invalidate(config.list.tags)
+    } catch (error) {
+      // A failed purge leaves stale entries to expire on their own TTL. That is
+      // a freshness problem, not a correctness one, and it must not fail the
+      // write that triggered it.
+      payload.logger.error(
+        error,
+        '[payload-redirects] Failed to invalidate the redirect list cache tags',
+      )
+    }
+  }
 }

@@ -17,18 +17,14 @@ import type { RedirectsResolver } from './resolver.js'
 import { isAbsoluteApiBase } from '../core/config.js'
 import { createRedirectsResolver } from './resolver.js'
 
-export { defineRedirectsConfig, type SharedRedirectsConfig } from '../core/config.js'
+export {
+  defineRedirectsConfig,
+  type RedirectsListConfig,
+  type SharedRedirectsConfig,
+} from '../core/config.js'
 export type { CachedRedirect, RedirectsCache } from '../core/shared.js'
 
 export type RedirectsMiddlewareOptions = {
-  /**
-   * In-memory micro-memo (per middleware instance) of the last successful cache
-   * read, so bursts of requests don't each hit the backing store. The window is
-   * in milliseconds; `0` disables it. A miss (null) is never memoized, so a
-   * background refresh is picked up on the very next request.
-   * @default 5000 when `NODE_ENV === 'production'`, otherwise 0
-   */
-  cacheMemoMs?: number
   /**
    * Emit `console.debug('[payload-redirects] …')` diagnostics (cache misses and
    * matches). Never logs request bodies; safe to leave on in staging.
@@ -104,6 +100,7 @@ export const createRedirectsMiddleware = (
     cacheMemoMs,
     debug,
     endpointsPath,
+    list,
     onRedirect,
     refreshOnMiss,
     secret,
@@ -112,6 +109,7 @@ export const createRedirectsMiddleware = (
   } = options
 
   const apiIsAbsolute = isAbsoluteApiBase(api)
+  const listIsAbsolute = typeof list?.path === 'string' && isAbsoluteApiBase(list.path)
 
   // The resolver is built lazily on the first request so it can fold the Next
   // `basePath` into the endpoint URLs (the Payload API also lives under it).
@@ -130,6 +128,15 @@ export const createRedirectsMiddleware = (
       cacheMemoMs,
       debug,
       endpointsPath,
+      // An explicit relative `list.path` lives under the Next `basePath`; an
+      // absolute one is another origin. Leaving `path` unset lets the resolver
+      // derive it from the already-prefixed `api`.
+      ...(list && {
+        list:
+          typeof list.path === 'string' && !listIsAbsolute
+            ? { ...list, path: `${nextUrl.basePath}${list.path}` }
+            : list,
+      }),
       refreshOnMiss,
       secret,
       trackHits,

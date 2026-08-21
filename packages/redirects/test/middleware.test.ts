@@ -44,6 +44,9 @@ const baseRequest = (url: string, nextConfig: { basePath?: string; trailingSlash
 const firstUrl = (fetchMock: ReturnType<typeof okFetch>) =>
   String((fetchMock.mock.calls[0] as unknown as [URL])[0])
 
+const urlsOf = (fetchMock: { mock: { calls: unknown[] } }) =>
+  fetchMock.mock.calls.map((call) => String((call as [URL])[0]))
+
 const okFetch = () =>
   vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
     Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
@@ -219,7 +222,11 @@ describe('createRedirectsMiddleware', () => {
 
     fetchMock.mockClear()
 
-    const onMiss = createRedirectsMiddleware({ cache: memoryCache(), secret: 'sesame' })
+    const onMiss = createRedirectsMiddleware({
+      cache: memoryCache(),
+      list: { disabled: true },
+      secret: 'sesame',
+    })
     const missEvent = fakeEvent()
     await onMiss(request('https://site.com/old'), asEvent(missEvent))
     await Promise.all(missEvent.tasks)
@@ -324,7 +331,7 @@ describe('createRedirectsMiddleware', () => {
     const fetchMock = okFetch()
     vi.stubGlobal('fetch', fetchMock)
 
-    const middleware = createRedirectsMiddleware({ cache: memoryCache() })
+    const middleware = createRedirectsMiddleware({ cache: memoryCache(), list: { disabled: true } })
 
     const event = fakeEvent()
     expect(await middleware(request('https://site.com/old'), asEvent(event))).toBeUndefined()
@@ -341,7 +348,11 @@ describe('createRedirectsMiddleware', () => {
     expect(fetchMock).not.toHaveBeenCalled()
 
     // …and refreshOnMiss: false stays quiet entirely.
-    const disabled = createRedirectsMiddleware({ cache: memoryCache(), refreshOnMiss: false })
+    const disabled = createRedirectsMiddleware({
+      cache: memoryCache(),
+      list: { disabled: true },
+      refreshOnMiss: false,
+    })
     expect(await disabled(request('https://site.com/old'), asEvent(fakeEvent()))).toBeUndefined()
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -436,7 +447,7 @@ describe('createRedirectsMiddleware', () => {
 
     fetchMock.mockClear()
 
-    const missMw = createRedirectsMiddleware({ cache: memoryCache() })
+    const missMw = createRedirectsMiddleware({ cache: memoryCache(), list: { disabled: true } })
     const missEvent = fakeEvent()
     await missMw(
       baseRequest('https://site.com/base/old', { basePath: '/base' }),
@@ -444,6 +455,46 @@ describe('createRedirectsMiddleware', () => {
     )
     await Promise.all(missEvent.tasks)
     expect(firstUrl(fetchMock)).toBe('https://site.com/base/api/payload-redirects/refresh-cache')
+  })
+
+  it('resolves the list route against basePath, and absolute paths verbatim', async () => {
+    const listFetch = () =>
+      vi.fn((input: string | URL) =>
+        Promise.resolve(
+          new Response(JSON.stringify(String(input).includes('list') ? { redirects: [] } : {}), {
+            status: 200,
+          }),
+        ),
+      )
+
+    // Derived from `api`, which the middleware has already basePath-prefixed —
+    // so the list URL must be prefixed exactly once.
+    let fetchMock = listFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    await createRedirectsMiddleware({ cache: memoryCache(), trackHits: false })(
+      baseRequest('https://site.com/base/old', { basePath: '/base' }),
+    )
+    expect(urlsOf(fetchMock)).toEqual(['https://site.com/base/api/payload-redirects/list'])
+
+    // An explicit relative path lives under basePath too.
+    fetchMock = listFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    await createRedirectsMiddleware({
+      cache: memoryCache(),
+      list: { path: '/custom/list' },
+      trackHits: false,
+    })(baseRequest('https://site.com/base/old', { basePath: '/base' }))
+    expect(urlsOf(fetchMock)).toEqual(['https://site.com/base/custom/list'])
+
+    // An absolute one is another origin: never prefixed, never re-resolved.
+    fetchMock = listFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    await createRedirectsMiddleware({
+      cache: memoryCache(),
+      list: { path: 'https://cms.example.com/api/payload-redirects/list' },
+      trackHits: false,
+    })(baseRequest('https://site.com/base/old', { basePath: '/base' }))
+    expect(urlsOf(fetchMock)).toEqual(['https://cms.example.com/api/payload-redirects/list'])
   })
 
   it('sends background refresh/hit calls to an absolute api base for a split-origin CMS', async () => {
@@ -465,6 +516,7 @@ describe('createRedirectsMiddleware', () => {
     const missMw = createRedirectsMiddleware({
       api: 'https://cms.example.com/api',
       cache: memoryCache(),
+      list: { disabled: true },
     })
     const missEvent = fakeEvent()
     await missMw(request('https://site.com/old'), asEvent(missEvent))

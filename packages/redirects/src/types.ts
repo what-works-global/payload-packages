@@ -50,9 +50,9 @@ export type InternalRedirectsCollectionConfig = {
 
 /**
  * Options for `redirectsPlugin`. Extends {@link SharedRedirectsConfig}
- * (`cache`, `endpointsPath`, `secret`, and the serving-only `api`) so one
- * object spreads into both the plugin and the middleware/resolver — the plugin
- * simply ignores `api`.
+ * (`cache`, `endpointsPath`, `list`, `secret`, and the serving-only `api` /
+ * `cacheMemoMs`) so one object spreads into both the plugin and the
+ * middleware/resolver — the plugin simply ignores the serving-only keys.
  */
 export interface RedirectsPluginConfig extends SharedRedirectsConfig {
   /**
@@ -102,9 +102,17 @@ export interface RedirectsPluginConfig extends SharedRedirectsConfig {
 }
 
 export type ResolvedRedirectsConfig = {
-  cache: RedirectsCache
+  cache?: RedirectsCache
   collections: Record<string, InternalRedirectsCollectionConfig>
   endpointsPath: string
+  list: {
+    disabled: boolean
+    invalidate?: (tags: string[]) => Promise<void>
+    maxAge: number
+    path?: string
+    staleWhileRevalidate: number
+    tags: string[]
+  }
   localized: boolean
   secret?: string
   slug: string

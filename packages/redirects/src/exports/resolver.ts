@@ -24,23 +24,20 @@ import { isAbsoluteApiBase } from '../core/config.js'
 import {
   appendTrailingSlash,
   DEFAULT_ENDPOINTS_PATH,
+  DEFAULT_LIST_SUBPATH,
   isCachedRedirect,
   mergeForwardedQuery,
   resolveRedirect,
 } from '../core/shared.js'
 
-export { defineRedirectsConfig, type SharedRedirectsConfig } from '../core/config.js'
+export {
+  defineRedirectsConfig,
+  type RedirectsListConfig,
+  type SharedRedirectsConfig,
+} from '../core/config.js'
 export type { CachedRedirect, RedirectsCache, RedirectStatus } from '../core/shared.js'
 
 export type RedirectsResolverOptions = {
-  /**
-   * In-memory micro-memo (per resolver instance) of the last successful cache
-   * read, so bursts of requests don't each hit the backing store. The window is
-   * in milliseconds; `0` disables it. A miss (null) is never memoized, so a
-   * background refresh is picked up on the very next request.
-   * @default 5000 when `NODE_ENV === 'production'`, otherwise 0
-   */
-  cacheMemoMs?: number
   /**
    * Emit `console.debug('[payload-redirects] …')` diagnostics (cache misses,
    * matches, and skips). Never logs request bodies; safe to leave on in staging.
@@ -60,6 +57,12 @@ export type RedirectsResolverOptions = {
   /**
    * On a cache miss, POST the plugin's refresh endpoint in the background so
    * the next request is answered from a warm cache.
+   *
+   * This is a **fallback**, and a weak one: the rebuild runs wherever the Payload
+   * function runs, so on a multi-region read path it warms a cache the missing
+   * region cannot see, and the current request still returns "no redirect". The
+   * read-through via `list` is the real mechanism; this only applies when the
+   * list route is unreachable or `list.disabled` is set.
    * @default true
    */
   refreshOnMiss?: boolean
@@ -135,6 +138,7 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
     cacheMemoMs = defaultCacheMemoMs,
     debug = false,
     endpointsPath = DEFAULT_ENDPOINTS_PATH,
+    list,
     onRedirect,
     refreshOnMiss = true,
     secret,
@@ -143,6 +147,15 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
   } = options
 
   const apiIsAbsolute = isAbsoluteApiBase(api)
+
+  // An explicit `path` is always the read-through target — including alongside
+  // `disabled`, which only stops the PLUGIN registering its own endpoint (the
+  // "I serve the list myself" setup). Otherwise default to the plugin's endpoint,
+  // so read-through works with no configuration at all; `disabled` with no `path`
+  // means there is no origin, restoring the legacy miss path.
+  const listTarget =
+    list?.path ?? (list?.disabled ? undefined : `${api}${endpointsPath}${DEFAULT_LIST_SUBPATH}`)
+  const listIsAbsolute = listTarget !== undefined && isAbsoluteApiBase(listTarget)
 
   const log = (message: string) => {
     if (debug) {
@@ -184,14 +197,27 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
     }
   }
 
-  // A short-lived, per-instance memo of the last non-null cache read. It only
-  // dedupes the async `cache.get()` + validation across a burst; matching
-  // (including regex compilation) is delegated to `resolveRedirect`.
+  // A short-lived, per-instance memo of the last resolved redirect list —
+  // whether it came from the cache or from a read-through fetch. It only dedupes
+  // the async read + validation across a burst; matching (including regex
+  // compilation) is delegated to `resolveRedirect`.
   let memo: Memo | undefined
+
+  const memoize = (entries: CachedRedirect[]) => {
+    if (cacheMemoMs > 0) {
+      memo = { at: Date.now(), entries }
+    }
+  }
 
   const readEntries = async (): Promise<'error' | CachedRedirect[] | null> => {
     if (cacheMemoMs > 0 && memo && Date.now() - memo.at < cacheMemoMs) {
       return memo.entries
+    }
+
+    if (!cache) {
+      // No store configured: every read is a miss, answered by the read-through
+      // below. The memo is what keeps that from being a fetch per request.
+      return null
     }
 
     let entries: CachedRedirect[] | null
@@ -203,11 +229,40 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
       return 'error'
     }
 
-    if (cacheMemoMs > 0 && entries !== null) {
-      memo = { at: Date.now(), entries }
+    if (entries !== null) {
+      memoize(entries)
     }
 
     return entries
+  }
+
+  // One in-flight list fetch per resolver instance: a burst of concurrent misses
+  // on a cold instance should cost a single request to the list route, not one
+  // per request.
+  let inflightList: Promise<CachedRedirect[] | null> | undefined
+
+  const fetchList = async (requestUrl: URL, path: string): Promise<CachedRedirect[] | null> => {
+    // No `cache: 'no-store'` here, deliberately — the whole point of the list
+    // route is that the CDN in front of it answers most of these.
+    const response = await fetch(
+      listIsAbsolute ? new URL(path) : new URL(path, requestUrl.origin),
+      secret ? { headers: { [SECRET_HEADER]: secret } } : undefined,
+    )
+    if (!response.ok) {
+      throw new Error(`[payload-redirects] GET ${path} failed with ${response.status}`)
+    }
+    const body: unknown = await response.json()
+    const redirects = (body as { redirects?: unknown } | null)?.redirects
+    return Array.isArray(redirects) ? redirects.filter(isCachedRedirect) : null
+  }
+
+  const readThrough = (requestUrl: URL, path: string): Promise<CachedRedirect[] | null> => {
+    inflightList ??= fetchList(requestUrl, path)
+      .catch(() => null)
+      .finally(() => {
+        inflightList = undefined
+      })
+    return inflightList
   }
 
   return async (url, ctx) => {
@@ -218,18 +273,44 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
       return null
     }
 
-    const entries = await readEntries()
+    const read = await readEntries()
 
-    if (entries === 'error') {
-      return null
-    }
+    // A broken cache backend must never take down routing — but it must not
+    // short-circuit the origin either. Treat it exactly like a miss, and only
+    // skip seeding, since the store is already failing.
+    const cacheBroken = read === 'error'
+    let entries = cacheBroken ? null : read
 
     if (entries === null) {
       log('cache miss')
-      if (refreshOnMiss) {
-        runInBackground(ctx, () => postEndpoint(requestUrl, '/refresh-cache'))
+
+      // Read through to the list route: answer THIS request correctly, then seed
+      // the local cache so the region stops missing. With the list disabled there
+      // is no origin to fall back to, and the request passes through unredirected.
+      const fetched = listTarget ? await readThrough(requestUrl, listTarget) : null
+
+      if (!fetched) {
+        if (refreshOnMiss) {
+          runInBackground(ctx, () => postEndpoint(requestUrl, '/refresh-cache'))
+        }
+        return null
       }
-      return null
+
+      log(`read-through: ${fetched.length} redirects from ${listTarget}`)
+      memoize(fetched)
+      if (cache && !cacheBroken) {
+        runInBackground(ctx, async () => {
+          try {
+            // Seeding only — never an invalidation. `list.invalidate` is the
+            // write path's job; see `syncRedirectsCache`.
+            await cache.set(fetched)
+          } catch {
+            // Seeding the local cache is an optimization — the redirect is
+            // already resolved, so a failed write must not surface.
+          }
+        })
+      }
+      entries = fetched
     }
 
     if (entries.length === 0) {

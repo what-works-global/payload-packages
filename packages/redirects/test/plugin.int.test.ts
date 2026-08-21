@@ -28,6 +28,16 @@ const findEndpointOn = (payload: Payload, endpointPath: string): Endpoint => {
   return endpoint
 }
 
+const findGetEndpointOn = (payload: Payload, endpointPath: string): Endpoint => {
+  const endpoint = payload.config.endpoints.find(
+    (candidate) => candidate.path === endpointPath && candidate.method === 'get',
+  )
+  if (!endpoint) {
+    throw new Error(`GET endpoint ${endpointPath} not registered`)
+  }
+  return endpoint
+}
+
 const fakeRequest = (
   payload: Payload,
   {
@@ -374,6 +384,167 @@ describe('redirectsPlugin integration', () => {
     await cache.set([])
     await syncRedirectsCache(payload)
     expect((await cache.get())?.length).toBeGreaterThan(0)
+  })
+})
+
+describe('the list route and cache invalidation', () => {
+  it('serves the built list under purgeable, revalidate-in-background headers', async () => {
+    const { destroy, payload } = await buildInstance()
+    try {
+      await payload.create({
+        collection: 'redirects' as never,
+        data: { from: '/old', status: '301', to: { type: 'custom', url: '/new' } } as never,
+      })
+
+      const handler = findGetEndpointOn(payload, '/payload-redirects/list').handler
+      const response = await handler(fakeRequest(payload))
+
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as { redirects: { from: string; to: string }[] }
+      expect(body.redirects).toEqual([
+        expect.objectContaining({ from: '/old', status: 301, to: '/new' }),
+      ])
+
+      // Short max-age with stale-while-revalidate is correct on any platform,
+      // even with nothing purging the tag, and near-free thanks to the
+      // background refresh.
+      const shared = 'public, max-age=60, stale-while-revalidate=86400'
+      expect(response.headers.get('vercel-cdn-cache-control')).toBe(shared)
+      expect(response.headers.get('cdn-cache-control')).toBe(shared)
+      expect(response.headers.get('vercel-cache-tag')).toBe('payload-redirects')
+      // Shared caches hold the list; browsers must not, or a purge is unfelt.
+      expect(response.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate')
+    } finally {
+      await destroy()
+    }
+  })
+
+  it('honours custom list cache settings', async () => {
+    const { destroy, payload } = await buildInstance({
+      list: {
+        maxAge: 60 * 60 * 24 * 365,
+        staleWhileRevalidate: 60,
+        tags: ['redirects', 'routing'],
+      },
+    })
+    try {
+      const response = await findGetEndpointOn(payload, '/payload-redirects/list').handler(
+        fakeRequest(payload),
+      )
+      expect(response.headers.get('vercel-cdn-cache-control')).toBe(
+        'public, max-age=31536000, stale-while-revalidate=60',
+      )
+      expect(response.headers.get('vercel-cache-tag')).toBe('redirects,routing')
+    } finally {
+      await destroy()
+    }
+  })
+
+  it('invalidates the list tags on every cache write, and only on a write', async () => {
+    const invalidated: string[][] = []
+    const {
+      cache: instanceCache,
+      destroy,
+      payload,
+    } = await buildInstance({
+      list: {
+        invalidate: (tags) => {
+          invalidated.push(tags)
+          return Promise.resolve()
+        },
+      },
+    })
+    try {
+      // A doc change re-syncs the cache, which must also purge.
+      invalidated.length = 0
+      await payload.create({
+        collection: 'redirects' as never,
+        data: { from: '/a', status: '301', to: { type: 'custom', url: '/b' } } as never,
+      })
+      expect(invalidated).toEqual([['payload-redirects']])
+
+      invalidated.length = 0
+      await syncRedirectsCache(payload)
+      expect(invalidated).toEqual([['payload-redirects']])
+
+      // The regression this guards: the serving side seeds `cache` through the
+      // SAME `set` call, so a purge behind `set` would fire on every read.
+      invalidated.length = 0
+      await instanceCache.set([])
+      expect(invalidated).toEqual([])
+    } finally {
+      await destroy()
+    }
+  })
+
+  it('does not purge on boot — a cold start is not an edit', async () => {
+    const invalidated: string[][] = []
+    const { destroy } = await buildInstance({
+      list: {
+        invalidate: (tags) => {
+          invalidated.push(tags)
+          return Promise.resolve()
+        },
+      },
+    })
+    try {
+      // `syncOnInit` primes the cache on every boot, which on serverless means
+      // every cold start. Purging there would burn a global cache purge per
+      // instance, so the init path must write without invalidating.
+      expect(invalidated).toEqual([])
+    } finally {
+      await destroy()
+    }
+  })
+
+  it('runs with no cache configured at all', async () => {
+    const invalidated: string[][] = []
+    const { destroy, payload } = await buildInstance({
+      cache: undefined,
+      list: {
+        invalidate: (tags) => {
+          invalidated.push(tags)
+          return Promise.resolve()
+        },
+      },
+    })
+    try {
+      // `cache` is optional: the list route is the source of truth, so the write
+      // path has nothing to write — but it must still purge, and must not throw.
+      await expect(
+        payload.create({
+          collection: 'redirects' as never,
+          data: { from: '/x', status: '301', to: { type: 'custom', url: '/y' } } as never,
+        }),
+      ).resolves.toBeTruthy()
+      expect(invalidated).toEqual([['payload-redirects']])
+
+      const response = await findGetEndpointOn(payload, '/payload-redirects/list').handler(
+        fakeRequest(payload),
+      )
+      const body = (await response.json()) as { redirects: unknown[] }
+      expect(body.redirects).toHaveLength(1)
+    } finally {
+      await destroy()
+    }
+  })
+
+  it('survives a failing invalidate — a dead purge must not fail the write', async () => {
+    const {
+      cache: instanceCache,
+      destroy,
+      payload,
+    } = await buildInstance({
+      list: { invalidate: () => Promise.reject(new Error('purge api down')) },
+    })
+    try {
+      await instanceCache.set([])
+      await expect(syncRedirectsCache(payload)).resolves.toBeUndefined()
+      // The local write still landed; only the purge was lost.
+      expect(await instanceCache.get()).toEqual([])
+    } finally {
+      await destroy()
+    }
   })
 })
 

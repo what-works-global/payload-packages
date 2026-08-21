@@ -121,7 +121,11 @@ export const redirectsPlugin =
 
       if (pluginConfig.syncOnInit !== false) {
         try {
-          await syncRedirectsCache(payload)
+          // No invalidation: booting changed nothing, and on serverless this
+          // path runs on every cold start — purging there would burn a global
+          // cache purge per instance. A deploy that changes how destinations
+          // resolve should POST `refresh-cache` instead.
+          await syncRedirectsCache(payload, undefined, { invalidate: false })
         } catch (error) {
           payload.logger.error(
             error,

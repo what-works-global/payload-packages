@@ -10,7 +10,7 @@ const describeMatch = (match: string | undefined): string => match ?? 'exact'
 export default async function FrontendPage() {
   const payload = await getPayload({ config })
   const redirectsConfig = getRedirectsConfig(payload.config)
-  const cached = (await redirectsConfig.cache.get()) ?? []
+  const cached = (await redirectsConfig.cache?.get()) ?? []
 
   return (
     <main>

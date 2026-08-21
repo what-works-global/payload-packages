@@ -6,7 +6,11 @@ export {
   validateScrollTo,
   validateUrlOrPathname,
 } from './core/collection.js'
-export { defineRedirectsConfig, type SharedRedirectsConfig } from './core/config.js'
+export {
+  defineRedirectsConfig,
+  type RedirectsListConfig,
+  type SharedRedirectsConfig,
+} from './core/config.js'
 export {
   migrateFromOfficialRedirects,
   type MigrateFromOfficialRedirectsResult,
@@ -21,8 +25,13 @@ export {
   canonicalizeSearch,
   DEFAULT_COLLECTION_SLUG,
   DEFAULT_ENDPOINTS_PATH,
+  DEFAULT_LIST_MAX_AGE,
+  DEFAULT_LIST_STALE_WHILE_REVALIDATE,
+  DEFAULT_LIST_SUBPATH,
+  DEFAULT_REDIRECTS_CACHE_TAG,
   getNormalizedRequestTargets,
   isCachedRedirect,
+  listResponseHeaders,
   matchRedirect,
   mergeForwardedQuery,
   normalizeQueryParams,
