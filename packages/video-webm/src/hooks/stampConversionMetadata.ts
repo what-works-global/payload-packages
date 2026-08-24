@@ -2,18 +2,10 @@ import type { CollectionBeforeChangeHook } from 'payload'
 
 import type { ConversionRecord } from '../types.js'
 
+import { emptyRecord, SKIP_CONTEXT_KEY } from './attemptConversion.js'
 import { VIDEO_WEBM_CONTEXT_KEY } from './convertUploadedVideo.js'
 
 export const METADATA_GROUP_NAME = 'videoWebm'
-
-const emptyRecord: ConversionRecord = {
-  converted: false,
-  encodeDurationMs: null,
-  originalFilename: null,
-  originalFilesize: null,
-  originalMimeType: null,
-  skippedReason: null,
-}
 
 /**
  * Copies the conversion outcome stashed by the beforeOperation hook into the doc's
@@ -24,7 +16,7 @@ const emptyRecord: ConversionRecord = {
 export const createStampHook =
   (): CollectionBeforeChangeHook =>
   ({ data, req }) => {
-    if (!req.file) {
+    if (!req.file || req.context[SKIP_CONTEXT_KEY]) {
       return data
     }
 

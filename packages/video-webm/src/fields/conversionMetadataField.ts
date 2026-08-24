@@ -51,6 +51,7 @@ export const conversionMetadataField = (): GroupField => ({
         { label: 'ffmpeg failed', value: 'ffmpeg-failed' },
         { label: 'Input too large', value: 'input-too-large' },
         { label: 'WebM output was larger', value: 'output-larger' },
+        { label: 'Storing the WebM sidecar failed', value: 'derivative-failed' },
       ],
     },
   ],

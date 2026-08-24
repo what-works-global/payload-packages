@@ -111,6 +111,16 @@ export interface VideoWebmPluginConfig {
    */
   inputMimeTypes?: string[]
   /**
+   * Keep the uploaded original as the document's own file, and store the WebM as a
+   * hidden sidecar document in the same collection — same storage adapter (S3,
+   * Vercel Blob, local), linked from the original via the `webmVersion`
+   * relationship. Frontends render `doc.webmVersion?.url ?? doc.url` (populate with
+   * `depth: 1`). Sidecars are hidden from the admin list view, regenerated when the
+   * original's file is replaced, and deleted with the original. Defaults to `false`:
+   * the WebM replaces the upload and the original is not retained.
+   */
+  keepOriginal?: boolean
+  /**
    * Cap on simultaneous ffmpeg processes across this plugin instance (per Node.js
    * process). Further eligible uploads wait their turn inside the request. Defaults
    * to `2` — VP9 encoding saturates several cores per encode, so the default favours
@@ -133,10 +143,12 @@ export interface VideoWebmPluginConfig {
   /**
    * Called after every conversion decision on a candidate video upload — converted,
    * or skipped as `output-larger`, `input-too-large`, `already-webm`, `filtered`
-   * (vetoed by `shouldConvert`), or `ffmpeg-failed` (with `onError: 'skip'`). Not
-   * called for non-video uploads (`mimetype` outside `inputMimeTypes`) or when a
-   * failed conversion is about to reject the upload (`onError: 'throw'`). Errors
-   * thrown here are logged as warnings and never fail the upload.
+   * (vetoed by `shouldConvert`), `ffmpeg-failed` (with `onError: 'skip'`), or
+   * `derivative-failed` (keepOriginal mode: encode succeeded but storing the sidecar
+   * failed, with `onError: 'skip'`). Not called for non-video uploads (`mimetype`
+   * outside `inputMimeTypes`) or when a failure is about to reject the upload
+   * (`onError: 'throw'`). Errors thrown here are logged as warnings and never fail
+   * the upload.
    */
   onConversionComplete?: (outcome: ConversionOutcome) => Promise<void> | void
   /**
@@ -173,6 +185,7 @@ export interface ResolvedVideoWebmConfig {
     Required<Omit<WebmEncodingOptions, 'maxHeight' | 'maxWidth'>>
   ffmpegPath: string
   inputMimeTypes: string[]
+  keepOriginal: boolean
   /** `null` = unlimited (explicit opt-out). */
   maxConcurrentEncodes: null | number
   maxInputFileSize: null | number
@@ -195,6 +208,7 @@ export interface UploadedFile {
 
 export type SkipReason =
   | 'already-webm'
+  | 'derivative-failed'
   | 'ffmpeg-failed'
   | 'filtered'
   | 'input-too-large'

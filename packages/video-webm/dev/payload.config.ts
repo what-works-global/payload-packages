@@ -16,7 +16,8 @@ export default buildDevConfig({
     {
       slug: 'media',
       admin: {
-        description: 'Upload an mp4/mov here — it lands in storage as WebM.',
+        description:
+          'Upload an mp4/mov here — the original is stored as-is, plus a hidden WebM sidecar linked via webmVersion (keepOriginal mode).',
       },
       fields: [{ name: 'alt', type: 'text' }],
       upload: {
@@ -47,6 +48,8 @@ export default buildDevConfig({
         // Faster encodes for local fiddling; drop back to the defaults in real apps.
         speed: 4,
       },
+      // Originals stay in storage; frontends use doc.webmVersion?.url ?? doc.url.
+      keepOriginal: true,
     }),
   ],
 })

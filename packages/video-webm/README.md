@@ -9,7 +9,10 @@
 
 &nbsp;
 
-Payload plugin that converts video uploads (mp4, mov, mkv, …) to **WebM (VP9 + Opus)** during the upload request itself, so your frontend serves often substantially smaller files. One eligible video comes in → one WebM replaces it before Payload's storage processing. **The original file is not retained.**
+Payload plugin that converts video uploads (mp4, mov, mkv, …) to **WebM (VP9 + Opus)** during the upload request itself, so your frontend serves often substantially smaller files. Two modes:
+
+- **Replace (default)**: one eligible video comes in → one WebM replaces it before Payload's storage processing. **The original file is not retained.**
+- **`keepOriginal: true`**: the original stays the document's stored file (in S3 or wherever the collection's storage points), and the WebM is stored alongside it as a hidden sidecar document linked via `webmVersion` — the frontend renders the WebM, the source stays safe.
 
 - **Storage-adapter agnostic** — the conversion swaps `req.file` before Payload processes the upload, so filename, `mimeType` and `filesize` are all derived from the converted file and stored through whatever storage the collection uses (local disk, `@payloadcms/storage-s3`, Vercel Blob, …).
 - **Zero runtime dependencies** — spawns the `ffmpeg` binary directly via argument arrays (never through a shell). No fluent-ffmpeg, no Redis, no worker process.
@@ -84,6 +87,12 @@ videoWebmPlugin({
   // Kill switch: `false` leaves the Payload config completely untouched.
   enabled: true,
 
+  // Keep the uploaded original as the document's file and store the WebM as a
+  // hidden sidecar document in the same collection (same storage adapter),
+  // linked via the `webmVersion` relationship. Default false: the WebM replaces
+  // the upload and the original is not retained. See "Keeping the original".
+  keepOriginal: false,
+
   // Mime types eligible for conversion, matched against the client-declared
   // req.file.mimetype ('video/*' wildcards supported). `video/webm` uploads are
   // always left alone, even if listed here. Defaults (exact list):
@@ -153,14 +162,14 @@ videoWebmPlugin({
 
 Every targeted collection gets a read-only sidebar group (opt out with `metadataFields: false`), hidden in the admin unless a conversion or a recorded skip happened:
 
-| Field              | Meaning                                                                          |
-| ------------------ | -------------------------------------------------------------------------------- |
-| `converted`        | Whether this upload was converted to WebM.                                       |
-| `originalFilename` | The filename as uploaded, e.g. `clip.mp4`.                                       |
-| `originalMimeType` | The uploaded mime type, e.g. `video/mp4`.                                        |
-| `originalFilesize` | Source size in bytes — compare with the doc's `filesize` for the actual savings. |
-| `encodeDurationMs` | Wall-clock ffmpeg time for the successful encode.                                |
-| `skippedReason`    | `output-larger`, `input-too-large`, or `ffmpeg-failed` (with `onError: 'skip'`). |
+| Field              | Meaning                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `converted`        | Whether this upload was converted to WebM.                                                                           |
+| `originalFilename` | The filename as uploaded, e.g. `clip.mp4`.                                                                           |
+| `originalMimeType` | The uploaded mime type, e.g. `video/mp4`.                                                                            |
+| `originalFilesize` | Source size in bytes — compare with the doc's `filesize` for the actual savings.                                     |
+| `encodeDurationMs` | Wall-clock ffmpeg time for the successful encode.                                                                    |
+| `skippedReason`    | `output-larger`, `input-too-large`, `ffmpeg-failed` (with `onError: 'skip'`), or `derivative-failed` (keepOriginal). |
 
 Savings are deliberately not stored — derive them from `originalFilesize` and Payload's own `filesize`. The group is stamped only on requests that actually carry a file, so re-saving a document never clobbers the record, while replacing the file updates (or clears) it.
 
@@ -172,7 +181,34 @@ The plugin adds one `beforeOperation` hook and (for metadata) one `beforeChange`
 2. Eligible files are transcoded through temp files in `os.tmpdir()` (always removed, even on failure or timeout), then `req.file`'s buffer, name, mime type and size are swapped for the WebM.
 3. Payload's own pipeline then runs unchanged — mime validation, filename dedup, and the storage adapter all see only the converted file, which is why everything stays consistent with zero storage coupling.
 
-**Hook ordering is deterministic**: the plugin's hooks are appended _after_ any hooks the collection already declares. Your own `beforeOperation` hooks therefore see the original upload; every later stage (`beforeValidate`, `beforeChange`, `afterChange`, …) sees the converted WebM. Plugins registered after this one that add `beforeOperation` hooks will run after the conversion.
+**Hook ordering is deterministic**: the plugin's hooks are appended _after_ any hooks the collection already declares. Your own `beforeOperation` hooks therefore see the original upload; every later stage (`beforeValidate`, `beforeChange`, `afterChange`, …) sees the converted WebM. Plugins registered after this one that add `beforeOperation` hooks will run after the conversion. (In `keepOriginal` mode `req.file` is never touched — conversion runs in a `beforeChange` hook instead, likewise appended after yours.)
+
+## Keeping the original
+
+With `keepOriginal: true` (per collection or plugin-wide), the uploaded file is stored untouched as the document's own asset, and the WebM becomes a second, hidden document **in the same collection** — which is exactly what makes it storage-agnostic: the sidecar flows through the same S3/Blob/local adapter the collection already uses. The original links to it via a read-only `webmVersion` relationship.
+
+```ts
+videoWebmPlugin({
+  collections: { media: { keepOriginal: true } },
+})
+```
+
+Frontend — query with `depth: 1` so the relationship populates, then prefer the WebM:
+
+```tsx
+const src = media.webmVersion?.url ?? media.url
+<video controls src={src ?? undefined} />
+```
+
+Lifecycle guarantees:
+
+- Replacing the document's file **regenerates** the sidecar and deletes the stale one; replacing a video with a non-video clears the link and removes the sidecar.
+- Deleting the original deletes its sidecar.
+- Sidecar documents are hidden from the admin list view (via `baseListFilter`, composed with any filter you already have) and flagged with a hidden `isWebmDerivative` checkbox — they still appear in direct API queries unless you filter on that field.
+- Your other document fields are copied onto the sidecar so required fields validate; fields with `unique: true` on the collection will conflict and fail sidecar creation, so avoid `keepOriginal` on collections with unique non-upload fields.
+- If encoding succeeds but storing the sidecar fails with `onError: 'skip'`, the original is kept, metadata records `derivative-failed`, and the upload succeeds.
+
+Costs to be aware of: storage is roughly doubled per video (original + WebM), and each video upload performs one extra document create. `skipIfLarger` still applies — when the WebM would be bigger, no sidecar is created and `webmVersion` stays `null`, so the `?? media.url` fallback above always does the right thing.
 
 ## Performance and concurrency
 

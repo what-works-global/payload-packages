@@ -3,7 +3,12 @@ import type { CollectionConfig, Config } from 'payload'
 import { describe, expect, it } from 'vitest'
 
 import { mergeCollectionOverrides } from '../src/core/defaults.js'
-import { METADATA_GROUP_NAME, videoWebmPlugin } from '../src/index.js'
+import {
+  METADATA_GROUP_NAME,
+  videoWebmPlugin,
+  WEBM_DERIVATIVE_FLAG_FIELD_NAME,
+  WEBM_VERSION_FIELD_NAME,
+} from '../src/index.js'
 
 const baseConfig = (): Config =>
   ({
@@ -100,6 +105,40 @@ describe('videoWebmPlugin config shaping', () => {
     expect(files.fields.some((f) => 'name' in f && f.name === METADATA_GROUP_NAME)).toBe(false)
 
     expect(getCollection(config, 'posts').hooks).toBeUndefined()
+  })
+
+  it('wires sidecar hooks, fields and list filter for keepOriginal collections', async () => {
+    const config = videoWebmPlugin({ collections: { media: { keepOriginal: true } } })(baseConfig())
+    const media = getCollection(config, 'media')
+
+    // No req.file swap in this mode — conversion happens in beforeChange instead.
+    expect(media.hooks?.beforeOperation).toBeUndefined()
+    expect(media.hooks?.beforeChange).toHaveLength(1)
+    expect(media.hooks?.afterChange).toHaveLength(1)
+    expect(media.hooks?.afterDelete).toHaveLength(1)
+
+    const fieldNames = media.fields.map((f) => ('name' in f ? f.name : ''))
+    expect(fieldNames).toContain(METADATA_GROUP_NAME)
+    expect(fieldNames).toContain(WEBM_VERSION_FIELD_NAME)
+    expect(fieldNames).toContain(WEBM_DERIVATIVE_FLAG_FIELD_NAME)
+
+    const filter = await media.admin?.baseListFilter?.({} as never)
+    expect(filter).toEqual({ [WEBM_DERIVATIVE_FLAG_FIELD_NAME]: { not_equals: true } })
+  })
+
+  it('composes the derivative list filter with an existing baseListFilter', async () => {
+    const base = baseConfig()
+    const media = getCollection(base, 'media')
+    media.admin = { baseListFilter: () => ({ alt: { equals: 'kept' } }) }
+
+    const config = videoWebmPlugin({ collections: { media: { keepOriginal: true } } })(base)
+    const filter = await getCollection(config, 'media').admin?.baseListFilter?.({} as never)
+    expect(filter).toEqual({
+      and: [
+        { alt: { equals: 'kept' } },
+        { [WEBM_DERIVATIVE_FLAG_FIELD_NAME]: { not_equals: true } },
+      ],
+    })
   })
 
   it('merges per-collection encoding overrides over plugin-level encoding', () => {

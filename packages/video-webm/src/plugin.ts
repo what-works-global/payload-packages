@@ -1,4 +1,4 @@
-import type { CollectionConfig, Config } from 'payload'
+import type { BaseListFilter, CollectionConfig, Config, Where } from 'payload'
 
 import type {
   ResolvedVideoWebmConfig,
@@ -12,8 +12,16 @@ import { mergeCollectionOverrides, resolveConfig, WEBM_MIME_TYPE } from './core/
 import { Semaphore } from './core/semaphore.js'
 import { mimeTypeMatches } from './core/shouldConvert.js'
 import { conversionMetadataField } from './fields/conversionMetadataField.js'
+import { webmDerivativeFlagField, webmVersionField } from './fields/sidecarFields.js'
 import { createConvertHook } from './hooks/convertUploadedVideo.js'
 import { createStampHook, METADATA_GROUP_NAME } from './hooks/stampConversionMetadata.js'
+import {
+  createSidecarCleanupHook,
+  createSidecarDeleteHook,
+  createSidecarHook,
+  WEBM_DERIVATIVE_FLAG_FIELD_NAME,
+  WEBM_VERSION_FIELD_NAME,
+} from './hooks/webmSidecar.js'
 
 const isUploadCollection = (collection: CollectionConfig): boolean => Boolean(collection.upload)
 
@@ -41,6 +49,23 @@ const withWebmMimeType = (collection: CollectionConfig): CollectionConfig => {
 
 const hasNamedField = (collection: CollectionConfig, name: string): boolean =>
   collection.fields.some((field) => 'name' in field && field.name === name)
+
+const HIDE_DERIVATIVES: Where = { [WEBM_DERIVATIVE_FLAG_FIELD_NAME]: { not_equals: true } }
+
+/** Keeps plugin-managed sidecars out of the admin list view, composing with any existing filter. */
+const withDerivativeListFilter = (collection: CollectionConfig): CollectionConfig => {
+  const existing = collection.admin?.baseListFilter
+  const baseListFilter: BaseListFilter = existing
+    ? async (args) => {
+        const result = await existing(args)
+        return result ? { and: [result, HIDE_DERIVATIVES] } : HIDE_DERIVATIVES
+      }
+    : () => HIDE_DERIVATIVES
+  return {
+    ...collection,
+    admin: { ...collection.admin, baseListFilter },
+  }
+}
 
 /** Normalizes both `collections` forms into slug → overrides; `null` means every upload collection. */
 const normalizeTargets = (
@@ -106,10 +131,40 @@ export const videoWebmPlugin =
       const withMime = withWebmMimeType(collection)
       const injectMetadata =
         resolved.metadataFields && !hasNamedField(withMime, METADATA_GROUP_NAME)
+      const metadataFields = injectMetadata ? [conversionMetadataField()] : []
+
+      if (resolved.keepOriginal) {
+        // Sidecar mode: the original stays the document's file; the WebM becomes a
+        // hidden second document in the same collection (same storage adapter) that
+        // the sidecar hook creates and links, and the cleanup hooks garbage-collect.
+        const sidecarFields = [
+          ...(hasNamedField(withMime, WEBM_VERSION_FIELD_NAME)
+            ? []
+            : [webmVersionField(withMime.slug)]),
+          ...(hasNamedField(withMime, WEBM_DERIVATIVE_FLAG_FIELD_NAME)
+            ? []
+            : [webmDerivativeFlagField()]),
+        ]
+        return withDerivativeListFilter({
+          ...withMime,
+          fields: [...withMime.fields, ...metadataFields, ...sidecarFields],
+          hooks: {
+            ...withMime.hooks,
+            afterChange: [...(withMime.hooks?.afterChange ?? []), createSidecarCleanupHook()],
+            afterDelete: [...(withMime.hooks?.afterDelete ?? []), createSidecarDeleteHook()],
+            // Appended after the collection's own hooks, which therefore run before
+            // the sidecar is created and see the untouched original upload.
+            beforeChange: [
+              ...(withMime.hooks?.beforeChange ?? []),
+              createSidecarHook(resolved, limiter),
+            ],
+          },
+        })
+      }
 
       return {
         ...withMime,
-        fields: injectMetadata ? [...withMime.fields, conversionMetadataField()] : withMime.fields,
+        fields: [...withMime.fields, ...metadataFields],
         hooks: {
           ...withMime.hooks,
           beforeChange: injectMetadata

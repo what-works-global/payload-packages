@@ -104,6 +104,7 @@ export const resolveConfig = (pluginConfig: VideoWebmPluginConfig): ResolvedVide
     },
     ffmpegPath: pluginConfig.ffmpegPath ?? process.env.FFMPEG_PATH ?? 'ffmpeg',
     inputMimeTypes: pluginConfig.inputMimeTypes ?? DEFAULT_INPUT_MIME_TYPES,
+    keepOriginal: pluginConfig.keepOriginal === true,
     maxConcurrentEncodes,
     maxInputFileSize,
     metadataFields: pluginConfig.metadataFields !== false,

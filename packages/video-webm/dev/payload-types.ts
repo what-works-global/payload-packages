@@ -145,7 +145,7 @@ export interface User {
   collection: 'users';
 }
 /**
- * Upload an mp4/mov here — it lands in storage as WebM.
+ * Upload an mp4/mov here — the original is stored as-is, plus a hidden WebM sidecar linked via webmVersion (keepOriginal mode).
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "media".
@@ -165,8 +165,10 @@ export interface Media {
      * Wall-clock ffmpeg encode time in milliseconds.
      */
     encodeDurationMs?: number | null;
-    skippedReason?: ('ffmpeg-failed' | 'input-too-large' | 'output-larger') | null;
+    skippedReason?: ('ffmpeg-failed' | 'input-too-large' | 'output-larger' | 'derivative-failed') | null;
   };
+  webmVersion?: (number | null) | Media;
+  isWebmDerivative?: boolean | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -313,6 +315,8 @@ export interface MediaSelect<T extends boolean = true> {
         encodeDurationMs?: T;
         skippedReason?: T;
       };
+  webmVersion?: T;
+  isWebmDerivative?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
