@@ -26,6 +26,7 @@ body:
         - "@whatworks/payload-select-search-field"
         - "@whatworks/payload-sitemap"
         - "@whatworks/payload-switch-env"
+        - "@whatworks/payload-video-webm"
     validations:
       required: true
 

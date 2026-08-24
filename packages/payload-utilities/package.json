@@ -44,6 +44,7 @@
     "@arethetypeswrong/cli": "catalog:",
     "@eslint/eslintrc": "catalog:",
     "@payloadcms/db-mongodb": "catalog:",
+    "@payloadcms/next": "catalog:",
     "@payloadcms/richtext-lexical": "catalog:",
     "@payloadcms/translations": "catalog:",
     "@playwright/test": "^1.52.0",
