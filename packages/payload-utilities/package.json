@@ -34,7 +34,9 @@
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
-    "test": "pnpm test:peer",
+    "test": "pnpm test:int && pnpm test:e2e",
+    "test:e2e": "playwright test",
+    "test:int": "vitest run dev/int.spec.ts",
     "test:peer": "vitest run test/peer.smoke.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -42,7 +44,6 @@
     "@arethetypeswrong/cli": "catalog:",
     "@eslint/eslintrc": "catalog:",
     "@payloadcms/db-mongodb": "catalog:",
-    "@payloadcms/next": "catalog:",
     "@payloadcms/richtext-lexical": "catalog:",
     "@payloadcms/translations": "catalog:",
     "@playwright/test": "^1.52.0",
