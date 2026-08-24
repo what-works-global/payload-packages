@@ -54,6 +54,10 @@ jobs:
       # Depends on dist/, so it runs after build and only over the packages we built.
       - run: pnpm check:use-client ${{ needs.resolve.outputs.affectedList }}
       - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present check:exports
+      # video-webm's conversion tests need a real encoder and skip without one —
+      # install ffmpeg only when that package is affected so other PRs stay fast.
+      - if: contains(needs.resolve.outputs.filterArgs, 'video-webm')
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: pnpm ${{ needs.resolve.outputs.filterArgs }} --if-present test:peer
       # E2E boots a real dev sandbox (Next + Payload) over HTTP — scoped to the
       # affected packages that define it, and only in this check job (never
@@ -80,6 +84,9 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - name: Build ${{ matrix.package }}
         run: pnpm --filter ${{ matrix.package }} build
+      # video-webm's conversion tests need a real encoder and skip without one.
+      - if: contains(matrix.package, 'video-webm')
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Peer smoke test (if defined)
         run: pnpm --filter ${{ matrix.package }} --if-present test:peer
 
