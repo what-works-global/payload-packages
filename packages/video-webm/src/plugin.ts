@@ -1,34 +1,38 @@
 import type { BaseListFilter, CollectionConfig, Config, Where } from 'payload'
 
-import type {
-  ResolvedVideoWebmConfig,
-  VideoCodec,
-  VideoWebmCollectionOverrides,
-  VideoWebmPluginConfig,
-} from './types.js'
+import type { ConvertTaskRegistryEntry } from './jobs/convertTask.js'
+import type { VideoCodec, VideoWebmCollectionOverrides, VideoWebmPluginConfig } from './types.js'
 
 import { checkFfmpeg, requiredEncodersFor } from './core/convert.js'
-import { mergeCollectionOverrides, resolveConfig, WEBM_MIME_TYPE } from './core/defaults.js'
+import {
+  DEFAULT_QUEUE,
+  DEFAULT_RETRIES,
+  DEFAULT_TASK_SLUG,
+  mergeCollectionOverrides,
+  resolveConfig,
+  WEBM_MIME_TYPE,
+} from './core/defaults.js'
 import { Semaphore } from './core/semaphore.js'
 import { mimeTypeMatches } from './core/shouldConvert.js'
-import { conversionMetadataField } from './fields/conversionMetadataField.js'
-import { webmDerivativeFlagField, webmVersionField } from './fields/sidecarFields.js'
-import { createConvertHook } from './hooks/convertUploadedVideo.js'
-import { createStampHook, METADATA_GROUP_NAME } from './hooks/stampConversionMetadata.js'
+import { conversionMetadataField, METADATA_GROUP_NAME } from './fields/conversionMetadataField.js'
 import {
-  createSidecarCleanupHook,
-  createSidecarDeleteHook,
-  createSidecarHook,
   WEBM_DERIVATIVE_FLAG_FIELD_NAME,
-  WEBM_VERSION_FIELD_NAME,
-} from './hooks/webmSidecar.js'
+  WEBM_PRESET_FIELD_NAME,
+  WEBM_VERSIONS_FIELD_NAME,
+  webmDerivativeFlagField,
+  webmPresetField,
+  webmVersionsField,
+} from './fields/sidecarFields.js'
+import { createQueueHook, createStampHook } from './hooks/stampAndQueue.js'
+import { createSidecarCleanupHook, createSidecarDeleteHook } from './hooks/webmSidecar.js'
+import { createConvertTask } from './jobs/convertTask.js'
 
 const isUploadCollection = (collection: CollectionConfig): boolean => Boolean(collection.upload)
 
 /**
- * A collection restricting `upload.mimeTypes` would reject the converted file, since
- * mime validation runs after the hook swaps it — so `video/webm` is added whenever
- * the restriction allows any of the convertible inputs but not the output.
+ * A collection restricting `upload.mimeTypes` would reject the sidecar's WebM file —
+ * so `video/webm` is added whenever the restriction allows any of the convertible
+ * inputs but not the output.
  */
 const withWebmMimeType = (collection: CollectionConfig): CollectionConfig => {
   if (typeof collection.upload !== 'object' || !Array.isArray(collection.upload.mimeTypes)) {
@@ -117,7 +121,13 @@ export const videoWebmPlugin =
         ? null
         : new Semaphore(pluginResolved.maxConcurrentEncodes)
 
-    const resolvedConfigs: ResolvedVideoWebmConfig[] = []
+    const taskSlug = pluginConfig.taskSlug ?? DEFAULT_TASK_SLUG
+    const queue = pluginConfig.queue ?? DEFAULT_QUEUE
+    const dispatch = pluginConfig.dispatch ?? null
+    const retries = pluginConfig.retries ?? DEFAULT_RETRIES
+
+    /** Per-collection resolved configs the job handler looks up at run time. */
+    const registry = new Map<string, ConvertTaskRegistryEntry>()
 
     config.collections = collections.map((collection) => {
       const overrides = targets ? targets.get(collection.slug) : isUploadCollection(collection)
@@ -126,80 +136,81 @@ export const videoWebmPlugin =
       }
 
       const resolved = resolveConfig(mergeCollectionOverrides(pluginConfig, overrides))
-      resolvedConfigs.push(resolved)
+      registry.set(collection.slug, { config: resolved, limiter })
 
       const withMime = withWebmMimeType(collection)
-      const injectMetadata =
-        resolved.metadataFields && !hasNamedField(withMime, METADATA_GROUP_NAME)
-      const metadataFields = injectMetadata ? [conversionMetadataField()] : []
+      const fields = [
+        ...withMime.fields,
+        ...(resolved.metadataFields && !hasNamedField(withMime, METADATA_GROUP_NAME)
+          ? [conversionMetadataField()]
+          : []),
+        ...(hasNamedField(withMime, WEBM_VERSIONS_FIELD_NAME)
+          ? []
+          : [webmVersionsField(withMime.slug)]),
+        ...(hasNamedField(withMime, WEBM_DERIVATIVE_FLAG_FIELD_NAME)
+          ? []
+          : [webmDerivativeFlagField()]),
+        ...(hasNamedField(withMime, WEBM_PRESET_FIELD_NAME) ? [] : [webmPresetField()]),
+      ]
 
-      if (resolved.keepOriginal) {
-        // Sidecar mode: the original stays the document's file; the WebM becomes a
-        // hidden second document in the same collection (same storage adapter) that
-        // the sidecar hook creates and links, and the cleanup hooks garbage-collect.
-        const sidecarFields = [
-          ...(hasNamedField(withMime, WEBM_VERSION_FIELD_NAME)
-            ? []
-            : [webmVersionField(withMime.slug)]),
-          ...(hasNamedField(withMime, WEBM_DERIVATIVE_FLAG_FIELD_NAME)
-            ? []
-            : [webmDerivativeFlagField()]),
-        ]
-        return withDerivativeListFilter({
-          ...withMime,
-          fields: [...withMime.fields, ...metadataFields, ...sidecarFields],
-          hooks: {
-            ...withMime.hooks,
-            afterChange: [...(withMime.hooks?.afterChange ?? []), createSidecarCleanupHook()],
-            afterDelete: [...(withMime.hooks?.afterDelete ?? []), createSidecarDeleteHook()],
-            // Appended after the collection's own hooks, which therefore run before
-            // the sidecar is created and see the untouched original upload.
-            beforeChange: [
-              ...(withMime.hooks?.beforeChange ?? []),
-              createSidecarHook(resolved, limiter),
-            ],
-          },
-        })
-      }
-
-      return {
+      // Plugin hooks are appended after the collection's own hooks, so user hooks
+      // always run first and always see the untouched original upload — conversion
+      // happens later, in the background job.
+      return withDerivativeListFilter({
         ...withMime,
-        fields: [...withMime.fields, ...metadataFields],
+        fields,
         hooks: {
           ...withMime.hooks,
-          beforeChange: injectMetadata
-            ? [...(withMime.hooks?.beforeChange ?? []), createStampHook()]
-            : withMime.hooks?.beforeChange,
-          // Appended after the collection's own hooks: user beforeOperation hooks
-          // observe the original upload; every later stage sees the converted WebM.
-          beforeOperation: [
-            ...(withMime.hooks?.beforeOperation ?? []),
-            createConvertHook(resolved, limiter),
+          afterChange: [
+            ...(withMime.hooks?.afterChange ?? []),
+            createSidecarCleanupHook(),
+            createQueueHook({ dispatch, queue, taskSlug }),
           ],
+          afterDelete: [...(withMime.hooks?.afterDelete ?? []), createSidecarDeleteHook()],
+          beforeChange: [...(withMime.hooks?.beforeChange ?? []), createStampHook(resolved)],
         },
-      }
+      })
     })
 
-    if (resolvedConfigs.length > 0) {
-      // Per-collection overrides exclude ffmpegPath, so the plugin-level path is
-      // the one every hook uses — a single boot probe covers all collections.
+    if (registry.size > 0) {
+      const existingTasks = config.jobs?.tasks ?? []
+      if (existingTasks.some((task) => task.slug === taskSlug)) {
+        throw new Error(
+          `[payload-video-webm] a job task with slug "${taskSlug}" is already registered — running two plugin instances requires a distinct taskSlug per instance`,
+        )
+      }
+      config.jobs = {
+        ...config.jobs,
+        tasks: [...existingTasks, createConvertTask(taskSlug, retries, registry)],
+      }
+
       const ffmpegPath = pluginResolved.ffmpegPath
-      const codecs = [...new Set<VideoCodec>(resolvedConfigs.map((c) => c.encoding.codec))]
-      const anySkips = resolvedConfigs.some((c) => c.onError === 'skip')
+      const codecs = [
+        ...new Set<VideoCodec>(
+          [...registry.values()].flatMap((entry) =>
+            Object.values(entry.config.presets).map((preset) => preset.encoding.codec),
+          ),
+        ),
+      ]
 
       const incomingOnInit = config.onInit
       config.onInit = async (payload) => {
-        // Surface a broken install at boot instead of on the first editor upload.
+        // Surface a broken install at boot instead of on the first conversion job.
+        // Note: only the process that runs jobs needs ffmpeg — a web app that only
+        // queues can ignore this warning if a separate jobs runner carries ffmpeg.
         const check = await checkFfmpeg(ffmpegPath, requiredEncodersFor(codecs))
         if (!check.available) {
           payload.logger.warn(
-            `[payload-video-webm] ffmpeg not found or not executable at "${ffmpegPath}" — video uploads will ${
-              anySkips ? 'be stored unconverted' : 'fail'
-            } until it is installed (or set ffmpegPath / FFMPEG_PATH)`,
+            `[payload-video-webm] ffmpeg not found or not executable at "${ffmpegPath}" — conversion jobs will fail in this process until it is installed (or set ffmpegPath / FFMPEG_PATH)`,
           )
         } else if (check.missingEncoders.length > 0) {
           payload.logger.warn(
             `[payload-video-webm] ffmpeg at "${ffmpegPath}" is missing required encoders: ${check.missingEncoders.join(', ')} — conversions will fail until a build with libvpx/libopus is installed`,
+          )
+        }
+        if (!dispatch) {
+          payload.logger.warn(
+            `[payload-video-webm] no dispatch configured — conversions run inline and the upload request waits for the encode. Pass dispatch (e.g. Next's after(run), waitUntil(run()), or void run()) to background them.`,
           )
         }
         await incomingOnInit?.(payload)

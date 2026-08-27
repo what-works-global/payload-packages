@@ -76,6 +76,12 @@ describe('toWebmFilename', () => {
     expect(toWebmFilename('.hidden')).toBe('.hidden.webm')
   })
 
+  it('suffixes preset names, except the default webm preset', () => {
+    expect(toWebmFilename('clip.mp4', 'webm')).toBe('clip.webm')
+    expect(toWebmFilename('clip.mp4', '720p')).toBe('clip-720p.webm')
+    expect(toWebmFilename('clip', 'mobile-360')).toBe('clip-mobile-360.webm')
+  })
+
   it('preserves unicode base names', () => {
     expect(toWebmFilename('видео-отпуск.mp4')).toBe('видео-отпуск.webm')
     expect(toWebmFilename('動画 テスト.mov')).toBe('動画 テスト.webm')

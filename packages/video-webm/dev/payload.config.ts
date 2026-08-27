@@ -1,6 +1,6 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
-import { videoWebmPlugin } from '@whatworks/payload-video-webm'
+import { resolutionPresets, videoWebmPlugin } from '@whatworks/payload-video-webm'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,12 +17,12 @@ export default buildDevConfig({
       slug: 'media',
       admin: {
         description:
-          'Upload an mp4/mov here — the original is stored as-is, plus a hidden WebM sidecar linked via webmVersion (keepOriginal mode).',
+          'Upload an mp4/mov — it stores unchanged and returns immediately; a background job then attaches a WebM sidecar (webmVersion). Refresh to watch the status flip from queued to complete.',
       },
       fields: [{ name: 'alt', type: 'text' }],
       upload: {
         // Deliberately restricted to sources only: exercises the plugin widening
-        // mimeTypes with video/webm so the converted file passes validation.
+        // mimeTypes with video/webm so the sidecar passes validation.
         mimeTypes: ['video/mp4', 'video/quicktime', 'image/*'],
         staticDir: path.resolve(dirname, 'media'),
       },
@@ -44,12 +44,17 @@ export default buildDevConfig({
   plugins: [
     videoWebmPlugin({
       collections: ['media'],
+      // The dev server is a long-running Node process, so fire-and-forget is safe —
+      // the upload response returns while ffmpeg works in the background.
+      dispatch: (_job, { run }) => {
+        void run()
+      },
       encoding: {
         // Faster encodes for local fiddling; drop back to the defaults in real apps.
         speed: 4,
       },
-      // Originals stay in storage; frontends use doc.webmVersion?.url ?? doc.url.
-      keepOriginal: true,
+      // A small quality ladder: each upload gets a 360p and a 720p WebM rendition.
+      presets: resolutionPresets([360, 720]),
     }),
   ],
 })

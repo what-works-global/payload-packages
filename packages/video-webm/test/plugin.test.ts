@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest'
 
 import { mergeCollectionOverrides } from '../src/core/defaults.js'
 import {
+  DEFAULT_TASK_SLUG,
   METADATA_GROUP_NAME,
   videoWebmPlugin,
   WEBM_DERIVATIVE_FLAG_FIELD_NAME,
-  WEBM_VERSION_FIELD_NAME,
+  WEBM_PRESET_FIELD_NAME,
+  WEBM_VERSIONS_FIELD_NAME,
 } from '../src/index.js'
 
 const baseConfig = (): Config =>
@@ -34,25 +36,58 @@ const getCollection = (config: Config, slug: string): CollectionConfig => {
   return collection
 }
 
+const fieldNames = (collection: CollectionConfig): string[] =>
+  collection.fields.map((f) => ('name' in f ? String(f.name) : ''))
+
 const uploadMimeTypes = (collection: CollectionConfig): string[] | undefined =>
   typeof collection.upload === 'object' ? collection.upload.mimeTypes : undefined
 
 describe('videoWebmPlugin config shaping', () => {
-  it('targets every upload collection by default and leaves the rest alone', () => {
+  it('wires stamp/queue/cleanup hooks and fields into every upload collection by default', () => {
     const config = videoWebmPlugin()(baseConfig())
 
     for (const slug of ['files', 'media']) {
       const collection = getCollection(config, slug)
-      expect(collection.hooks?.beforeOperation).toHaveLength(1)
+      // Conversion is async — nothing touches req.file, so no beforeOperation hook.
+      expect(collection.hooks?.beforeOperation).toBeUndefined()
       expect(collection.hooks?.beforeChange).toHaveLength(1)
-      expect(collection.fields.some((f) => 'name' in f && f.name === METADATA_GROUP_NAME)).toBe(
-        true,
-      )
+      expect(collection.hooks?.afterChange).toHaveLength(2)
+      expect(collection.hooks?.afterDelete).toHaveLength(1)
+
+      const names = fieldNames(collection)
+      expect(names).toContain(METADATA_GROUP_NAME)
+      expect(names).toContain(WEBM_VERSIONS_FIELD_NAME)
+      expect(names).toContain(WEBM_DERIVATIVE_FLAG_FIELD_NAME)
+      expect(names).toContain(WEBM_PRESET_FIELD_NAME)
+      expect(collection.admin?.baseListFilter).toBeDefined()
     }
 
     const posts = getCollection(config, 'posts')
     expect(posts.hooks).toBeUndefined()
     expect(posts.fields).toHaveLength(1)
+  })
+
+  it('registers the durable conversion task once, with retries', () => {
+    const config = videoWebmPlugin()(baseConfig())
+    const tasks = config.jobs?.tasks ?? []
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({ slug: DEFAULT_TASK_SLUG, retries: 3 })
+    expect(videoWebmPlugin({ retries: 5 })(baseConfig()).jobs?.tasks?.[0]).toMatchObject({
+      retries: 5,
+    })
+  })
+
+  it('rejects two plugin instances sharing a task slug, and accepts distinct slugs', () => {
+    const withOne = videoWebmPlugin({ collections: ['media'] })(baseConfig())
+    expect(() => videoWebmPlugin({ collections: ['files'] })(withOne)).toThrow(/already registered/)
+
+    const distinct = videoWebmPlugin({ collections: ['files'], taskSlug: 'video-webm-second' })(
+      videoWebmPlugin({ collections: ['media'] })(baseConfig()),
+    )
+    expect(distinct.jobs?.tasks?.map((t) => t.slug)).toEqual([
+      DEFAULT_TASK_SLUG,
+      'video-webm-second',
+    ])
   })
 
   it('widens a restrictive mimeTypes list with video/webm', () => {
@@ -76,14 +111,8 @@ describe('videoWebmPlugin config shaping', () => {
 
   it('only touches listed collections when `collections` is set', () => {
     const config = videoWebmPlugin({ collections: ['media'] })(baseConfig())
-    expect(getCollection(config, 'media').hooks?.beforeOperation).toHaveLength(1)
+    expect(getCollection(config, 'media').hooks?.beforeChange).toHaveLength(1)
     expect(getCollection(config, 'files').hooks).toBeUndefined()
-  })
-
-  it('targets multiple listed collections', () => {
-    const config = videoWebmPlugin({ collections: ['files', 'media'] })(baseConfig())
-    expect(getCollection(config, 'media').hooks?.beforeOperation).toHaveLength(1)
-    expect(getCollection(config, 'files').hooks?.beforeOperation).toHaveLength(1)
   })
 
   it('accepts the object form with per-collection overrides', () => {
@@ -94,36 +123,13 @@ describe('videoWebmPlugin config shaping', () => {
       },
     })(baseConfig())
 
-    const media = getCollection(config, 'media')
-    expect(media.hooks?.beforeOperation).toHaveLength(1)
-    expect(media.fields.some((f) => 'name' in f && f.name === METADATA_GROUP_NAME)).toBe(true)
+    expect(fieldNames(getCollection(config, 'media'))).toContain(METADATA_GROUP_NAME)
 
-    // The files collection overrode metadataFields, media kept the plugin default.
+    // metadataFields off drops the group but keeps the sidecar plumbing.
     const files = getCollection(config, 'files')
-    expect(files.hooks?.beforeOperation).toHaveLength(1)
-    expect(files.hooks?.beforeChange).toBeUndefined()
-    expect(files.fields.some((f) => 'name' in f && f.name === METADATA_GROUP_NAME)).toBe(false)
-
-    expect(getCollection(config, 'posts').hooks).toBeUndefined()
-  })
-
-  it('wires sidecar hooks, fields and list filter for keepOriginal collections', async () => {
-    const config = videoWebmPlugin({ collections: { media: { keepOriginal: true } } })(baseConfig())
-    const media = getCollection(config, 'media')
-
-    // No req.file swap in this mode — conversion happens in beforeChange instead.
-    expect(media.hooks?.beforeOperation).toBeUndefined()
-    expect(media.hooks?.beforeChange).toHaveLength(1)
-    expect(media.hooks?.afterChange).toHaveLength(1)
-    expect(media.hooks?.afterDelete).toHaveLength(1)
-
-    const fieldNames = media.fields.map((f) => ('name' in f ? f.name : ''))
-    expect(fieldNames).toContain(METADATA_GROUP_NAME)
-    expect(fieldNames).toContain(WEBM_VERSION_FIELD_NAME)
-    expect(fieldNames).toContain(WEBM_DERIVATIVE_FLAG_FIELD_NAME)
-
-    const filter = await media.admin?.baseListFilter?.({} as never)
-    expect(filter).toEqual({ [WEBM_DERIVATIVE_FLAG_FIELD_NAME]: { not_equals: true } })
+    expect(fieldNames(files)).not.toContain(METADATA_GROUP_NAME)
+    expect(fieldNames(files)).toContain(WEBM_VERSIONS_FIELD_NAME)
+    expect(files.hooks?.beforeChange).toHaveLength(1)
   })
 
   it('composes the derivative list filter with an existing baseListFilter', async () => {
@@ -131,7 +137,7 @@ describe('videoWebmPlugin config shaping', () => {
     const media = getCollection(base, 'media')
     media.admin = { baseListFilter: () => ({ alt: { equals: 'kept' } }) }
 
-    const config = videoWebmPlugin({ collections: { media: { keepOriginal: true } } })(base)
+    const config = videoWebmPlugin({ collections: ['media'] })(base)
     const filter = await getCollection(config, 'media').admin?.baseListFilter?.({} as never)
     expect(filter).toEqual({
       and: [
@@ -144,10 +150,10 @@ describe('videoWebmPlugin config shaping', () => {
   it('merges per-collection encoding overrides over plugin-level encoding', () => {
     expect(
       mergeCollectionOverrides(
-        { encoding: { codec: 'vp8', crf: 40 }, onError: 'skip' },
+        { encoding: { codec: 'vp8', crf: 40 }, maxInputFileSize: 5 },
         { encoding: { crf: 30 } },
       ),
-    ).toEqual({ encoding: { codec: 'vp8', crf: 30 }, onError: 'skip' })
+    ).toEqual({ encoding: { codec: 'vp8', crf: 30 }, maxInputFileSize: 5 })
   })
 
   it('validates object-form slugs and per-collection settings at init', () => {
@@ -168,13 +174,7 @@ describe('videoWebmPlugin config shaping', () => {
     )
   })
 
-  it('skips metadata injection when disabled or when the field already exists', () => {
-    const disabled = videoWebmPlugin({ metadataFields: false })(baseConfig())
-    const media = getCollection(disabled, 'media')
-    expect(media.fields.some((f) => 'name' in f && f.name === METADATA_GROUP_NAME)).toBe(false)
-    expect(media.hooks?.beforeChange).toBeUndefined()
-    expect(media.hooks?.beforeOperation).toHaveLength(1)
-
+  it('skips metadata injection when the field already exists', () => {
     const base = baseConfig()
     getCollection(base, 'media').fields.push({ name: METADATA_GROUP_NAME, type: 'json' })
     const withExisting = videoWebmPlugin()(base)
@@ -188,12 +188,12 @@ describe('videoWebmPlugin config shaping', () => {
   it('preserves existing hooks and onInit', () => {
     const base = baseConfig()
     const existingHook = () => undefined
-    getCollection(base, 'media').hooks = { beforeOperation: [existingHook] }
+    getCollection(base, 'media').hooks = { beforeChange: [existingHook] }
     base.onInit = () => undefined
 
     const config = videoWebmPlugin()(base)
-    expect(getCollection(config, 'media').hooks?.beforeOperation?.[0]).toBe(existingHook)
-    expect(getCollection(config, 'media').hooks?.beforeOperation).toHaveLength(2)
+    expect(getCollection(config, 'media').hooks?.beforeChange?.[0]).toBe(existingHook)
+    expect(getCollection(config, 'media').hooks?.beforeChange).toHaveLength(2)
     expect(config.onInit).not.toBe(base.onInit)
   })
 
@@ -202,12 +202,13 @@ describe('videoWebmPlugin config shaping', () => {
     const result = videoWebmPlugin({ enabled: false })(base)
     expect(result).toBe(base)
     expect(getCollection(result, 'media').hooks).toBeUndefined()
+    expect(result.jobs).toBeUndefined()
     expect(result.onInit).toBeUndefined()
   })
 
   it('treats enabled: true the same as the default', () => {
     const config = videoWebmPlugin({ enabled: true })(baseConfig())
-    expect(getCollection(config, 'media').hooks?.beforeOperation).toHaveLength(1)
+    expect(getCollection(config, 'media').hooks?.beforeChange).toHaveLength(1)
     expect(config.onInit).toBeDefined()
   })
 })

@@ -71,6 +71,7 @@ export interface Config {
     media: Media;
     'raw-media': RawMedia;
     'payload-kv': PayloadKv;
+    'payload-jobs': PayloadJob;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
@@ -81,6 +82,7 @@ export interface Config {
     media: MediaSelect<false> | MediaSelect<true>;
     'raw-media': RawMediaSelect<false> | RawMediaSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
+    'payload-jobs': PayloadJobsSelect<false> | PayloadJobsSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
@@ -97,7 +99,13 @@ export interface Config {
   };
   user: User;
   jobs: {
-    tasks: unknown;
+    tasks: {
+      'video-webm-convert': TaskVideoWebmConvert;
+      inline: {
+        input: unknown;
+        output: unknown;
+      };
+    };
     workflows: unknown;
   };
 }
@@ -145,7 +153,7 @@ export interface User {
   collection: 'users';
 }
 /**
- * Upload an mp4/mov here — the original is stored as-is, plus a hidden WebM sidecar linked via webmVersion (keepOriginal mode).
+ * Upload an mp4/mov — it stores unchanged and returns immediately; a background job then attaches a WebM sidecar (webmVersion). Refresh to watch the status flip from queued to complete.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "media".
@@ -154,21 +162,32 @@ export interface Media {
   id: number;
   alt?: string | null;
   videoWebm?: {
-    converted?: boolean | null;
+    status?: ('queued' | 'complete' | 'skipped' | 'failed') | null;
     originalFilename?: string | null;
     originalMimeType?: string | null;
     /**
-     * Size of the uploaded source file in bytes, before conversion. Compare with the document filesize for the savings.
+     * Size of the source file in bytes. Compare with the WebM version’s filesize for the savings.
      */
     originalFilesize?: number | null;
     /**
      * Wall-clock ffmpeg encode time in milliseconds.
      */
     encodeDurationMs?: number | null;
-    skippedReason?: ('ffmpeg-failed' | 'input-too-large' | 'output-larger' | 'derivative-failed') | null;
+    skippedReason?: ('input-too-large' | 'output-larger') | null;
+    /**
+     * Last conversion job error; retries may still complete later.
+     */
+    error?: string | null;
   };
-  webmVersion?: (number | null) | Media;
+  webmVersions?:
+    | {
+        preset: string;
+        video: number | Media;
+        id?: string | null;
+      }[]
+    | null;
   isWebmDerivative?: boolean | null;
+  webmPreset?: string | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -215,6 +234,98 @@ export interface PayloadKv {
     | number
     | boolean
     | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-jobs".
+ */
+export interface PayloadJob {
+  id: number;
+  /**
+   * Input data provided to the job
+   */
+  input?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  taskStatus?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  completedAt?: string | null;
+  totalTried?: number | null;
+  /**
+   * If hasError is true this job will not be retried
+   */
+  hasError?: boolean | null;
+  /**
+   * If hasError is true, this is the error that caused it
+   */
+  error?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Task execution log
+   */
+  log?:
+    | {
+        executedAt: string;
+        completedAt: string;
+        taskSlug: 'inline' | 'video-webm-convert';
+        taskID: string;
+        input?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        output?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        state: 'failed' | 'succeeded';
+        error?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  taskSlug?: ('inline' | 'video-webm-convert') | null;
+  queue?: string | null;
+  waitUntil?: string | null;
+  processing?: boolean | null;
+  updatedAt: string;
+  createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -308,15 +419,23 @@ export interface MediaSelect<T extends boolean = true> {
   videoWebm?:
     | T
     | {
-        converted?: T;
+        status?: T;
         originalFilename?: T;
         originalMimeType?: T;
         originalFilesize?: T;
         encodeDurationMs?: T;
         skippedReason?: T;
+        error?: T;
       };
-  webmVersion?: T;
+  webmVersions?:
+    | T
+    | {
+        preset?: T;
+        video?: T;
+        id?: T;
+      };
   isWebmDerivative?: T;
+  webmPreset?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
@@ -353,6 +472,37 @@ export interface RawMediaSelect<T extends boolean = true> {
 export interface PayloadKvSelect<T extends boolean = true> {
   key?: T;
   data?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-jobs_select".
+ */
+export interface PayloadJobsSelect<T extends boolean = true> {
+  input?: T;
+  taskStatus?: T;
+  completedAt?: T;
+  totalTried?: T;
+  hasError?: T;
+  error?: T;
+  log?:
+    | T
+    | {
+        executedAt?: T;
+        completedAt?: T;
+        taskSlug?: T;
+        taskID?: T;
+        input?: T;
+        output?: T;
+        state?: T;
+        error?: T;
+        id?: T;
+      };
+  taskSlug?: T;
+  queue?: T;
+  waitUntil?: T;
+  processing?: T;
+  updatedAt?: T;
+  createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -395,6 +545,26 @@ export interface CollectionsWidget {
     [k: string]: unknown;
   };
   width: 'full';
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "TaskVideo-webm-convert".
+ */
+export interface TaskVideoWebmConvert {
+  input: {
+    collection: string;
+    docId:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    sourceFilename: string;
+  };
+  output?: unknown;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

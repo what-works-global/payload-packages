@@ -9,16 +9,24 @@
 
 &nbsp;
 
-Payload plugin that converts video uploads (mp4, mov, mkv, …) to **WebM (VP9 + Opus)** during the upload request itself, so your frontend serves often substantially smaller files. Two modes:
+Payload plugin that optimises video uploads to **WebM (VP9 + Opus)** in the background, so your frontend serves often substantially smaller files. The source file is **always stored untouched** as the document's own asset; each configured **preset** (a single WebM by default, or a full quality ladder) lands as a hidden sidecar document linked from the source via `webmVersions`, created by a durable Payload Jobs task after the upload response has already returned.
 
-- **Replace (default)**: one eligible video comes in → one WebM replaces it before Payload's storage processing. **The original file is not retained.**
-- **`keepOriginal: true`**: the original stays the document's stored file (in S3 or wherever the collection's storage points), and the WebM is stored alongside it as a hidden sidecar document linked via `webmVersion` — the frontend renders the WebM, the source stays safe.
+```
+upload → storage write → afterChange:
+                           ├─ jobs.queue(...)       durable row
+                           └─ dispatch(job, {run})  host decides how to background it
+         response returns ─┘
+                              → runByID → transcode per preset → sidecar docs → link on source
 
-- **Storage-adapter agnostic** — the conversion swaps `req.file` before Payload processes the upload, so filename, `mimeType` and `filesize` are all derived from the converted file and stored through whatever storage the collection uses (local disk, `@payloadcms/storage-s3`, Vercel Blob, …).
-- **Zero runtime dependencies** — spawns the `ffmpeg` binary directly via argument arrays (never through a shell). No fluent-ffmpeg, no Redis, no worker process.
-- **Guardrails built in** — keeps the original when the WebM would be _larger_ (`skipIfLarger`), can skip files above a size cap (`maxInputFileSize`), caps parallel encodes (`maxConcurrentEncodes`), kills runaway encodes (`timeoutMs`), and always cleans up its temp files.
-- **Honest metadata and observability** — a read-only `videoWebm` sidebar group records what happened to each upload, and an `onConversionComplete` callback feeds your own metrics.
-- **Fails loud or degrades gracefully** — `onError: 'throw'` (default) rejects the upload with the real ffmpeg error; `onError: 'skip'` stores the original unconverted and logs a warning.
+cron → /api/payload-jobs/run?queue=video-webm     safety net, always on
+```
+
+- **The original is never replaced or deleted** — optimised versions can always be regenerated from the stored source.
+- **Named presets & quality ladders** — typed per-preset encoding options (not raw ffmpeg strings), with `resolutionPresets([360, 720, 1080])` shipping Google's recommended VP9 CRF ladder.
+- **Non-blocking uploads** — the editor's upload returns as soon as the file is stored, with the conversion `queued`; renditions appear when the job finishes.
+- **Storage-adapter agnostic** — the sidecar is a normal document in the same collection, so it flows through the exact storage adapter (S3, Vercel Blob, local disk) the collection already uses.
+- **Durable, not fire-and-forget** — conversions are Payload Jobs rows with `retries: 3`; the immediate post-upload run is an optimisation, a cron over the queue is the guarantee.
+- **Zero runtime dependencies** — spawns the `ffmpeg` binary directly via argument arrays (never through a shell). No fluent-ffmpeg, no Redis, no external workers.
 
 ## Installation
 
@@ -30,44 +38,93 @@ pnpm add @whatworks/payload-video-webm
 
 ```ts
 import { videoWebmPlugin } from '@whatworks/payload-video-webm'
+import { after } from 'next/server'
 import { buildConfig } from 'payload'
 
 export default buildConfig({
   // ...
   plugins: [
-    // Converts video uploads in every upload collection by default.
-    videoWebmPlugin(),
+    videoWebmPlugin({
+      // How your platform backgrounds the conversion (see "Dispatch" below).
+      dispatch: (_job, { run }) => after(run), // Next.js on Vercel
+    }),
   ],
 })
 ```
 
-Upload an mp4 — it lands in storage as `clip.webm` with `mimeType: 'video/webm'`, and the doc's `filesize` is the converted size. Nothing else in your app changes; render it like any Payload upload:
+Upload an mp4 — it stores as-is and the response returns immediately. A moment later the job attaches the renditions. On the frontend, query with `depth: 1` and use the dependency-free helpers from the **`/frontend`** subpath:
 
 ```tsx
-<video controls src={media.url ?? undefined} />
+import { getVideoSources } from '@whatworks/payload-video-webm/frontend'
+;<video controls>
+  {getVideoSources(media).map((s) => (
+    <source key={s.src} src={s.src} type={s.type} />
+  ))}
+</video>
 ```
 
-If a collection restricts `upload.mimeTypes`, the plugin appends `video/webm` for you so the converted file passes Payload's mime validation.
+`getVideoSources` lists every rendition in preference order and always appends the original file last — browsers play the first source they can, so **something always plays**: before the job finishes, for skipped/failed conversions, and for browsers without WebM support alike. For a single URL there's `getWebmUrl(media, '720p') ?? media.url`.
 
 ## Compatibility
 
 | Requirement | Supported                                                                                                                                                                                               |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payload     | `>=3.54.0 <4` (peer dependency)                                                                                                                                                                         |
+| Payload     | `>=3.54.0 <4` (peer dependency; uses the built-in Jobs Queue)                                                                                                                                           |
 | Node.js     | `>=20.9.0`                                                                                                                                                                                              |
 | ffmpeg      | Any build with the `libvpx`/`libvpx-vp9` and `libopus` encoders — every standard distribution build (apt, brew, static builds, [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static)) has them |
 | OS          | Linux and macOS (anywhere `ffmpeg` can be spawned); Windows should work but is untested                                                                                                                 |
 
-The plugin looks for `ffmpeg` on `PATH`, or wherever `FFMPEG_PATH` / the `ffmpegPath` option points (e.g. `ffmpegPath: require('ffmpeg-static')`). At boot it verifies the binary is executable **and** that the required encoders are compiled in, logging a warning otherwise — a broken install surfaces at init, not on the first editor upload.
+ffmpeg is only needed by the **process that runs the jobs**. It looks for `ffmpeg` on `PATH`, or wherever `FFMPEG_PATH` / the `ffmpegPath` option points. At boot the plugin verifies the binary is executable **and** that the required encoders are compiled in, warning otherwise.
 
-## Deployment and serverless warning
+## Dispatch — how conversions get off the request
 
-Conversion happens **inside the upload HTTP request, on the Payload server**. Before deploying, make sure your platform fits:
+The plugin can't know what platform it's on, so the host passes in how to defer the run:
 
-- **The upload must reach `req.file`.** Client-side uploads that go straight to storage (`upload.clientUploads`, presigned-URL flows) bypass the Payload server entirely and are **never converted**.
-- **Request execution time**: the request waits for the encode. Serverless platforms with short function timeouts (e.g. default Vercel/Lambda limits) will kill long encodes mid-request. Use `maxInputFileSize` to keep big files out of the encoder, raise `encoding.speed`, or run Payload on a long-lived server for video-heavy workloads.
-- **Request body size**: `maxInputFileSize` only decides whether the plugin _converts_ a file — it does **not** raise or bypass Payload's `upload.limits` or your hosting provider's body-size limit. A file too large for your platform never reaches the plugin at all.
-- **CPU**: VP9 encoding is CPU-intensive, and every simultaneous eligible upload spawns another ffmpeg process. See [Performance and concurrency](#performance-and-concurrency).
+```ts
+dispatch: (_job, { run }) => after(run) // Next.js on Vercel
+dispatch: (_job, { run }) => waitUntil(run()) // Cloudflare Workers
+dispatch: (_job, { run }) => void run() // long-running Node server
+dispatch: (job) => qstash.publishJSON({ body: job }) // external queue — run the row yourself
+```
+
+`job` is serialisable (`{ collection, docId, jobId, sourceFilename }`) for hosts with real queue infrastructure; `run` executes the queued row in-process via `payload.jobs.runByID`. **When `dispatch` is unset, the job runs inline and the upload waits for the encode** — safe everywhere, and the plugin warns at boot. Slow beats a floating promise that resumes inside someone else's request on a warm serverless instance.
+
+### The cron safety net
+
+The immediate run is an optimisation; the durable queue is the guarantee. Anything the immediate run misses (a killed process, a crashed encode past its retries' schedule, a `dispatch` that only enqueues externally) is still a runnable row in the `video-webm` queue. Run it on a schedule — either Payload's built-in autorun:
+
+```ts
+jobs: {
+  autoRun: [{ cron: '*/5 * * * *', queue: 'video-webm' }],
+}
+```
+
+or an external cron hitting `GET /api/payload-jobs/run?queue=video-webm`, or `payload jobs:run --queue video-webm` in a worker container. That last shape is also the answer to ffmpeg's ~80 MB weight on serverless: keep the web app ffmpeg-free (it only writes queue rows and serves uploads) and run the jobs in a container that carries ffmpeg, pointed at the same database.
+
+## Presets — one rendition or a whole ladder
+
+By default every video gets a single `webm` rendition using the collection's `encoding`. Define `presets` for more control — each preset is a named, **typed** encoding override (merged key-by-key over `encoding`), and each becomes its own sidecar document with a suffixed filename (`clip-720p.webm`):
+
+```ts
+videoWebmPlugin({
+  encoding: { audioBitrate: '96k' }, // shared by all presets
+  presets: {
+    '720p': { label: '720p HD', encoding: { maxHeight: 720, crf: 32 } },
+    '360p': { label: '360p Mobile', encoding: { maxHeight: 360, crf: 36 } },
+  },
+})
+```
+
+Declaration order is preference order — the first preset is what `getVideoSources` serves first. Or take the ready-made quality ladder, built on Google's published VP9 CRF-per-resolution recommendations (heights never upscale, so a 480p source's `1080p` rendition stays 480p):
+
+```ts
+import { resolutionPresets } from '@whatworks/payload-video-webm'
+
+presets: resolutionPresets([360, 720, 1080])
+// → { '360p': …crf 36, '720p': …crf 32, '1080p': …crf 31 }
+```
+
+Preset advanced needs (crop filters, stripping audio, …) go through each preset's `encoding.extraArgs` — raw ffmpeg output args with the same last-one-wins caveats as everywhere else. The job encodes presets sequentially under the concurrency limiter, is **idempotent per preset** (a retry after a partial failure resumes the missing renditions instead of duplicating finished ones), and `skipIfLarger` applies per preset — a rendition that loses to the source is simply absent, and the frontend helpers fall back.
 
 ## Options
 
@@ -77,8 +134,7 @@ videoWebmPlugin({
   // Array form — these collections, plugin-level settings:
   //   collections: ['media'],
   // …or object form — `true` inherits, an object overrides per collection
-  // (everything below except ffmpegPath/maxConcurrentEncodes; `encoding`
-  // merges key-by-key). Unknown or non-upload slugs throw at init.
+  // (`encoding` merges key-by-key). Unknown or non-upload slugs throw at init.
   collections: {
     media: true,
     videos: { encoding: { crf: 30, maxWidth: 1920 } },
@@ -87,11 +143,22 @@ videoWebmPlugin({
   // Kill switch: `false` leaves the Payload config completely untouched.
   enabled: true,
 
-  // Keep the uploaded original as the document's file and store the WebM as a
-  // hidden sidecar document in the same collection (same storage adapter),
-  // linked via the `webmVersion` relationship. Default false: the WebM replaces
-  // the upload and the original is not retained. See "Keeping the original".
-  keepOriginal: false,
+  // Renditions to generate — see "Presets" above. Default: one `webm` preset
+  // using `encoding` unchanged. Keys become filename suffixes.
+  presets: resolutionPresets([360, 720, 1080]),
+
+  // How to background conversions — see "Dispatch" above. Unset = inline + warning.
+  dispatch: (_job, { run }) => after(run),
+
+  // Jobs plumbing. Defaults shown; taskSlug only matters with two plugin instances.
+  queue: 'video-webm',
+  retries: 3,
+  taskSlug: 'video-webm-convert',
+
+  // How the job reads the source bytes. Default: the collection's staticDir for
+  // local storage, else fetching doc.url against serverURL. Override for
+  // access-controlled storage the default can't reach.
+  fetchSource: async ({ doc }) => myBucket.get(String(doc.filename)),
 
   // Mime types eligible for conversion, matched against the client-declared
   // req.file.mimetype ('video/*' wildcards supported). `video/webm` uploads are
@@ -100,7 +167,7 @@ videoWebmPlugin({
   // video/x-m4v, video/x-matroska, video/x-ms-wmv, video/x-msvideo
   inputMimeTypes: ['video/mp4', 'video/quicktime'],
 
-  // ffmpeg binary. Defaults to FFMPEG_PATH or 'ffmpeg' from PATH.
+  // ffmpeg binary — only the jobs-running process needs it.
   ffmpegPath: '/usr/bin/ffmpeg',
 
   encoding: {
@@ -119,39 +186,32 @@ videoWebmPlugin({
     extraArgs: ['-an'],
   },
 
-  // Keep the original when the WebM output would be larger. Default true.
+  // Skip storing the WebM when it would be larger than the source. Default true.
   skipIfLarger: true,
 
-  // Skip files above this many bytes — they upload unconverted, with a warning.
-  maxInputFileSize: 200 * 1024 * 1024,
+  // Don't queue conversions for files above this many bytes. This is a conversion
+  // guard only — it does not raise Payload's upload.limits or any host body limit.
+  maxInputFileSize: 500 * 1024 * 1024,
 
-  // Cap simultaneous ffmpeg processes for this plugin instance (per Node.js
-  // process); further uploads wait inside their request. Defaults to 2 — a
-  // safe-by-default cap, since each VP9 encode saturates several cores.
-  // Pass null for unlimited.
+  // Cap simultaneous ffmpeg processes per Node.js process. Defaults to 2 — each
+  // VP9 encode saturates several cores. Pass null for unlimited.
   maxConcurrentEncodes: 2,
 
-  // Kill ffmpeg (SIGKILL) and fail the conversion after this long. Default 10 min.
+  // Kill ffmpeg (SIGKILL) and fail the job attempt after this long. Default 10 min.
   timeoutMs: 10 * 60 * 1000,
-
-  // 'throw' (default) rejects the upload with the underlying ffmpeg error;
-  // 'skip' logs a warning and stores the original file unconverted.
-  onError: 'skip',
 
   // Injects the read-only `videoWebm` sidebar group. Default true.
   metadataFields: true,
 
-  // Advanced veto, called only for files that already passed every guard above
-  // (already-WebM, inputMimeTypes, maxInputFileSize). Return false to store the
-  // original untouched — reported to onConversionComplete as 'filtered', but not
-  // recorded in the metadata group. Exceptions propagate and fail the upload.
+  // Advanced veto at upload time, called only for files that already passed every
+  // guard above. Return false to leave the file alone — reported to
+  // onConversionComplete as 'filtered', but not recorded in the metadata group.
   shouldConvert: ({ collection, file, req }) => !file.name.includes('raw'),
 
-  // Called after every conversion decision on a candidate video upload:
-  // converted, or skipped as 'output-larger', 'input-too-large', 'already-webm',
-  // 'filtered' (shouldConvert veto), or 'ffmpeg-failed' (with onError: 'skip').
-  // Not called for non-video uploads, or when a failure is about to reject the
-  // upload (onError: 'throw'). Callback errors are logged and never fail uploads.
+  // Called after every conversion decision on a candidate video: converted,
+  // output-larger, failed (from the job), or already-webm / filtered /
+  // input-too-large (at upload time). Never for non-video uploads. Errors here
+  // are logged and never fail anything.
   onConversionComplete: (outcome) => {
     console.log(outcome.collection, outcome.originalFilename, outcome.converted)
   },
@@ -160,67 +220,37 @@ videoWebmPlugin({
 
 ## The `videoWebm` metadata group
 
-Every targeted collection gets a read-only sidebar group (opt out with `metadataFields: false`), hidden in the admin unless a conversion or a recorded skip happened:
+Every targeted collection gets a read-only sidebar group (opt out with `metadataFields: false`), hidden in the admin until the plugin recorded something:
 
-| Field              | Meaning                                                                                                              |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `converted`        | Whether this upload was converted to WebM.                                                                           |
-| `originalFilename` | The filename as uploaded, e.g. `clip.mp4`.                                                                           |
-| `originalMimeType` | The uploaded mime type, e.g. `video/mp4`.                                                                            |
-| `originalFilesize` | Source size in bytes — compare with the doc's `filesize` for the actual savings.                                     |
-| `encodeDurationMs` | Wall-clock ffmpeg time for the successful encode.                                                                    |
-| `skippedReason`    | `output-larger`, `input-too-large`, `ffmpeg-failed` (with `onError: 'skip'`), or `derivative-failed` (keepOriginal). |
+| Field              | Meaning                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| `status`           | `queued` → `complete` \| `skipped` \| `failed`. Stamped `queued` at upload time.   |
+| `originalFilename` | The source filename, e.g. `clip.mp4`.                                              |
+| `originalMimeType` | The source mime type, e.g. `video/mp4`.                                            |
+| `originalFilesize` | Source size in bytes — compare with the sidecar's `filesize` for the savings.      |
+| `encodeDurationMs` | Wall-clock ffmpeg time for the successful encode.                                  |
+| `skippedReason`    | `input-too-large` (at upload time) or `output-larger` (decided by the job).        |
+| `error`            | Last job error, truncated — retries may still flip the status to `complete` later. |
 
-Savings are deliberately not stored — derive them from `originalFilesize` and Payload's own `filesize`. The group is stamped only on requests that actually carry a file, so re-saving a document never clobbers the record, while replacing the file updates (or clears) it.
+The group is stamped only on requests that actually carry a file, so re-saving a document never clobbers the record, while replacing the file resets it (and queues a fresh conversion).
 
 ## How it works
 
-The plugin adds one `beforeOperation` hook and (for metadata) one `beforeChange` hook to each targeted collection:
+1. **Upload time** (`beforeChange`): the cheap guards run against the client-declared `req.file.mimetype` (no content sniffing), `maxInputFileSize`, and your `shouldConvert` predicate. Candidates are stamped `status: 'queued'`; `req.file` is never touched, so the source stores byte-for-byte as uploaded.
+2. **After the write** (`afterChange`): a durable job row is queued — deliberately without `req`, so the row isn't trapped inside the request's transaction — and handed to `dispatch`. The response returns.
+3. **In the job**: the handler re-reads the document (bailing quietly if it was deleted or its file replaced — the immediate run, retries, and the cron can race safely), reads the source bytes from storage once, then encodes each preset that doesn't have a rendition yet under the concurrency limiter, through temp files that are always cleaned up. Every rendition is a hidden sidecar document in the same collection, linked as a `{ preset, video }` row in `webmVersions`. Failures link whatever finished, record `status: 'failed'`, and rethrow so Payload's retries resume the missing presets.
 
-1. On `create`/`update` with a file, the `beforeOperation` hook checks eligibility against the **client-declared `req.file.mimetype`** (no content sniffing), the size cap, and your `shouldConvert` predicate.
-2. Eligible files are transcoded through temp files in `os.tmpdir()` (always removed, even on failure or timeout), then `req.file`'s buffer, name, mime type and size are swapped for the WebM.
-3. Payload's own pipeline then runs unchanged — mime validation, filename dedup, and the storage adapter all see only the converted file, which is why everything stays consistent with zero storage coupling.
+**Lifecycle guarantees**: replacing the document's file queues a re-encode of every preset and garbage-collects the stale renditions; replacing a video with a non-video clears everything; deleting the original deletes all its renditions. Sidecars are hidden from the admin list view (via `baseListFilter`, composed with any filter you already have) and flagged with a hidden `isWebmDerivative` checkbox — they still appear in direct API queries unless you filter on that field. Other document fields are copied onto the sidecar so required fields validate; collections with `unique` non-upload fields will conflict on sidecar creation, so avoid targeting those.
 
-**Hook ordering is deterministic**: the plugin's hooks are appended _after_ any hooks the collection already declares. Your own `beforeOperation` hooks therefore see the original upload; every later stage (`beforeValidate`, `beforeChange`, `afterChange`, …) sees the converted WebM. Plugins registered after this one that add `beforeOperation` hooks will run after the conversion. (In `keepOriginal` mode `req.file` is never touched — conversion runs in a `beforeChange` hook instead, likewise appended after yours.)
+**Hook ordering**: the plugin's hooks are appended after any hooks the collection already declares, and since nothing mutates `req.file`, your hooks always see the original upload. The sidecar arrives later as its own document create, which runs your collection hooks too — check `isWebmDerivative` in your hooks if you need to tell them apart.
 
-## Keeping the original
+## Performance and cost
 
-With `keepOriginal: true` (per collection or plugin-wide), the uploaded file is stored untouched as the document's own asset, and the WebM becomes a second, hidden document **in the same collection** — which is exactly what makes it storage-agnostic: the sidecar flows through the same S3/Blob/local adapter the collection already uses. The original links to it via a read-only `webmVersion` relationship.
-
-```ts
-videoWebmPlugin({
-  collections: { media: { keepOriginal: true } },
-})
-```
-
-Frontend — query with `depth: 1` so the relationship populates, then prefer the WebM:
-
-```tsx
-const src = media.webmVersion?.url ?? media.url
-<video controls src={src ?? undefined} />
-```
-
-Lifecycle guarantees:
-
-- Replacing the document's file **regenerates** the sidecar and deletes the stale one; replacing a video with a non-video clears the link and removes the sidecar.
-- Deleting the original deletes its sidecar.
-- Sidecar documents are hidden from the admin list view (via `baseListFilter`, composed with any filter you already have) and flagged with a hidden `isWebmDerivative` checkbox — they still appear in direct API queries unless you filter on that field.
-- Your other document fields are copied onto the sidecar so required fields validate; fields with `unique: true` on the collection will conflict and fail sidecar creation, so avoid `keepOriginal` on collections with unique non-upload fields.
-- If encoding succeeds but storing the sidecar fails with `onError: 'skip'`, the original is kept, metadata records `derivative-failed`, and the upload succeeds.
-
-Costs to be aware of: storage is roughly doubled per video (original + WebM), and each video upload performs one extra document create. `skipIfLarger` still applies — when the WebM would be bigger, no sidecar is created and `webmVersion` stays `null`, so the `?? media.url` fallback above always does the right thing.
-
-## Performance and concurrency
-
-VP9 encoding is CPU-intensive: each encode saturates several cores, and each running encode is its own ffmpeg process. By default **at most 2 encodes run at once per Node.js process** (`maxConcurrentEncodes: 2`); further eligible uploads queue in-process and wait inside their request. Levers, roughly in order:
-
-- `maxConcurrentEncodes` — raise it on beefy servers, or pass `null` for unlimited (every simultaneous upload encodes at once; ten editors uploading means ten concurrent ffmpeg processes). The cap is per Node.js instance — horizontally scaled deployments run up to the cap on each instance.
-- `encoding.speed: 4–5` encodes several times faster than the default `2` for a modest quality cost — usually the right call for upload-time conversion.
-- `maxInputFileSize` keeps oversized masters out of the encoder entirely (they upload unconverted).
-- `onError: 'skip'` if an upload must never fail because of conversion.
-
-For editor-sized clips (tens of MB) on `speed: 2`, expect seconds to a couple of minutes per encode.
+- Storage is source + one WebM per preset — that's the point: the source is never sacrificed, and optimised versions can be regenerated at any time. A full ladder multiplies encode time and storage accordingly; start with the sizes your players actually use.
+- VP9 is CPU-intensive. `maxConcurrentEncodes` (default 2, per process) stops simultaneous uploads from stampeding the encoder; for real volume, move the queue to a dedicated `payload jobs:run` container.
+- `maxInputFileSize` keeps oversized masters out of the encoder entirely; `skipIfLarger` (default on) refuses to store a WebM that lost to the original.
+- Client-side uploads that bypass the Payload server (`upload.clientUploads`, presigned flows) never trigger the `afterChange` hook and are not converted.
 
 ## Development and testing
 
-The dev sandbox (`pnpm dev`) boots a Payload admin backed by SQLite with a `media` collection wired to the plugin — upload any mp4/mov and watch it land in `dev/media/` as `.webm`. Tests (`pnpm test`) generate video fixtures with your local ffmpeg; the encode-dependent suite skips automatically when no binary is installed, while process handling (timeouts, cleanup, failure modes) is exercised with stand-in binaries and runs everywhere.
+The dev sandbox (`pnpm dev`) boots a Payload admin backed by SQLite with a `media` collection wired to the plugin — upload an mp4/mov, watch the response return immediately, then refresh to see `status` flip to `complete` with the `WebM version` link. Tests (`pnpm test`) generate video fixtures with your local ffmpeg; the encode-dependent suite skips automatically when no binary is installed, while jobs plumbing, process handling, and failure modes are exercised with stand-in binaries and run everywhere.

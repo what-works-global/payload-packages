@@ -1,4 +1,4 @@
-import type { PayloadRequest } from 'payload'
+import type { JsonObject, Payload, PayloadRequest } from 'payload'
 
 export type VideoCodec = 'vp8' | 'vp9'
 
@@ -33,8 +33,8 @@ export interface WebmEncodingOptions {
   pixelFormat?: null | string
   /**
    * libvpx encoder speed passed to `-cpu-used` (0 = slowest/best). VP9 accepts 0–5
-   * with the `good` deadline; VP8 accepts 0–16. Defaults to `2` — a sane
-   * quality/latency balance for upload-time encoding.
+   * with the `good` deadline; VP8 accepts 0–16. Defaults to `2` — encoding runs in a
+   * background job, so latency matters less than in-request conversion would.
    */
   speed?: number
   /**
@@ -45,6 +45,52 @@ export interface WebmEncodingOptions {
   videoBitrate?: string
 }
 
+/**
+ * One named output rendition. Preset `encoding` merges key-by-key over the
+ * collection's `encoding`, so codec/audio settings are declared once and presets
+ * only say what differs (usually dimensions and quality).
+ */
+export interface VideoPreset {
+  /** Encoding overrides for this rendition. */
+  encoding?: WebmEncodingOptions
+  /** Human-readable name, e.g. `'720p HD'`. Defaults to the preset key. */
+  label?: string
+}
+
+/** Serialisable description of one queued conversion, handed to `dispatch`. */
+export interface DispatchJob {
+  /** Slug of the upload collection the source document lives in. */
+  collection: string
+  /** ID of the source document awaiting a WebM sidecar. */
+  docId: number | string
+  /** ID of the durable Payload Jobs row — run it with `payload.jobs.runByID({ id })`. */
+  jobId: number | string
+  /** Filename of the source at queue time (the job no-ops if it changed since). */
+  sourceFilename: string
+}
+
+/**
+ * How the host backgrounds a queued conversion. The plugin can't know what platform
+ * it runs on, so the host decides:
+ *
+ * ```ts
+ * dispatch: (_job, { run }) => after(run)          // Next.js on Vercel
+ * dispatch: (_job, { run }) => waitUntil(run())    // Cloudflare Workers
+ * dispatch: (_job, { run }) => void run()          // long-running Node server
+ * dispatch: (job) => qstash.publishJSON({ body: job }) // external queue — ignores `run`
+ * ```
+ *
+ * `job` is serialisable for hosts with real queue infrastructure; `run` executes the
+ * queued job in-process. Return nothing for fire-and-forget; return a promise and the
+ * hook awaits it. When unset, the plugin runs the job inline (the upload waits) and
+ * warns at boot — slow beats a floating promise on platforms that freeze after the
+ * response.
+ */
+export type Dispatch = (
+  job: DispatchJob,
+  ctx: { req: PayloadRequest; run: () => Promise<void> },
+) => Promise<void> | void
+
 export interface ShouldConvertArgs {
   /** Slug of the upload collection receiving the file. */
   collection: string
@@ -53,35 +99,56 @@ export interface ShouldConvertArgs {
   req: PayloadRequest
 }
 
+export interface FetchSourceArgs {
+  /** Slug of the collection the document lives in. */
+  collection: string
+  /** The source upload document (depth 0). */
+  doc: JsonObject
+  payload: Payload
+}
+
 /**
  * Outcome of one conversion decision, passed to `onConversionComplete`. Emitted for
- * every upload that is a conversion candidate (video mime types, including WebM
- * bypasses) — never for unrelated uploads like images.
+ * every video candidate — queued conversions when their job finishes (converted,
+ * output-larger, or failed) and early skips at upload time (already-webm, filtered,
+ * input-too-large). Never emitted for non-video uploads.
  */
 export interface ConversionOutcome {
   /** Slug of the collection the file was uploaded to. */
   collection: string
   converted: boolean
-  /** Filename after conversion; `null` when the conversion was skipped. */
+  /** Filename of the WebM sidecar; `null` when the conversion was skipped or failed. */
   convertedFilename: null | string
-  /** WebM size in bytes; `null` when the conversion was skipped. */
+  /** WebM size in bytes; `null` when the conversion was skipped or failed. */
   convertedFilesize: null | number
   /** Wall-clock ffmpeg time in ms; `null` when no encode ran. */
   encodeDurationMs: null | number
+  /** Error message when the job failed; `null` otherwise. */
+  error: null | string
   originalFilename: string
   originalFilesize: number
   originalMimeType: string
+  /** Which rendition this outcome is about; `null` for upload-time decisions. */
+  preset: null | string
   skippedReason: null | SkipReason
 }
 
 /**
  * Per-collection settings for the `collections` object form. Everything from the
- * plugin config except the plugin-scoped keys: targeting (`collections`, `enabled`)
- * and the process-wide `ffmpegPath` / `maxConcurrentEncodes`.
+ * plugin config except the plugin-scoped keys: targeting (`collections`, `enabled`),
+ * the process-wide `ffmpegPath` / `maxConcurrentEncodes`, and the job plumbing
+ * (`dispatch`, `queue`, `retries`, `taskSlug`), which is one pipeline per plugin.
  */
 export type VideoWebmCollectionOverrides = Omit<
   VideoWebmPluginConfig,
-  'collections' | 'enabled' | 'ffmpegPath' | 'maxConcurrentEncodes'
+  | 'collections'
+  | 'dispatch'
+  | 'enabled'
+  | 'ffmpegPath'
+  | 'maxConcurrentEncodes'
+  | 'queue'
+  | 'retries'
+  | 'taskSlug'
 >
 
 export interface VideoWebmPluginConfig {
@@ -93,14 +160,29 @@ export interface VideoWebmPluginConfig {
    * collection throws at init, so typos surface immediately.
    */
   collections?: Record<string, true | VideoWebmCollectionOverrides> | string[]
-  /** Set `false` to leave the config completely untouched. Defaults to `true`. */
+  /**
+   * How to background queued conversions — see {@link Dispatch}. When unset, the
+   * job runs inline before the upload response returns (safe everywhere, but the
+   * upload waits for the encode) and the plugin warns at boot.
+   */
+  dispatch?: Dispatch
+  /** Set `false` to leave the Payload config completely untouched. Defaults to `true`. */
   enabled?: boolean
   /** WebM encoding parameters. */
   encoding?: WebmEncodingOptions
   /**
+   * Reads the source video's bytes inside the job. Defaults to reading the
+   * collection's `staticDir` for local storage, else fetching `doc.url` resolved
+   * against `serverURL` — override for access-controlled storage the default
+   * cannot reach.
+   */
+  fetchSource?: (args: FetchSourceArgs) => Promise<Buffer>
+  /**
    * Path to the ffmpeg binary. Defaults to `process.env.FFMPEG_PATH` or `'ffmpeg'`
    * from `PATH`. Point it at `ffmpeg-static`'s export if you'd rather ship a binary
-   * with your app than manage a system install.
+   * with your app than manage a system install. ffmpeg is only needed by the
+   * process that runs the jobs — a separate `payload jobs:run` container can carry
+   * it instead of the web app.
    */
   ffmpegPath?: string
   /**
@@ -111,67 +193,71 @@ export interface VideoWebmPluginConfig {
    */
   inputMimeTypes?: string[]
   /**
-   * Keep the uploaded original as the document's own file, and store the WebM as a
-   * hidden sidecar document in the same collection — same storage adapter (S3,
-   * Vercel Blob, local), linked from the original via the `webmVersion`
-   * relationship. Frontends render `doc.webmVersion?.url ?? doc.url` (populate with
-   * `depth: 1`). Sidecars are hidden from the admin list view, regenerated when the
-   * original's file is replaced, and deleted with the original. Defaults to `false`:
-   * the WebM replaces the upload and the original is not retained.
-   */
-  keepOriginal?: boolean
-  /**
    * Cap on simultaneous ffmpeg processes across this plugin instance (per Node.js
-   * process). Further eligible uploads wait their turn inside the request. Defaults
-   * to `2` — VP9 encoding saturates several cores per encode, so the default favours
-   * a responsive server over upload throughput. Pass `null` for unlimited.
+   * process). Defaults to `2` — VP9 encoding saturates several cores per encode, so
+   * the default favours a responsive server over encode throughput. Pass `null`
+   * for unlimited.
    */
   maxConcurrentEncodes?: null | number
   /**
-   * Skip files larger than this many bytes (they upload unconverted). Guards the
-   * request against encodes that would outlive serverless/request timeouts. This is
-   * a conversion guard only — it does not raise or bypass Payload's `upload.limits`
-   * or any hosting-provider body-size limit. Unset by default.
+   * Skip files larger than this many bytes (they stay unconverted, with the skip
+   * recorded). This is a conversion guard only — it does not raise or bypass
+   * Payload's `upload.limits` or any hosting-provider body-size limit. Unset by
+   * default.
    */
   maxInputFileSize?: number
   /**
-   * Inject a read-only `videoWebm` sidebar group (converted flag, original
-   * filename/mime/size, encode duration, skip reason) into target collections.
+   * Inject a read-only `videoWebm` sidebar group (status, original filename/mime/
+   * size, encode duration, skip reason, last error) into target collections.
    * Defaults to `true`.
    */
   metadataFields?: boolean
   /**
-   * Called after every conversion decision on a candidate video upload — converted,
-   * or skipped as `output-larger`, `input-too-large`, `already-webm`, `filtered`
-   * (vetoed by `shouldConvert`), `ffmpeg-failed` (with `onError: 'skip'`), or
-   * `derivative-failed` (keepOriginal mode: encode succeeded but storing the sidecar
-   * failed, with `onError: 'skip'`). Not called for non-video uploads (`mimetype`
-   * outside `inputMimeTypes`) or when a failure is about to reject the upload
-   * (`onError: 'throw'`). Errors thrown here are logged as warnings and never fail
-   * the upload.
+   * Called after every conversion decision on a candidate video upload — once per
+   * preset when the job converts, skips (`output-larger`) or fails, and once for
+   * upload-time skips (`preset: null`). Not called for non-video uploads. Runs in
+   * whichever process executed the decision. Errors thrown here are logged as
+   * warnings and never fail the upload or the job.
    */
   onConversionComplete?: (outcome: ConversionOutcome) => Promise<void> | void
   /**
-   * What to do when ffmpeg fails or is missing: `'throw'` (default) rejects the
-   * upload with the ffmpeg error; `'skip'` logs a warning and stores the original
-   * file unconverted.
+   * The renditions to generate — one hidden sidecar document per preset, linked
+   * from the source via `webmVersions` rows (`{ preset, video }`). Declaration
+   * order is preference order (first = best, served first by the frontend
+   * helpers). Keys become filename suffixes (`clip-720p.webm`), so stick to
+   * letters, digits and dashes. Defaults to a single `webm` preset using the
+   * collection's `encoding` unchanged. See `resolutionPresets()` for a ready-made
+   * quality ladder.
    */
-  onError?: 'skip' | 'throw'
+  presets?: Record<string, VideoPreset>
+  /** Payload Jobs queue name conversions are queued to. Defaults to `'video-webm'`. */
+  queue?: string
   /**
-   * Advanced escape hatch: veto individual conversions. Runs after the built-in
-   * guards (already-WebM, `inputMimeTypes`, `maxInputFileSize`) have all passed, so
-   * it only sees files that would otherwise convert. Return `false` to store the
-   * original untouched — reported to `onConversionComplete` as `filtered`, but not
-   * recorded in the metadata group (an intentional veto is not an anomaly).
-   * Exceptions propagate and fail the upload regardless of `onError` — a broken
-   * predicate is a config bug, not an encode failure.
+   * Retry attempts for a failed conversion job. Defaults to `3` — Payload's own
+   * default is none, and cron only picks up jobs that are still runnable, so an
+   * unretried first failure would be terminal.
+   */
+  retries?: number
+  /**
+   * Advanced escape hatch: veto individual conversions at upload time. Runs after
+   * the built-in guards (already-WebM, `inputMimeTypes`, `maxInputFileSize`) have
+   * all passed, so it only sees files that would otherwise queue. Return `false`
+   * to keep the original untouched — reported to `onConversionComplete` as
+   * `filtered`, but not recorded in the metadata group. Exceptions propagate and
+   * fail the upload — a broken predicate is a config bug.
    */
   shouldConvert?: (args: ShouldConvertArgs) => boolean | Promise<boolean>
   /**
    * When the WebM output ends up larger than the source (already-efficient sources,
-   * tiny clips), keep the original instead. Defaults to `true`.
+   * tiny clips), skip storing it. Defaults to `true`.
    */
   skipIfLarger?: boolean
+  /**
+   * Slug the conversion task is registered under in `config.jobs.tasks`. Defaults
+   * to `'video-webm-convert'`; only needs changing when running two plugin
+   * instances side by side.
+   */
+  taskSlug?: string
   /**
    * Kill ffmpeg (SIGKILL) and fail the conversion after this many ms.
    * Defaults to 10 minutes.
@@ -183,18 +269,25 @@ export interface VideoWebmPluginConfig {
 export interface ResolvedVideoWebmConfig {
   encoding: Pick<WebmEncodingOptions, 'maxHeight' | 'maxWidth'> &
     Required<Omit<WebmEncodingOptions, 'maxHeight' | 'maxWidth'>>
+  fetchSource: ((args: FetchSourceArgs) => Promise<Buffer>) | null
   ffmpegPath: string
   inputMimeTypes: string[]
-  keepOriginal: boolean
   /** `null` = unlimited (explicit opt-out). */
   maxConcurrentEncodes: null | number
   maxInputFileSize: null | number
   metadataFields: boolean
   onConversionComplete: ((outcome: ConversionOutcome) => Promise<void> | void) | null
-  onError: 'skip' | 'throw'
+  /** Preset name → fully resolved encoding, in declaration (= preference) order. */
+  presets: Record<string, ResolvedPreset>
   shouldConvert: ((args: ShouldConvertArgs) => boolean | Promise<boolean>) | null
   skipIfLarger: boolean
   timeoutMs: number
+}
+
+/** {@link VideoPreset} with the collection's encoding merged in and validated. */
+export interface ResolvedPreset {
+  encoding: ResolvedVideoWebmConfig['encoding']
+  label: string
 }
 
 /** Subset of Payload's `req.file` the plugin reads — kept structural for testability. */
@@ -208,8 +301,6 @@ export interface UploadedFile {
 
 export type SkipReason =
   | 'already-webm'
-  | 'derivative-failed'
-  | 'ffmpeg-failed'
   | 'filtered'
   | 'input-too-large'
   | 'mime-not-matched'
@@ -217,15 +308,17 @@ export type SkipReason =
 
 export type ConversionDecision = { convert: false; reason: SkipReason } | { convert: true }
 
-/**
- * Stashed on `req.context` by the beforeOperation hook so the beforeChange hook can
- * stamp the metadata fields after Payload has processed the (possibly swapped) file.
- */
+/** Lifecycle of one upload's conversion, stored in the `videoWebm` metadata group. */
+export type ConversionStatus = 'complete' | 'failed' | 'queued' | 'skipped'
+
+/** Shape of the `videoWebm` metadata group on target documents. */
 export interface ConversionRecord {
-  converted: boolean
   encodeDurationMs: null | number
+  /** Last job error (truncated); retries may later flip the status to complete. */
+  error: null | string
   originalFilename: null | string
   originalFilesize: null | number
   originalMimeType: null | string
   skippedReason: null | SkipReason
+  status: ConversionStatus | null
 }

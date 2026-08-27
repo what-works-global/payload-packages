@@ -1,4 +1,9 @@
-import type { CollectionBeforeChangeHook, CollectionBeforeOperationHook, Payload } from 'payload'
+import type {
+  CollectionBeforeChangeHook,
+  CollectionBeforeOperationHook,
+  JsonObject,
+  Payload,
+} from 'payload'
 
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { execFile } from 'node:child_process'
@@ -9,10 +14,11 @@ import { promisify } from 'node:util'
 import { buildConfig, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import type { ConversionOutcome } from '../src/index.js'
+import type { ConversionOutcome, DispatchJob } from '../src/index.js'
 
 import { isFfmpegAvailable } from '../src/core/convert.js'
-import { videoWebmPlugin } from '../src/index.js'
+import { getVideoSources, getWebmUrl } from '../src/exports/frontend.js'
+import { resolutionPresets, videoWebmPlugin } from '../src/index.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -29,7 +35,7 @@ const WEBM_MAGIC = Buffer.from([0x1a, 0x45, 0xdf, 0xa3])
 
 const isWebm = (buffer: Buffer): boolean => buffer.subarray(0, 4).equals(WEBM_MAGIC)
 
-/** Local API depth may return webmVersion as an id or a populated doc. */
+/** Local API depth may return relationship values as ids or populated docs. */
 const relationId = (value: unknown): null | number | string => {
   if (typeof value === 'number' || typeof value === 'string') {
     return value
@@ -39,6 +45,13 @@ const relationId = (value: unknown): null | number | string => {
   }
   return null
 }
+
+const versionRows = (doc: JsonObject): { preset: string; video: unknown }[] =>
+  Array.isArray(doc.webmVersions) ? (doc.webmVersions as { preset: string; video: unknown }[]) : []
+
+/** Id of the first (most-preferred) rendition, or null while none exist. */
+const firstSidecarId = (doc: JsonObject): null | number | string =>
+  relationId(versionRows(doc)[0]?.video)
 
 let payload: Payload
 let tmpDir: string
@@ -50,17 +63,23 @@ let sampleMov: Buffer
 let sampleWebm: Buffer
 
 const outcomes: ConversionOutcome[] = []
-const hookObservations: { beforeChange?: string; beforeOperation?: string } = {}
+/** Every file each user hook saw, keyed by hook stage — sidecar creates included. */
+const hookObservations: { beforeChange: string[]; beforeOperation: string[] } = {
+  beforeChange: [],
+  beforeOperation: [],
+}
+/** Dispatched-but-not-run conversions for the 'deferred' collection. */
+const deferred: Array<{ job: DispatchJob; run: () => Promise<void> }> = []
 
 const observeBeforeOperation: CollectionBeforeOperationHook = ({ req }) => {
   if (req.file) {
-    hookObservations.beforeOperation = req.file.mimetype
+    hookObservations.beforeOperation.push(`${req.file.name}:${req.file.mimetype}`)
   }
 }
 
 const observeBeforeChange: CollectionBeforeChangeHook = ({ data, req }) => {
   if (req.file) {
-    hookObservations.beforeChange = req.file.mimetype
+    hookObservations.beforeChange.push(`${req.file.name}:${req.file.mimetype}`)
   }
   return data
 }
@@ -75,6 +94,9 @@ const upload = (
     data,
     file: { ...file, size: file.data.byteLength },
   })
+
+const fetchDoc = (collection: string, id: number | string): Promise<JsonObject> =>
+  payload.findByID({ id, collection, depth: 0 }) as Promise<JsonObject>
 
 const generateFixture = async (name: string, args: string[]): Promise<Buffer> => {
   const filePath = path.join(tmpDir, name)
@@ -141,32 +163,34 @@ beforeAll(async () => {
           beforeOperation: [observeBeforeOperation],
         },
       },
+      // The required field exercises the data copy onto sidecar documents.
       {
-        // keepOriginal mode; the required field exercises the data copy onto sidecars.
         ...uploadCollection('archive'),
         fields: [{ name: 'caption', type: 'text', required: true }],
       },
-      uploadCollection('guarded'),
-      uploadCollection('guarded-keep'),
       uploadCollection('capped'),
+      uploadCollection('ladder'),
       uploadCollection('vp8-media'),
       uploadCollection('filtered'),
-      // Broken ffmpeg + onError: 'skip' — uploads must survive unconverted.
-      uploadCollection('resilient'),
-      // Broken ffmpeg + default onError: 'throw' — uploads must fail loudly.
-      uploadCollection('strict'),
+      uploadCollection('deferred'),
+      uploadCollection('guarded'),
+      uploadCollection('failing'),
     ],
     db: sqliteAdapter({
       client: { url: `file:${path.join(tmpDir, 'test.db')}` },
       push: true,
     }),
     plugins: [
+      // Default (no dispatch): the job runs inline, so payload.create resolves
+      // only after the conversion finished — convenient for these tests.
       videoWebmPlugin({
         collections: {
-          archive: { keepOriginal: true },
+          archive: true,
           capped: { maxInputFileSize: 16 },
           filtered: { shouldConvert: ({ file }) => !file.name.includes('skipme') },
           hooked: true,
+          // Two renditions from the ready-made quality ladder (tiny ones for speed).
+          ladder: { presets: resolutionPresets([144, 240]) },
           media: true,
           'vp8-media': { encoding: { codec: 'vp8', crf: 50, speed: 16 } },
         },
@@ -177,23 +201,31 @@ beforeAll(async () => {
           outcomes.push(outcome)
         },
       }),
-      // The inflating stand-in makes every "conversion" larger than its input,
-      // deterministically exercising the skipIfLarger guard in both modes.
+      // Captures the dispatch instead of running it — proves the upload response
+      // does not wait for the encode.
       videoWebmPlugin({
-        collections: { guarded: true, 'guarded-keep': { keepOriginal: true } },
+        collections: ['deferred'],
+        dispatch: (job, { run }) => {
+          deferred.push({ job, run })
+        },
+        encoding: { crf: 50, speed: 5 },
+        taskSlug: 'video-webm-convert-deferred',
+      }),
+      // The inflating stand-in makes every "conversion" larger than its input,
+      // deterministically exercising the skipIfLarger guard.
+      videoWebmPlugin({
+        collections: ['guarded'],
         ffmpegPath: inflatingBinary,
         onConversionComplete: (outcome) => {
           outcomes.push(outcome)
         },
+        taskSlug: 'video-webm-convert-guarded',
       }),
+      // Broken ffmpeg — the job must fail, record the error, and leave the original.
       videoWebmPlugin({
-        collections: ['resilient'],
+        collections: ['failing'],
         ffmpegPath: path.join(tmpDir, 'missing-ffmpeg'),
-        onError: 'skip',
-      }),
-      videoWebmPlugin({
-        collections: ['strict'],
-        ffmpegPath: path.join(tmpDir, 'missing-ffmpeg'),
+        taskSlug: 'video-webm-convert-failing',
       }),
     ],
     secret: 'test-secret',
@@ -211,40 +243,200 @@ afterAll(async () => {
   fs.rmSync(tmpDir, { force: true, recursive: true })
 })
 
-describe.skipIf(!ffmpegAvailable)('conversion (requires ffmpeg)', () => {
-  it('stores an mp4 upload as WebM with consistent filename, mimeType and filesize', async () => {
-    const doc = await upload(
+describe.skipIf(!ffmpegAvailable)('async conversion (requires ffmpeg)', () => {
+  it('responds with a queued record, then the job stores a WebM sidecar next to the intact original', async () => {
+    const created = await upload(
       'media',
       { name: 'clip.mp4', data: sampleMp4, mimetype: 'video/mp4' },
       { alt: 'test clip' },
     )
 
-    expect(doc.mimeType).toBe('video/webm')
-    expect(doc.filename).toBe('clip.webm')
+    // The upload response itself only reflects the queued state — conversion is a job.
+    expect(created.mimeType).toBe('video/mp4')
+    expect((created as JsonObject).videoWebm).toMatchObject({ status: 'queued' })
+    expect(versionRows(created as JsonObject)).toHaveLength(0)
 
-    const stored = fs.readFileSync(path.join(tmpDir, 'media', String(doc.filename)))
-    expect(isWebm(stored)).toBe(true)
-    expect(doc.filesize).toBe(stored.byteLength)
-
+    // Default dispatch ran the job inline, so it is already done — re-fetch.
+    const doc = await fetchDoc('media', created.id as number)
+    expect(doc.mimeType).toBe('video/mp4')
+    expect(doc.filename).toBe('clip.mp4')
+    expect(fs.readFileSync(path.join(tmpDir, 'media', 'clip.mp4')).equals(sampleMp4)).toBe(true)
     expect(doc.videoWebm).toMatchObject({
-      converted: true,
       originalFilename: 'clip.mp4',
       originalFilesize: sampleMp4.byteLength,
       originalMimeType: 'video/mp4',
-      skippedReason: null,
+      status: 'complete',
     })
-    expect(doc.videoWebm.encodeDurationMs).toBeGreaterThan(0)
+    expect((doc.videoWebm as JsonObject).encodeDurationMs).toBeGreaterThan(0)
 
-    const outcome = outcomes.find((o) => o.originalFilename === 'clip.mp4')
-    expect(outcome).toMatchObject({
+    const rows = versionRows(doc)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].preset).toBe('webm')
+    const sidecar = await fetchDoc('media', firstSidecarId(doc)!)
+    expect(sidecar.mimeType).toBe('video/webm')
+    expect(sidecar.isWebmDerivative).toBe(true)
+    expect(sidecar.webmPreset).toBe('webm')
+    expect(isWebm(fs.readFileSync(path.join(tmpDir, 'media', String(sidecar.filename))))).toBe(true)
+    expect(sidecar.filesize).toBeLessThan(sampleMp4.byteLength)
+
+    expect(outcomes.find((o) => o.originalFilename === 'clip.mp4')).toMatchObject({
       collection: 'media',
       converted: true,
       convertedFilename: 'clip.webm',
-      convertedFilesize: stored.byteLength,
-      originalFilesize: sampleMp4.byteLength,
+      preset: 'webm',
       skippedReason: null,
     })
-    expect(outcome?.encodeDurationMs).toBeGreaterThan(0)
+  })
+
+  it('does not run the encode until the host dispatch does', async () => {
+    const created = await upload('deferred', {
+      name: 'later.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+
+    // Nothing ran yet: still queued, no sidecar — the response never waited.
+    let doc = await fetchDoc('deferred', created.id as number)
+    expect(doc.videoWebm).toMatchObject({ status: 'queued' })
+    expect(versionRows(doc)).toHaveLength(0)
+    expect(deferred).toHaveLength(1)
+    expect(deferred[0].job).toMatchObject({ collection: 'deferred', sourceFilename: 'later.mp4' })
+
+    await deferred[0].run()
+
+    doc = await fetchDoc('deferred', created.id as number)
+    expect(doc.videoWebm).toMatchObject({ status: 'complete' })
+    expect(firstSidecarId(doc)).not.toBeNull()
+  })
+
+  it('converts QuickTime sources and VP8 targets', async () => {
+    const mov = await upload('media', {
+      name: 'movie.mov',
+      data: sampleMov,
+      mimetype: 'video/quicktime',
+    })
+    const movDoc = await fetchDoc('media', mov.id as number)
+    expect(movDoc.videoWebm).toMatchObject({ status: 'complete' })
+
+    const vp8 = await upload('vp8-media', {
+      name: 'clip-vp8.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    const vp8Doc = await fetchDoc('vp8-media', vp8.id as number)
+    const sidecar = await fetchDoc('vp8-media', firstSidecarId(vp8Doc)!)
+    expect(isWebm(fs.readFileSync(path.join(tmpDir, 'vp8-media', String(sidecar.filename))))).toBe(
+      true,
+    )
+  })
+
+  it('generates one rendition per preset and serves them via the frontend helpers', async () => {
+    const created = await upload('ladder', {
+      name: 'steps.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+
+    const doc = await fetchDoc('ladder', created.id as number)
+    expect(doc.videoWebm).toMatchObject({ status: 'complete' })
+    const rows = versionRows(doc)
+    // Declaration order preserved — first preset is the preferred rendition.
+    expect(rows.map((row) => row.preset)).toEqual(['144p', '240p'])
+
+    const sidecars = await Promise.all(
+      rows.map((row) => fetchDoc('ladder', relationId(row.video)!)),
+    )
+    expect(sidecars.map((s) => s.filename)).toEqual(['steps-144p.webm', 'steps-240p.webm'])
+    for (const sidecar of sidecars) {
+      expect(isWebm(fs.readFileSync(path.join(tmpDir, 'ladder', String(sidecar.filename))))).toBe(
+        true,
+      )
+    }
+
+    // Frontend helpers, on a depth-populated doc.
+    const populated = (await payload.findByID({
+      id: created.id,
+      collection: 'ladder',
+      depth: 1,
+    })) as JsonObject
+    const sources = getVideoSources(populated)
+    expect(sources.map((s) => s.preset)).toEqual(['144p', '240p', null])
+    expect(sources.at(-1)).toMatchObject({ type: 'video/mp4', src: doc.url })
+    expect(getWebmUrl(populated)).toBe(sources[0].src)
+    expect(getWebmUrl(populated, '240p')).toBe(sources[1].src)
+    expect(getWebmUrl(populated, 'nope')).toBeNull()
+    // Unpopulated (depth 0) rows degrade to the original-only fallback.
+    expect(getVideoSources(doc).map((s) => s.preset)).toEqual([null])
+  })
+
+  it('copies user fields onto the sidecar so required fields validate', async () => {
+    const created = await upload(
+      'archive',
+      { name: 'master.mp4', data: sampleMp4, mimetype: 'video/mp4' },
+      { caption: 'the master file' },
+    )
+    const doc = await fetchDoc('archive', created.id as number)
+    const sidecar = await fetchDoc('archive', firstSidecarId(doc)!)
+    expect(sidecar.caption).toBe('the master file')
+  })
+
+  it('regenerates the sidecar when the file is replaced, and clears it for non-videos', async () => {
+    const created = await upload('media', {
+      name: 'replace-me.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    const first = firstSidecarId(await fetchDoc('media', created.id as number))
+    expect(first).not.toBeNull()
+
+    await payload.update({
+      id: created.id,
+      collection: 'media',
+      data: {},
+      file: {
+        name: 'v2.mov',
+        data: sampleMov,
+        mimetype: 'video/quicktime',
+        size: sampleMov.byteLength,
+      },
+    })
+    // Ids can be reused by sqlite after a delete, so assert by content: the doc
+    // now links a sidecar for the NEW file, and only one sidecar exists for it.
+    const second = firstSidecarId(await fetchDoc('media', created.id as number))
+    expect(second).not.toBeNull()
+    const secondSidecar = await fetchDoc('media', second!)
+    expect(secondSidecar.filename).toBe('v2.webm')
+    const sidecars = await payload.find({
+      collection: 'media',
+      depth: 0,
+      where: { filename: { contains: 'v2' }, isWebmDerivative: { equals: true } },
+    })
+    expect(sidecars.totalDocs).toBe(1)
+
+    // Replacing with a non-video clears the link and removes the last sidecar.
+    await payload.update({
+      id: created.id,
+      collection: 'media',
+      data: {},
+      file: { name: 'pic.png', data: PNG_1X1, mimetype: 'image/png', size: PNG_1X1.byteLength },
+    })
+    const cleared = await fetchDoc('media', created.id as number)
+    expect(versionRows(cleared)).toHaveLength(0)
+    expect((cleared.videoWebm as JsonObject).status).toBeNull()
+    await expect(fetchDoc('media', second!)).rejects.toThrow()
+  })
+
+  it('deletes the sidecar with the original', async () => {
+    const created = await upload('media', {
+      name: 'doomed.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    const sidecarId = firstSidecarId(await fetchDoc('media', created.id as number))
+    expect(sidecarId).not.toBeNull()
+
+    await payload.delete({ id: created.id, collection: 'media' })
+    await expect(fetchDoc('media', sidecarId!)).rejects.toThrow()
   })
 
   it('preserves conversion metadata when a document is re-saved without a new file', async () => {
@@ -253,79 +445,45 @@ describe.skipIf(!ffmpegAvailable)('conversion (requires ffmpeg)', () => {
       data: sampleMp4,
       mimetype: 'video/mp4',
     })
-    expect(created.videoWebm).toMatchObject({ converted: true, originalFilename: 'resave.mp4' })
-
     const resaved = await payload.update({
       id: created.id,
       collection: 'media',
       data: { alt: 'edited alt text only' },
     })
-    expect(resaved.videoWebm).toMatchObject({
-      converted: true,
+    expect((resaved as JsonObject).videoWebm).toMatchObject({
       originalFilename: 'resave.mp4',
-      originalFilesize: sampleMp4.byteLength,
+      status: 'complete',
     })
+    expect(firstSidecarId(resaved as JsonObject)).not.toBeNull()
   })
 
-  it('converts a QuickTime .mov upload', async () => {
-    const doc = await upload('media', {
-      name: 'movie.mov',
-      data: sampleMov,
-      mimetype: 'video/quicktime',
-    })
-    expect(doc.mimeType).toBe('video/webm')
-    expect(doc.filename).toBe('movie.webm')
-    expect(isWebm(fs.readFileSync(path.join(tmpDir, 'media', String(doc.filename))))).toBe(true)
-  })
-
-  it('converts with VP8 when configured', async () => {
-    const doc = await upload('vp8-media', {
-      name: 'clip-vp8.mp4',
-      data: sampleMp4,
-      mimetype: 'video/mp4',
-    })
-    expect(doc.mimeType).toBe('video/webm')
-    expect(isWebm(fs.readFileSync(path.join(tmpDir, 'vp8-media', String(doc.filename))))).toBe(true)
-  })
-
-  it('converts a replacement file on update', async () => {
+  it('is idempotent: a duplicate job run leaves the existing sidecar alone', async () => {
     const created = await upload('media', {
-      name: 'pixel.png',
-      data: PNG_1X1,
-      mimetype: 'image/png',
-    })
-    expect(created.mimeType).toBe('image/png')
-    expect(created.videoWebm).toMatchObject({ converted: false })
-
-    const updated = await payload.update({
-      id: created.id,
-      collection: 'media',
-      data: {},
-      file: {
-        name: 'replacement.mp4',
-        data: sampleMp4,
-        mimetype: 'video/mp4',
-        size: sampleMp4.byteLength,
-      },
-    })
-
-    expect(updated.mimeType).toBe('video/webm')
-    expect(updated.filename).toBe('replacement.webm')
-    expect(updated.videoWebm).toMatchObject({ converted: true })
-  })
-
-  it('keeps unicode and uppercase filenames coherent after conversion', async () => {
-    const doc = await upload('media', {
-      name: 'Видео-Holiday.MP4',
+      name: 'twice.mp4',
       data: sampleMp4,
       mimetype: 'video/mp4',
     })
-    expect(doc.mimeType).toBe('video/webm')
-    expect(String(doc.filename).endsWith('.webm')).toBe(true)
-    expect(String(doc.filename).endsWith('.MP4')).toBe(false)
-    const stored = fs.readFileSync(path.join(tmpDir, 'media', String(doc.filename)))
-    expect(isWebm(stored)).toBe(true)
-    expect(doc.filesize).toBe(stored.byteLength)
+    const before = await payload.count({ collection: 'media' })
+
+    // Simulate the cron safety net colliding with the already-finished run.
+    const job = (await payload.jobs.queue({
+      input: { collection: 'media', docId: created.id, sourceFilename: 'twice.mp4' },
+      queue: 'video-webm',
+      task: 'video-webm-convert',
+    } as never)) as { id: number | string }
+    await payload.jobs.runByID({ id: job.id })
+
+    const after = await payload.count({ collection: 'media' })
+    expect(after.totalDocs).toBe(before.totalDocs)
+  })
+
+  it('never touches req.file — existing hooks always see the original upload', async () => {
+    await upload('hooked', { name: 'ordered.mp4', data: sampleMp4, mimetype: 'video/mp4' })
+    // The user's hooks saw the untouched original…
+    expect(hookObservations.beforeOperation).toContain('ordered.mp4:video/mp4')
+    expect(hookObservations.beforeChange).toContain('ordered.mp4:video/mp4')
+    // …and the sidecar arrived as its own separate document create.
+    expect(hookObservations.beforeChange).toContain('ordered.webm:video/webm')
   })
 
   it('bypasses WebM uploads untouched, reporting already-webm', async () => {
@@ -336,9 +494,7 @@ describe.skipIf(!ffmpegAvailable)('conversion (requires ffmpeg)', () => {
     })
     expect(doc.mimeType).toBe('video/webm')
     expect(doc.filename).toBe('native.webm')
-    expect(doc.filesize).toBe(sampleWebm.byteLength)
-    expect(doc.videoWebm).toMatchObject({ converted: false, skippedReason: null })
-
+    expect((doc as JsonObject).videoWebm).toMatchObject({ status: null })
     expect(outcomes.find((o) => o.originalFilename === 'native.webm')).toMatchObject({
       converted: false,
       skippedReason: 'already-webm',
@@ -346,42 +502,34 @@ describe.skipIf(!ffmpegAvailable)('conversion (requires ffmpeg)', () => {
   })
 
   it('leaves image uploads untouched and unreported', async () => {
-    const doc = await upload('media', {
-      name: 'plain.png',
-      data: PNG_1X1,
-      mimetype: 'image/png',
-    })
+    const doc = await upload('media', { name: 'plain.png', data: PNG_1X1, mimetype: 'image/png' })
     expect(doc.mimeType).toBe('image/png')
-    expect(doc.filename).toBe('plain.png')
+    expect((doc as JsonObject).videoWebm).toMatchObject({ status: null })
     expect(outcomes.some((o) => o.originalFilename === 'plain.png')).toBe(false)
   })
 
-  it('skips files above maxInputFileSize and records the reason', async () => {
-    const doc = await upload('capped', {
-      name: 'big.mp4',
-      data: sampleMp4,
-      mimetype: 'video/mp4',
+  it('records input-too-large at upload time without queueing a job', async () => {
+    const doc = await upload('capped', { name: 'big.mp4', data: sampleMp4, mimetype: 'video/mp4' })
+    expect((doc as JsonObject).videoWebm).toMatchObject({
+      skippedReason: 'input-too-large',
+      status: 'skipped',
     })
-    expect(doc.mimeType).toBe('video/mp4')
-    expect(doc.videoWebm).toMatchObject({ converted: false, skippedReason: 'input-too-large' })
+    // Still skipped after create returned — nothing ran later to change it.
+    const refetched = await fetchDoc('capped', doc.id as number)
+    expect(versionRows(refetched)).toHaveLength(0)
     expect(outcomes.find((o) => o.originalFilename === 'big.mp4')).toMatchObject({
       skippedReason: 'input-too-large',
     })
   })
 
   it('lets the shouldConvert predicate veto conversions, reported but not stamped', async () => {
-    const doc = await upload('filtered', {
+    const vetoed = await upload('filtered', {
       name: 'skipme.mp4',
       data: sampleMp4,
       mimetype: 'video/mp4',
     })
-    expect(doc.mimeType).toBe('video/mp4')
-    // Vetoes are intentional, so the metadata group records no anomaly…
-    expect(doc.videoWebm).toMatchObject({ converted: false, skippedReason: null })
-    // …but observability still sees the decision.
+    expect((vetoed as JsonObject).videoWebm).toMatchObject({ skippedReason: null, status: null })
     expect(outcomes.find((o) => o.originalFilename === 'skipme.mp4')).toMatchObject({
-      collection: 'filtered',
-      converted: false,
       skippedReason: 'filtered',
     })
 
@@ -390,160 +538,47 @@ describe.skipIf(!ffmpegAvailable)('conversion (requires ffmpeg)', () => {
       data: sampleMp4,
       mimetype: 'video/mp4',
     })
-    expect(converted.mimeType).toBe('video/webm')
-  })
-
-  it('keepOriginal: stores the untouched original and links a WebM sidecar document', async () => {
-    const doc = await upload(
-      'archive',
-      { name: 'master.mp4', data: sampleMp4, mimetype: 'video/mp4' },
-      { caption: 'the master file' },
-    )
-
-    // The document's own file is the pristine original.
-    expect(doc.mimeType).toBe('video/mp4')
-    expect(doc.filename).toBe('master.mp4')
-    expect(fs.readFileSync(path.join(tmpDir, 'archive', 'master.mp4')).equals(sampleMp4)).toBe(true)
-    // originalFilesize regression: req.file.size is gone by beforeChange, so the
-    // sidecar path must derive it from the buffer.
-    expect(doc.videoWebm).toMatchObject({
-      converted: true,
-      originalFilename: 'master.mp4',
-      originalFilesize: sampleMp4.byteLength,
-    })
-
-    // The sidecar lives in the same collection, hidden-flagged, with copied data.
-    const sidecarId = relationId(doc.webmVersion)
-    expect(sidecarId).not.toBeNull()
-    const sidecar = await payload.findByID({ id: sidecarId!, collection: 'archive' })
-    expect(sidecar.mimeType).toBe('video/webm')
-    expect(sidecar.isWebmDerivative).toBe(true)
-    expect(sidecar.caption).toBe('the master file')
-    expect(isWebm(fs.readFileSync(path.join(tmpDir, 'archive', String(sidecar.filename))))).toBe(
-      true,
-    )
-
-    expect(outcomes.find((o) => o.originalFilename === 'master.mp4')).toMatchObject({
-      collection: 'archive',
-      converted: true,
-    })
-  })
-
-  it('keepOriginal: replacing the file regenerates the sidecar and deletes the stale one', async () => {
-    const created = await upload(
-      'archive',
-      { name: 'replace-me.mp4', data: sampleMp4, mimetype: 'video/mp4' },
-      { caption: 'v1' },
-    )
-    const firstSidecarId = relationId(created.webmVersion)
-    expect(firstSidecarId).not.toBeNull()
-
-    const updated = await payload.update({
-      id: created.id,
-      collection: 'archive',
-      data: {},
-      file: {
-        name: 'v2.mov',
-        data: sampleMov,
-        mimetype: 'video/quicktime',
-        size: sampleMov.byteLength,
-      },
-    })
-    const secondSidecarId = relationId(updated.webmVersion)
-    expect(secondSidecarId).not.toBeNull()
-    expect(secondSidecarId).not.toBe(firstSidecarId)
-    await expect(payload.findByID({ id: firstSidecarId!, collection: 'archive' })).rejects.toThrow()
-
-    // Replacing with a non-video clears the link and removes the last sidecar.
-    const cleared = await payload.update({
-      id: created.id,
-      collection: 'archive',
-      data: {},
-      file: { name: 'pic.png', data: PNG_1X1, mimetype: 'image/png', size: PNG_1X1.byteLength },
-    })
-    expect(relationId(cleared.webmVersion)).toBeNull()
-    await expect(
-      payload.findByID({ id: secondSidecarId!, collection: 'archive' }),
-    ).rejects.toThrow()
-  })
-
-  it('keepOriginal: deleting the original deletes its sidecar', async () => {
-    const doc = await upload(
-      'archive',
-      { name: 'doomed.mp4', data: sampleMp4, mimetype: 'video/mp4' },
-      { caption: 'delete me' },
-    )
-    const sidecarId = relationId(doc.webmVersion)
-    expect(sidecarId).not.toBeNull()
-
-    await payload.delete({ id: doc.id, collection: 'archive' })
-    await expect(payload.findByID({ id: sidecarId!, collection: 'archive' })).rejects.toThrow()
-  })
-
-  it('runs after existing beforeOperation hooks and before beforeChange hooks', async () => {
-    await upload('hooked', { name: 'ordered.mp4', data: sampleMp4, mimetype: 'video/mp4' })
-    // The collection's own beforeOperation hook saw the original upload…
-    expect(hookObservations.beforeOperation).toBe('video/mp4')
-    // …while its beforeChange hook already saw the converted file.
-    expect(hookObservations.beforeChange).toBe('video/webm')
+    const doc = await fetchDoc('filtered', converted.id as number)
+    expect(doc.videoWebm).toMatchObject({ status: 'complete' })
   })
 })
 
-describe.skipIf(process.platform === 'win32')('skipIfLarger (no ffmpeg needed)', () => {
-  it('keeps the intact original when the WebM output would be larger', async () => {
+describe.skipIf(process.platform === 'win32')('deterministic paths (no ffmpeg needed)', () => {
+  it('records output-larger and keeps the intact original, without a sidecar', async () => {
     const source = { name: 'tiny.mp4', data: Buffer.from('a perfectly small mp4') }
-    const doc = await upload('guarded', { ...source, mimetype: 'video/mp4' })
+    const created = await upload('guarded', { ...source, mimetype: 'video/mp4' })
 
+    const doc = await fetchDoc('guarded', created.id as number)
     expect(doc.mimeType).toBe('video/mp4')
-    expect(doc.filename).toBe('tiny.mp4')
     expect(doc.filesize).toBe(source.data.byteLength)
-    expect(doc.videoWebm).toMatchObject({ converted: false, skippedReason: 'output-larger' })
-
+    expect(doc.videoWebm).toMatchObject({ skippedReason: 'output-larger', status: 'skipped' })
+    expect(versionRows(doc)).toHaveLength(0)
     // Byte-identical original — the discarded WebM never touched it.
     expect(fs.readFileSync(path.join(tmpDir, 'guarded', 'tiny.mp4')).equals(source.data)).toBe(true)
+
+    const { totalDocs } = await payload.count({ collection: 'guarded' })
+    expect(totalDocs).toBe(1)
 
     expect(outcomes.find((o) => o.originalFilename === 'tiny.mp4')).toMatchObject({
       collection: 'guarded',
       converted: false,
-      convertedFilename: null,
       skippedReason: 'output-larger',
     })
   })
 
-  it('keepOriginal: records output-larger without creating a sidecar', async () => {
-    const source = { name: 'tiny-keep.mp4', data: Buffer.from('an efficient little mp4') }
-    const doc = await upload('guarded-keep', { ...source, mimetype: 'video/mp4' })
+  it('records a failed job on the document and keeps the original stored', async () => {
+    const source = { name: 'broken.mp4', data: Buffer.from('not really a video') }
+    const created = await upload('failing', { ...source, mimetype: 'video/mp4' })
 
-    expect(doc.mimeType).toBe('video/mp4')
-    expect(relationId(doc.webmVersion)).toBeNull()
-    expect(doc.videoWebm).toMatchObject({ converted: false, skippedReason: 'output-larger' })
-
-    const { totalDocs } = await payload.count({ collection: 'guarded-keep' })
-    expect(totalDocs).toBe(1)
-  })
-})
-
-describe('failure handling (no ffmpeg needed)', () => {
-  const fakeMp4 = {
-    name: 'broken.mp4',
-    data: Buffer.from('not really a video'),
-    mimetype: 'video/mp4',
-  }
-
-  it("onError: 'skip' stores the original untouched and records the failure", async () => {
-    const doc = await upload('resilient', fakeMp4)
-    expect(doc.mimeType).toBe('video/mp4')
-    expect(doc.filename).toBe('broken.mp4')
-    expect(doc.filesize).toBe(fakeMp4.data.byteLength)
-    expect(doc.videoWebm).toMatchObject({ converted: false, skippedReason: 'ffmpeg-failed' })
-    expect(fs.readFileSync(path.join(tmpDir, 'resilient', 'broken.mp4')).equals(fakeMp4.data)).toBe(
+    // The upload itself succeeded regardless of the failing conversion.
+    expect(created.mimeType).toBe('video/mp4')
+    expect(fs.readFileSync(path.join(tmpDir, 'failing', 'broken.mp4')).equals(source.data)).toBe(
       true,
     )
-  })
 
-  it("default onError: 'throw' rejects the upload with the underlying ffmpeg error", async () => {
-    await expect(upload('strict', fakeMp4)).rejects.toThrow(
-      /payload-video-webm.*broken\.mp4.*could not spawn ffmpeg/s,
-    )
+    const doc = await fetchDoc('failing', created.id as number)
+    expect(doc.videoWebm).toMatchObject({ status: 'failed' })
+    expect(String((doc.videoWebm as JsonObject).error)).toMatch(/ffmpeg/)
+    expect(versionRows(doc)).toHaveLength(0)
   })
 })

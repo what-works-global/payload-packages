@@ -40,6 +40,11 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./frontend": {
+      "types": "./src/exports/frontend.ts",
+      "import": "./src/exports/frontend.ts",
+      "default": "./src/exports/frontend.ts"
     }
   },
   "peerDependencies": {
@@ -85,6 +90,11 @@
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js",
         "default": "./dist/index.js"
+      },
+      "./frontend": {
+        "types": "./dist/exports/frontend.d.ts",
+        "import": "./dist/exports/frontend.js",
+        "default": "./dist/exports/frontend.js"
       }
     }
   }

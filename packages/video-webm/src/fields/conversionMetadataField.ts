@@ -1,25 +1,29 @@
 import type { GroupField } from 'payload'
 
-import { METADATA_GROUP_NAME } from '../hooks/stampConversionMetadata.js'
+export const METADATA_GROUP_NAME = 'videoWebm'
 
 /**
- * Read-only sidebar group stamped by the plugin's hooks. Hidden until a conversion
- * (or a recorded skip) actually happened, so image-only docs stay uncluttered.
+ * Read-only sidebar group tracking the conversion lifecycle. Hidden until the
+ * plugin actually recorded something, so image-only docs stay uncluttered.
  */
 export const conversionMetadataField = (): GroupField => ({
   name: METADATA_GROUP_NAME,
   type: 'group',
   admin: {
-    condition: (data) =>
-      Boolean(data?.[METADATA_GROUP_NAME]?.converted || data?.[METADATA_GROUP_NAME]?.skippedReason),
+    condition: (data) => Boolean(data?.[METADATA_GROUP_NAME]?.status),
     position: 'sidebar',
     readOnly: true,
   },
   fields: [
     {
-      name: 'converted',
-      type: 'checkbox',
-      label: 'Converted to WebM',
+      name: 'status',
+      type: 'select',
+      options: [
+        { label: 'Queued', value: 'queued' },
+        { label: 'Complete', value: 'complete' },
+        { label: 'Skipped', value: 'skipped' },
+        { label: 'Failed', value: 'failed' },
+      ],
     },
     {
       name: 'originalFilename',
@@ -34,7 +38,7 @@ export const conversionMetadataField = (): GroupField => ({
       type: 'number',
       admin: {
         description:
-          'Size of the uploaded source file in bytes, before conversion. Compare with the document filesize for the savings.',
+          'Size of the source file in bytes. Compare with the WebM version’s filesize for the savings.',
       },
     },
     {
@@ -48,11 +52,16 @@ export const conversionMetadataField = (): GroupField => ({
       name: 'skippedReason',
       type: 'select',
       options: [
-        { label: 'ffmpeg failed', value: 'ffmpeg-failed' },
         { label: 'Input too large', value: 'input-too-large' },
         { label: 'WebM output was larger', value: 'output-larger' },
-        { label: 'Storing the WebM sidecar failed', value: 'derivative-failed' },
       ],
+    },
+    {
+      name: 'error',
+      type: 'text',
+      admin: {
+        description: 'Last conversion job error; retries may still complete later.',
+      },
     },
   ],
   label: 'WebM conversion',

@@ -29,9 +29,14 @@ export const shouldConvert = (
   return { convert: true }
 }
 
-/** Swaps the extension for `.webm` (appends when there is none), preserving the dirname-free base. */
-export const toWebmFilename = (filename: string): string => {
+/**
+ * Swaps the extension for `.webm` (appends when there is none), suffixing the
+ * preset name so renditions of one source never collide — the default `webm`
+ * preset keeps the plain name: `clip.mp4` → `clip.webm` / `clip-720p.webm`.
+ */
+export const toWebmFilename = (filename: string, preset?: string): string => {
   const dotIndex = filename.lastIndexOf('.')
   const base = dotIndex > 0 ? filename.slice(0, dotIndex) : filename
-  return `${base}.webm`
+  const suffix = preset && preset !== 'webm' ? `-${preset}` : ''
+  return `${base}${suffix}.webm`
 }

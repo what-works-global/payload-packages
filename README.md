@@ -26,6 +26,6 @@ A monorepo of [Payload CMS](https://payloadcms.com) plugins, fields, and utiliti
 | [`select-search-field`](./packages/select-search-field) | Server-backed search select field and plugin for Payload.                                                                                     |
 | [`sitemap`](./packages/sitemap)                         | Chunked, lazily cached XML sitemaps with hook-driven invalidation and robots.txt helpers.                                                     |
 | [`switch-env`](./packages/switch-env)                   | Switch a running admin between production and development databases, or copy prod-to-dev.                                                     |
-| [`video-webm`](./packages/video-webm)                   | Convert video uploads to WebM (VP9/Opus) in the upload pipeline — storage-adapter agnostic, with size guardrails and conversion metadata.     |
+| [`video-webm`](./packages/video-webm)                   | Optimise video uploads to WebM (VP9/Opus) via background jobs — the source stays stored, a linked sidecar carries the WebM.                   |
 | [`utilities`](./packages/payload-utilities)             | A collection of utilities for Payload 3.0.                                                                                                    |
 | [`analytics`](./packages/analytics)                     | Analytics components for Next.js with cookie consent.                                                                                         |
