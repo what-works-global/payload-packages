@@ -14,7 +14,7 @@ type Args = {
   children: React.ReactNode
 }
 
-const serverFunction: ServerFunctionClient = function (args) {
+const serverFunction: ServerFunctionClient = async function (args) {
   'use server'
   return handleServerFunctions({
     ...args,
