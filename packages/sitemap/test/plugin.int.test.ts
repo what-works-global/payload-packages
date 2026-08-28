@@ -8,6 +8,7 @@ import { buildConfig, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { generateRobotsTxt, getSitemapEntries, sitemapPlugin } from '../src/index.js'
+import { destroyPayload } from './shared/destroyPayload.js'
 
 let payload: Payload
 let tmpDir: string
@@ -117,7 +118,7 @@ beforeAll(async () => {
 }, 120_000)
 
 afterAll(async () => {
-  await payload?.destroy()
+  await destroyPayload(payload)
   fs.rmSync(tmpDir, { force: true, recursive: true })
 })
 
