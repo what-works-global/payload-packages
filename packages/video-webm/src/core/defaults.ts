@@ -89,6 +89,39 @@ export const resolutionPresets = (
     ]),
   )
 
+/**
+ * Constant-quality target for {@link sourcePreset}. VP9 is visually transparent for
+ * most material somewhere around CRF 15–24; 18 sits at the high-quality end of that
+ * band without the size explosion of true lossless.
+ */
+const SOURCE_CRF = 18
+
+/**
+ * A single faithful rendition: the source at its own resolution, with nothing else
+ * touched. Any `maxWidth`/`maxHeight` inherited from the collection's `encoding` is
+ * cleared — a preset that means "the source, as WebM" must never quietly resize.
+ *
+ * It keeps the `webm` key, so the file is plain `clip.webm` with no suffix:
+ *
+ * ```ts
+ * presets: { ...resolutionPresets([360, 720]), ...sourcePreset() }
+ * ```
+ *
+ * Note that mp4 → WebM is always a re-encode: WebM carries only VP8/VP9/AV1 video
+ * and Opus/Vorbis audio, so an H.264 stream cannot simply be remuxed into it.
+ * "Unchanged" here means nothing is resized, cropped or dropped and the quality
+ * target is high enough to be indistinguishable in normal viewing — not
+ * bit-identical. For genuinely lossless VP9, pass
+ * `sourcePreset({ extraArgs: ['-lossless', '1'] })` and expect a file several times
+ * larger than the source, which `skipIfLarger` will then usually discard.
+ */
+export const sourcePreset = (encoding: WebmEncodingOptions = {}): Record<string, VideoPreset> => ({
+  webm: {
+    encoding: { crf: SOURCE_CRF, maxHeight: undefined, maxWidth: undefined, ...encoding },
+    label: 'Original quality',
+  },
+})
+
 const fail = (message: string): never => {
   throw new Error(`[payload-video-webm] ${message}`)
 }
@@ -209,8 +242,37 @@ export const resolveConfig = (pluginConfig: VideoWebmPluginConfig): ResolvedVide
     presets,
     shouldConvert: pluginConfig.shouldConvert ?? null,
     skipIfLarger: pluginConfig.skipIfLarger !== false,
+    skipRedundantPresets: pluginConfig.skipRedundantPresets !== false,
     timeoutMs,
   }
+}
+
+/**
+ * Presets that would only duplicate an earlier rendition because the source is too
+ * small to fill them: among the height-capped presets at or above the source height,
+ * the first is the full-quality rendition and every later one encodes the same
+ * frame size again. Uncapped presets never take part — they may differ by CRF alone.
+ * Declaration order decides, so the answer doesn't depend on which presets are
+ * currently pending.
+ */
+export const redundantPresets = (
+  presets: Record<string, ResolvedPreset>,
+  sourceHeight: number,
+): Set<string> => {
+  const redundant = new Set<string>()
+  let fullHeightTaken = false
+  for (const [name, preset] of Object.entries(presets)) {
+    const { maxHeight } = preset.encoding
+    if (maxHeight === undefined || maxHeight < sourceHeight) {
+      continue
+    }
+    if (fullHeightTaken) {
+      redundant.add(name)
+    } else {
+      fullHeightTaken = true
+    }
+  }
+  return redundant
 }
 
 /**

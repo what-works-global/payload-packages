@@ -8,6 +8,7 @@ import {
   METADATA_GROUP_NAME,
   videoWebmPlugin,
   WEBM_DERIVATIVE_FLAG_FIELD_NAME,
+  WEBM_PANEL_COMPONENT_PATH,
   WEBM_PRESET_FIELD_NAME,
   WEBM_VERSIONS_FIELD_NAME,
 } from '../src/index.js'
@@ -60,11 +61,45 @@ describe('videoWebmPlugin config shaping', () => {
       expect(names).toContain(WEBM_DERIVATIVE_FLAG_FIELD_NAME)
       expect(names).toContain(WEBM_PRESET_FIELD_NAME)
       expect(collection.admin?.baseListFilter).toBeDefined()
+
+      // The live status panel points the import map at the ./client export and
+      // carries the regenerate endpoint path — plus the preset labels, which live in
+      // the config and would otherwise leave the sidebar showing raw preset keys.
+      const panel = collection.fields.find((f) => 'name' in f && f.name === 'webmConversionPanel')
+      expect(panel).toMatchObject({
+        type: 'ui',
+        admin: {
+          components: {
+            Field: {
+              clientProps: {
+                presetLabels: { webm: 'webm' },
+                regeneratePath: '/video-webm-convert/regenerate',
+              },
+              path: WEBM_PANEL_COMPONENT_PATH,
+            },
+          },
+        },
+      })
     }
 
     const posts = getCollection(config, 'posts')
     expect(posts.hooks).toBeUndefined()
     expect(posts.fields).toHaveLength(1)
+  })
+
+  it('registers the regenerate endpoint under the task slug', () => {
+    const config = videoWebmPlugin()(baseConfig())
+    const endpoint = config.endpoints?.find((e) => e.path === '/video-webm-convert/regenerate')
+    expect(endpoint).toMatchObject({ method: 'post' })
+
+    // Two instances get distinct endpoints, like distinct task slugs.
+    const two = videoWebmPlugin({ collections: ['files'], taskSlug: 'video-webm-second' })(
+      videoWebmPlugin({ collections: ['media'] })(baseConfig()),
+    )
+    expect(two.endpoints?.map((e) => e.path)).toEqual([
+      '/video-webm-convert/regenerate',
+      '/video-webm-second/regenerate',
+    ])
   })
 
   it('registers the durable conversion task once, with retries', () => {
@@ -125,9 +160,10 @@ describe('videoWebmPlugin config shaping', () => {
 
     expect(fieldNames(getCollection(config, 'media'))).toContain(METADATA_GROUP_NAME)
 
-    // metadataFields off drops the group but keeps the sidecar plumbing.
+    // metadataFields off drops the group and the panel but keeps the sidecar plumbing.
     const files = getCollection(config, 'files')
     expect(fieldNames(files)).not.toContain(METADATA_GROUP_NAME)
+    expect(fieldNames(files)).not.toContain('webmConversionPanel')
     expect(fieldNames(files)).toContain(WEBM_VERSIONS_FIELD_NAME)
     expect(files.hooks?.beforeChange).toHaveLength(1)
   })

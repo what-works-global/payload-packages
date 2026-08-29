@@ -30,6 +30,34 @@ describe('Semaphore', () => {
     expect(active).toBe(0)
   })
 
+  it('hands a released permit to the waiter, not to a late arrival', async () => {
+    const semaphore = new Semaphore(1)
+    const held: string[] = []
+
+    const releaseFirst = await semaphore.acquire()
+    const second = semaphore.acquire().then((release) => {
+      held.push('second')
+      return release
+    })
+
+    // The release and the next `acquire()` land in the same tick — the window in
+    // which a count that dips before the waiter wakes lets this caller barge in
+    // and run a second encode under a limit of one.
+    releaseFirst()
+    const third = semaphore.acquire().then((release) => {
+      held.push('third')
+      return release
+    })
+
+    const releaseSecond = await second
+    expect(held).toEqual(['second'])
+
+    releaseSecond()
+    const releaseThird = await third
+    expect(held).toEqual(['second', 'third'])
+    releaseThird()
+  })
+
   it('treats double-release as a no-op', async () => {
     const semaphore = new Semaphore(1)
     const releaseFirst = await semaphore.acquire()

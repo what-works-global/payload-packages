@@ -63,6 +63,12 @@ export interface DispatchJob {
   collection: string
   /** ID of the source document awaiting a WebM sidecar. */
   docId: number | string
+  /**
+   * Value of the document's `webmGeneration` counter when this job was queued. The
+   * job discards its work if the document has moved on since (re-upload, regenerate),
+   * so a slow run can never overwrite newer renditions.
+   */
+  generation: number
   /** ID of the durable Payload Jobs row — run it with `payload.jobs.runByID({ id })`. */
   jobId: number | string
   /** Filename of the source at queue time (the job no-ops if it changed since). */
@@ -106,6 +112,14 @@ export interface FetchSourceArgs {
   doc: JsonObject
   payload: Payload
 }
+
+/**
+ * What a `fetchSource` implementation hands back: either the bytes, or the path of a
+ * file the plugin can read. Prefer `{ filePath }` for large videos — ffmpeg reads it
+ * directly, so the source never occupies the Node heap. The plugin never deletes a
+ * path it did not create.
+ */
+export type FetchedSource = { filePath: string } | Buffer
 
 /**
  * Outcome of one conversion decision, passed to `onConversionComplete`. Emitted for
@@ -171,12 +185,13 @@ export interface VideoWebmPluginConfig {
   /** WebM encoding parameters. */
   encoding?: WebmEncodingOptions
   /**
-   * Reads the source video's bytes inside the job. Defaults to reading the
-   * collection's `staticDir` for local storage, else fetching `doc.url` resolved
-   * against `serverURL` — override for access-controlled storage the default
-   * cannot reach.
+   * Supplies the source video inside the job — return a `Buffer` or, better for
+   * large files, `{ filePath }`. Defaults to reading the collection's `staticDir`
+   * in place for local storage, else streaming `doc.url` (resolved against
+   * `serverURL`) to a temp file — override for access-controlled storage the
+   * default cannot reach.
    */
-  fetchSource?: (args: FetchSourceArgs) => Promise<Buffer>
+  fetchSource?: (args: FetchSourceArgs) => Promise<FetchedSource>
   /**
    * Path to the ffmpeg binary. Defaults to `process.env.FFMPEG_PATH` or `'ffmpeg'`
    * from `PATH`. Point it at `ffmpeg-static`'s export if you'd rather ship a binary
@@ -253,6 +268,16 @@ export interface VideoWebmPluginConfig {
    */
   skipIfLarger?: boolean
   /**
+   * Don't encode ladder rungs the source is too small to fill. With
+   * `resolutionPresets([360, 720, 1080])` and a 480p master, `1080p` would be a
+   * byte-for-byte near-copy of `720p` (neither upscales), so only the first rung at
+   * or above the source height is encoded and the rest are recorded as skipped
+   * (`source-smaller`). Only presets that set `maxHeight` take part; uncapped
+   * presets always encode. Needs one extra `ffmpeg -i` probe per job, and skips
+   * nothing when the probe can't read the dimensions. Defaults to `true`.
+   */
+  skipRedundantPresets?: boolean
+  /**
    * Slug the conversion task is registered under in `config.jobs.tasks`. Defaults
    * to `'video-webm-convert'`; only needs changing when running two plugin
    * instances side by side.
@@ -269,7 +294,7 @@ export interface VideoWebmPluginConfig {
 export interface ResolvedVideoWebmConfig {
   encoding: Pick<WebmEncodingOptions, 'maxHeight' | 'maxWidth'> &
     Required<Omit<WebmEncodingOptions, 'maxHeight' | 'maxWidth'>>
-  fetchSource: ((args: FetchSourceArgs) => Promise<Buffer>) | null
+  fetchSource: ((args: FetchSourceArgs) => Promise<FetchedSource>) | null
   ffmpegPath: string
   inputMimeTypes: string[]
   /** `null` = unlimited (explicit opt-out). */
@@ -281,6 +306,7 @@ export interface ResolvedVideoWebmConfig {
   presets: Record<string, ResolvedPreset>
   shouldConvert: ((args: ShouldConvertArgs) => boolean | Promise<boolean>) | null
   skipIfLarger: boolean
+  skipRedundantPresets: boolean
   timeoutMs: number
 }
 
@@ -305,6 +331,8 @@ export type SkipReason =
   | 'input-too-large'
   | 'mime-not-matched'
   | 'output-larger'
+  /** The source is no taller than an earlier preset already covers — see `skipRedundantPresets`. */
+  | 'source-smaller'
 
 export type ConversionDecision = { convert: false; reason: SkipReason } | { convert: true }
 

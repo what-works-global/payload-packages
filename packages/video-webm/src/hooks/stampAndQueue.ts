@@ -10,8 +10,16 @@ import type {
 
 import { shouldConvert as passesStaticGuards } from '../core/shouldConvert.js'
 import { METADATA_GROUP_NAME } from '../fields/conversionMetadataField.js'
-import { WEBM_VERSIONS_FIELD_NAME } from '../fields/sidecarFields.js'
-import { emptyRecord, report, resolveFileSize, SKIP_CONTEXT_KEY } from './shared.js'
+import { WEBM_GENERATION_FIELD_NAME, WEBM_VERSIONS_FIELD_NAME } from '../fields/sidecarFields.js'
+import {
+  emptyRecord,
+  openTransaction,
+  QUEUE_CONTEXT_KEY,
+  report,
+  resolveFileSize,
+  SKIP_CONTEXT_KEY,
+  waitForTransaction,
+} from './shared.js'
 
 const skippedOutcome = (collection: string, file: UploadedFile, reason: SkipReason) => ({
   collection,
@@ -36,15 +44,29 @@ const skippedOutcome = (collection: string, file: UploadedFile, reason: SkipReas
  * sidecar link, which the cleanup hook then garbage-collects).
  */
 export const createStampHook = (config: ResolvedVideoWebmConfig): CollectionBeforeChangeHook => {
-  return async ({ collection, data, operation, req }) => {
+  return async ({ collection, data, operation, originalDoc, req }) => {
     if (operation !== 'create' && operation !== 'update') {
       return data
     }
     if (req.context[SKIP_CONTEXT_KEY]) {
       return data
     }
+
+    const generation = Number((originalDoc as JsonObject | undefined)?.[WEBM_GENERATION_FIELD_NAME])
     const file = req.file
     if (!file) {
+      // Payload never sets `req.file` when duplicating a document — it copies the
+      // stored file internally — so an unguarded create would carry the source's
+      // `webmVersions` over to the copy. Both documents would then point at the same
+      // sidecars, and deleting the copy would delete the original's renditions.
+      if (operation === 'create') {
+        return {
+          ...(data as JsonObject),
+          ...(config.metadataFields ? { [METADATA_GROUP_NAME]: emptyRecord } : {}),
+          [WEBM_GENERATION_FIELD_NAME]: 1,
+          [WEBM_VERSIONS_FIELD_NAME]: [],
+        }
+      }
       return data
     }
 
@@ -69,6 +91,10 @@ export const createStampHook = (config: ResolvedVideoWebmConfig): CollectionBefo
           originalMimeType: upload.mimetype,
           status: 'queued',
         }
+        // The afterChange half of the pipeline reads this, not the stamped status:
+        // with `metadataFields: false` there is no status field to read, and every
+        // upload would silently go unconverted.
+        req.context[QUEUE_CONTEXT_KEY] = true
       } else {
         await report(config, req.payload.logger, skippedOutcome(collectionSlug, upload, 'filtered'))
       }
@@ -101,6 +127,8 @@ export const createStampHook = (config: ResolvedVideoWebmConfig): CollectionBefo
     return {
       ...(data as JsonObject),
       ...(config.metadataFields ? { [METADATA_GROUP_NAME]: record } : {}),
+      // A new file supersedes every job queued against the old one.
+      [WEBM_GENERATION_FIELD_NAME]: (Number.isFinite(generation) ? generation : 0) + 1,
       [WEBM_VERSIONS_FIELD_NAME]: [],
     }
   }
@@ -113,14 +141,71 @@ export interface QueueHookOptions {
 }
 
 /**
- * Enqueues the durable conversion job once the document (and its file) exist, then
- * hands the run to the host's `dispatch` — or runs it inline when none is set.
+ * Writes the durable job row and hands the run to the host's `dispatch` — or runs
+ * it inline when none is set. Shared by the afterChange hook and the regenerate
+ * endpoint.
  *
  * `jobs.queue` is deliberately called without `req`: inside the request's
  * transaction the row would be invisible to a same-tick `runByID`. The cost is an
  * orphaned job when the operation rolls back — the handler bails quietly when the
  * document is missing.
  */
+export const queueConversionJob = async ({
+  collection,
+  dispatch,
+  docId,
+  generation,
+  queue,
+  req,
+  sourceFilename,
+  taskSlug,
+}: {
+  collection: string
+  docId: number | string
+  generation: number
+  req: Parameters<CollectionAfterChangeHook>[0]['req']
+  sourceFilename: string
+} & QueueHookOptions): Promise<void> => {
+  // Apps with generated types narrow task slugs to their literal union, which a
+  // library cannot know — hence the cast on the way in and out.
+  const job = (await req.payload.jobs.queue({
+    input: { collection, docId, generation, sourceFilename },
+    queue,
+    task: taskSlug,
+  } as never)) as { id: number | string }
+
+  const run = async (): Promise<void> => {
+    // The job reads the document on its own connection, so it must not start until
+    // the write that triggered it is committed and visible.
+    await waitForTransaction(req)
+    try {
+      await req.payload.jobs.runByID({ id: job.id })
+    } catch (error) {
+      // The durable row remains; the jobs queue (cron / jobs:run) will pick it up.
+      req.payload.logger.warn(
+        `[payload-video-webm] immediate conversion run failed for job ${job.id}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  if (dispatch) {
+    await dispatch({ collection, docId, generation, jobId: job.id, sourceFilename }, { req, run })
+    return
+  }
+  if (await openTransaction(req)) {
+    // No dispatch, but a transaction is open: awaiting the run here would deadlock
+    // it against the commit it is waiting for, so it starts detached instead. The
+    // durable row (plus retries and cron) covers a process that dies in between.
+    void run()
+    return
+  }
+  // No transaction to wait for: run inline and make the caller wait. Slow beats a
+  // floating promise that resumes inside someone else's request on a frozen
+  // serverless instance — the boot warning tells hosts how to background it.
+  await run()
+}
+
+/** Enqueues the conversion once the document (and its file) exist. */
 export const createQueueHook = ({
   dispatch,
   queue,
@@ -130,53 +215,23 @@ export const createQueueHook = ({
     if (operation !== 'create' && operation !== 'update') {
       return doc
     }
-    if (req.context[SKIP_CONTEXT_KEY] || !req.file) {
+    if (req.context[SKIP_CONTEXT_KEY] || !req.context[QUEUE_CONTEXT_KEY]) {
       return doc
     }
-    const record = (doc as JsonObject)[METADATA_GROUP_NAME] as ConversionRecord | undefined
-    if (record?.status !== 'queued') {
-      return doc
-    }
+    // Consumed here so the flag can never leak onto a later document in the same
+    // request (a bulk update runs both hooks once per document).
+    delete req.context[QUEUE_CONTEXT_KEY]
 
-    // Apps with generated types narrow task slugs to their literal union, which a
-    // library cannot know — hence the cast on the way in and out.
-    const job = (await req.payload.jobs.queue({
-      input: {
-        collection: collection.slug,
-        docId: (doc as JsonObject).id as number | string,
-        sourceFilename: String((doc as JsonObject).filename),
-      },
+    await queueConversionJob({
+      collection: collection.slug,
+      dispatch,
+      docId: (doc as JsonObject).id as number | string,
+      generation: Number((doc as JsonObject)[WEBM_GENERATION_FIELD_NAME] ?? 0),
       queue,
-      task: taskSlug,
-    } as never)) as { id: number | string }
-
-    const run = async (): Promise<void> => {
-      try {
-        await req.payload.jobs.runByID({ id: job.id })
-      } catch (error) {
-        // The durable row remains; the jobs queue (cron / jobs:run) will pick it up.
-        req.payload.logger.warn(
-          `[payload-video-webm] immediate conversion run failed for job ${job.id}: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-    }
-
-    if (dispatch) {
-      await dispatch(
-        {
-          collection: collection.slug,
-          docId: (doc as JsonObject).id as number | string,
-          jobId: job.id,
-          sourceFilename: String((doc as JsonObject).filename),
-        },
-        { req, run },
-      )
-    } else {
-      // No dispatch configured: run inline (the upload waits). Slow beats a floating
-      // promise that resumes inside someone else's request on a frozen serverless
-      // instance — the boot warning tells hosts how to background it.
-      await run()
-    }
+      req,
+      sourceFilename: String((doc as JsonObject).filename),
+      taskSlug,
+    })
 
     return doc
   }

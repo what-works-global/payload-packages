@@ -11,10 +11,11 @@ import { toWebmFilename } from '../core/shouldConvert.js'
 import { METADATA_GROUP_NAME } from '../fields/conversionMetadataField.js'
 import {
   WEBM_DERIVATIVE_FLAG_FIELD_NAME,
+  WEBM_GENERATION_FIELD_NAME,
   WEBM_PRESET_FIELD_NAME,
   WEBM_VERSIONS_FIELD_NAME,
 } from '../fields/sidecarFields.js'
-import { relationId, SKIP_CONTEXT_KEY } from './shared.js'
+import { GC_CONTEXT_KEY, relationId, SKIP_CONTEXT_KEY, withSkipContext } from './shared.js'
 
 /** Payload's document-level upload keys — never copied onto a sidecar document. */
 const NON_COPYABLE_KEYS = new Set([
@@ -32,15 +33,21 @@ const NON_COPYABLE_KEYS = new Set([
   'updatedAt',
   'url',
   WEBM_DERIVATIVE_FLAG_FIELD_NAME,
+  WEBM_GENERATION_FIELD_NAME,
   WEBM_PRESET_FIELD_NAME,
   WEBM_VERSIONS_FIELD_NAME,
   'width',
 ])
 
-/** One `webmVersions` row, tolerating populated or id-only relationship values. */
+/**
+ * One `webmVersions` row, tolerating populated or id-only relationship values. A
+ * `null` video means the preset was deliberately not stored — `skippedReason` says
+ * why — which is a decision, not a gap: later runs must not re-encode it.
+ */
 export interface WebmVersionRow {
   preset: string
-  video: number | string
+  skippedReason: null | string
+  video: null | number | string
 }
 
 /** Normalizes a document's `webmVersions` into rows with plain ids. */
@@ -55,13 +62,22 @@ export const webmVersionRows = (doc: JsonObject | undefined): WebmVersionRow[] =
       continue
     }
     const preset = (row as JsonObject).preset
-    const video = relationId((row as JsonObject).video)
-    if (typeof preset === 'string' && video !== null) {
-      rows.push({ preset, video })
+    if (typeof preset !== 'string') {
+      continue
     }
+    const skippedReason = (row as JsonObject).skippedReason
+    rows.push({
+      preset,
+      skippedReason: typeof skippedReason === 'string' ? skippedReason : null,
+      video: relationId((row as JsonObject).video),
+    })
   }
   return rows
 }
+
+/** The sidecar ids a document currently links — skipped rows contribute nothing. */
+export const rowVideoIds = (rows: WebmVersionRow[]): (number | string)[] =>
+  rows.flatMap((row) => (row.video === null ? [] : [row.video]))
 
 /**
  * Stores one encoded rendition as a hidden second document in the same collection —
@@ -107,18 +123,24 @@ export const createSidecarDocument = async (
   return id
 }
 
+/**
+ * Deletes one rendition, joining the caller's transaction so a rolled-back update
+ * doesn't take real files with it while restoring the rows that referenced them.
+ */
 export const deleteSidecarDocument = async (
   req: PayloadRequest,
   collectionSlug: string,
   id: number | string,
 ): Promise<void> => {
   try {
-    await req.payload.delete({
-      id,
-      collection: asCollectionSlug(collectionSlug),
-      context: { [SKIP_CONTEXT_KEY]: true },
-      overrideAccess: true,
-    })
+    await withSkipContext(req, () =>
+      req.payload.delete({
+        id,
+        collection: asCollectionSlug(collectionSlug),
+        overrideAccess: true,
+        req,
+      }),
+    )
   } catch (error) {
     // An orphaned sidecar is preferable to failing the user's operation.
     req.payload.logger.warn(
@@ -132,14 +154,25 @@ export const deleteSidecarDocument = async (
  * after the write, so a failed update never orphans still-referenced renditions.
  * This also fires on the job's own link update, garbage-collecting the previous
  * file's renditions after a re-encode.
+ *
+ * Only writes that genuinely retire renditions may collect: a new file (`req.file`),
+ * the plugin's own job update, or the regenerate endpoint. Any other write — a plain
+ * save, a restored version, a document duplicated from one that had renditions —
+ * carries an older snapshot of `webmVersions` through no fault of the renditions,
+ * and deleting live files on the strength of it would be data loss.
  */
 export const createSidecarCleanupHook =
   (): CollectionAfterChangeHook =>
   async ({ collection, doc, previousDoc, req }) => {
-    const current = new Set(webmVersionRows(doc as JsonObject).map((row) => row.video))
-    for (const row of webmVersionRows(previousDoc as JsonObject | undefined)) {
-      if (!current.has(row.video)) {
-        await deleteSidecarDocument(req, collection.slug, row.video)
+    const retires =
+      Boolean(req.file) || req.context[SKIP_CONTEXT_KEY] || req.context[GC_CONTEXT_KEY]
+    if (!retires) {
+      return doc
+    }
+    const current = new Set(rowVideoIds(webmVersionRows(doc as JsonObject)))
+    for (const id of rowVideoIds(webmVersionRows(previousDoc as JsonObject | undefined))) {
+      if (!current.has(id)) {
+        await deleteSidecarDocument(req, collection.slug, id)
       }
     }
     return doc
@@ -152,8 +185,8 @@ export const createSidecarDeleteHook =
     if (req.context[SKIP_CONTEXT_KEY]) {
       return doc
     }
-    for (const row of webmVersionRows(doc as JsonObject)) {
-      await deleteSidecarDocument(req, collection.slug, row.video)
+    for (const id of rowVideoIds(webmVersionRows(doc as JsonObject))) {
+      await deleteSidecarDocument(req, collection.slug, id)
     }
     return doc
   }

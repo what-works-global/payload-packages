@@ -1,6 +1,11 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
-import { resolutionPresets, videoWebmPlugin } from '@whatworks/payload-video-webm'
+import {
+  EXCLUDE_WEBM_DERIVATIVES,
+  resolutionPresets,
+  sourcePreset,
+  videoWebmPlugin,
+} from '@whatworks/payload-video-webm'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,23 +22,32 @@ export default buildDevConfig({
       slug: 'media',
       admin: {
         description:
-          'Upload an mp4/mov — it stores unchanged and returns immediately; a background job then attaches a WebM sidecar (webmVersion). Refresh to watch the status flip from queued to complete.',
+          'Upload an mp4/mov — the source stores unchanged and the response returns immediately; a background job then encodes the presets and links them under "WebM versions" in the sidebar. Refresh to watch the status flip from queued to complete.',
       },
       fields: [{ name: 'alt', type: 'text' }],
       upload: {
         // Deliberately restricted to sources only: exercises the plugin widening
-        // mimeTypes with video/webm so the sidecar passes validation.
+        // mimeTypes with video/webm so the sidecars pass validation.
         mimeTypes: ['video/mp4', 'video/quicktime', 'image/*'],
         staticDir: path.resolve(dirname, 'media'),
       },
     },
     {
-      // Not targeted by the plugin (see `collections` below) — uploads stay untouched.
-      slug: 'raw-media',
-      fields: [],
-      upload: {
-        staticDir: path.resolve(dirname, 'raw-media'),
+      slug: 'pages',
+      admin: {
+        description:
+          'Demonstrates the picker rule: `baseListFilter` only hides renditions from the media LIST view, so an upload field needs filterOptions of its own. Open "hero" — only source videos are offered. Delete the filterOptions to see every rendition show up.',
+        useAsTitle: 'title',
       },
+      fields: [
+        { name: 'title', type: 'text' },
+        {
+          name: 'hero',
+          type: 'upload',
+          filterOptions: EXCLUDE_WEBM_DERIVATIVES,
+          relationTo: 'media',
+        },
+      ],
     },
   ],
   db: sqliteAdapter({
@@ -53,8 +67,14 @@ export default buildDevConfig({
         // Faster encodes for local fiddling; drop back to the defaults in real apps.
         speed: 4,
       },
-      // A small quality ladder: each upload gets a 360p and a 720p WebM rendition.
-      presets: resolutionPresets([360, 720]),
+      presets: {
+        // A small quality ladder: each upload gets a 360p and a 720p WebM rendition.
+        // Declaration order is preference order, so the delivery sizes come first.
+        ...resolutionPresets([360, 720]),
+        // …and a straight conversion of the source last: same resolution, nothing
+        // resized or cropped, near-transparent quality. Stored as plain `clip.webm`.
+        ...sourcePreset(),
+      },
     }),
   ],
 })

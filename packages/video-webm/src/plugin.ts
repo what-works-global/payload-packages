@@ -14,18 +14,25 @@ import {
 } from './core/defaults.js'
 import { Semaphore } from './core/semaphore.js'
 import { mimeTypeMatches } from './core/shouldConvert.js'
+import { createRegenerateEndpoint } from './endpoints/regenerate.js'
 import { conversionMetadataField, METADATA_GROUP_NAME } from './fields/conversionMetadataField.js'
 import {
+  EXCLUDE_WEBM_DERIVATIVES,
   WEBM_DERIVATIVE_FLAG_FIELD_NAME,
+  WEBM_GENERATION_FIELD_NAME,
   WEBM_PRESET_FIELD_NAME,
   WEBM_VERSIONS_FIELD_NAME,
   webmDerivativeFlagField,
+  webmGenerationField,
   webmPresetField,
   webmVersionsField,
 } from './fields/sidecarFields.js'
 import { createQueueHook, createStampHook } from './hooks/stampAndQueue.js'
 import { createSidecarCleanupHook, createSidecarDeleteHook } from './hooks/webmSidecar.js'
 import { createConvertTask } from './jobs/convertTask.js'
+
+/** Import-map path of the live admin status panel (regenerate the import map after installing). */
+export const WEBM_PANEL_COMPONENT_PATH = '@whatworks/payload-video-webm/client#WebmConversionPanel'
 
 const isUploadCollection = (collection: CollectionConfig): boolean => Boolean(collection.upload)
 
@@ -54,9 +61,14 @@ const withWebmMimeType = (collection: CollectionConfig): CollectionConfig => {
 const hasNamedField = (collection: CollectionConfig, name: string): boolean =>
   collection.fields.some((field) => 'name' in field && field.name === name)
 
-const HIDE_DERIVATIVES: Where = { [WEBM_DERIVATIVE_FLAG_FIELD_NAME]: { not_equals: true } }
+const HIDE_DERIVATIVES: Where = EXCLUDE_WEBM_DERIVATIVES
 
-/** Keeps plugin-managed sidecars out of the admin list view, composing with any existing filter. */
+/**
+ * Keeps plugin-managed sidecars out of the admin list view, composing with any
+ * existing filter. This is the *only* place Payload applies it: relationship and
+ * upload pickers build their own queries, so fields pointing at a converted
+ * collection need `filterOptions: EXCLUDE_WEBM_DERIVATIVES` of their own.
+ */
 const withDerivativeListFilter = (collection: CollectionConfig): CollectionConfig => {
   const existing = collection.admin?.baseListFilter
   const baseListFilter: BaseListFilter = existing
@@ -151,6 +163,38 @@ export const videoWebmPlugin =
           ? []
           : [webmDerivativeFlagField()]),
         ...(hasNamedField(withMime, WEBM_PRESET_FIELD_NAME) ? [] : [webmPresetField()]),
+        // Not gated on metadataFields: the generation counter is what keeps a stale
+        // job from overwriting newer renditions, so it is never optional.
+        ...(hasNamedField(withMime, WEBM_GENERATION_FIELD_NAME) ? [] : [webmGenerationField()]),
+        // Live control panel: polls while the job runs, then renders the condensed
+        // rendition table with open/regenerate actions — no refreshing needed.
+        ...(resolved.metadataFields
+          ? [
+              {
+                name: 'webmConversionPanel',
+                type: 'ui' as const,
+                admin: {
+                  components: {
+                    Field: {
+                      clientProps: {
+                        // Labels live in the config, not on the document, so the
+                        // panel is told them here rather than showing raw keys.
+                        presetLabels: Object.fromEntries(
+                          Object.entries(resolved.presets).map(([name, preset]) => [
+                            name,
+                            preset.label,
+                          ]),
+                        ),
+                        regeneratePath: `/${taskSlug}/regenerate`,
+                      },
+                      path: WEBM_PANEL_COMPONENT_PATH,
+                    },
+                  },
+                  position: 'sidebar' as const,
+                },
+              },
+            ]
+          : []),
       ]
 
       // Plugin hooks are appended after the collection's own hooks, so user hooks
@@ -183,6 +227,10 @@ export const videoWebmPlugin =
         ...config.jobs,
         tasks: [...existingTasks, createConvertTask(taskSlug, retries, registry)],
       }
+      config.endpoints = [
+        ...(config.endpoints ?? []),
+        createRegenerateEndpoint({ dispatch, queue, taskSlug }, registry),
+      ]
 
       const ffmpegPath = pluginResolved.ffmpegPath
       const codecs = [
@@ -210,7 +258,7 @@ export const videoWebmPlugin =
         }
         if (!dispatch) {
           payload.logger.warn(
-            `[payload-video-webm] no dispatch configured — conversions run inline and the upload request waits for the encode. Pass dispatch (e.g. Next's after(run), waitUntil(run()), or void run()) to background them.`,
+            `[payload-video-webm] no dispatch configured — conversions run inline and the upload request waits for the encode (on a database with transactions they instead start detached, once the upload commits). Pass dispatch (e.g. Next's after(run), waitUntil(run()), or void run()) to background them properly.`,
           )
         }
         await incomingOnInit?.(payload)

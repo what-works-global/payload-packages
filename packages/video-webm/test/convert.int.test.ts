@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { buildConfig, getPayload } from 'payload'
+import { buildConfig, createLocalReq, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import type { ConversionOutcome, DispatchJob } from '../src/index.js'
@@ -46,12 +46,23 @@ const relationId = (value: unknown): null | number | string => {
   return null
 }
 
-const versionRows = (doc: JsonObject): { preset: string; video: unknown }[] =>
-  Array.isArray(doc.webmVersions) ? (doc.webmVersions as { preset: string; video: unknown }[]) : []
+interface VersionRow {
+  preset: string
+  skippedReason?: null | string
+  video: unknown
+}
+
+/** Every decided preset — stored renditions and recorded skips alike. */
+const versionRows = (doc: JsonObject): VersionRow[] =>
+  Array.isArray(doc.webmVersions) ? (doc.webmVersions as VersionRow[]) : []
+
+/** Only the rows that actually link a stored rendition. */
+const storedRows = (doc: JsonObject): VersionRow[] =>
+  versionRows(doc).filter((row) => relationId(row.video) !== null)
 
 /** Id of the first (most-preferred) rendition, or null while none exist. */
 const firstSidecarId = (doc: JsonObject): null | number | string =>
-  relationId(versionRows(doc)[0]?.video)
+  relationId(storedRows(doc)[0]?.video)
 
 let payload: Payload
 let tmpDir: string
@@ -71,6 +82,25 @@ const hookObservations: { beforeChange: string[]; beforeOperation: string[] } = 
 /** Dispatched-but-not-run conversions for the 'deferred' collection. */
 const deferred: Array<{ job: DispatchJob; run: () => Promise<void> }> = []
 
+/**
+ * Conversions dispatched by the other test plugins. A host backgrounds these
+ * (`after(run)`, `waitUntil(run())`); the tests run them on demand instead, which
+ * keeps every assertion deterministic. Nothing can run them earlier: on a database
+ * with transactions the run waits for the upload to commit, so awaiting inside the
+ * hook that queued it would deadlock.
+ */
+const pendingRuns: Array<() => Promise<void>> = []
+
+const drain = async (): Promise<void> => {
+  while (pendingRuns.length > 0) {
+    await pendingRuns.shift()!()
+  }
+}
+
+const captureRun = (_job: DispatchJob, { run }: { run: () => Promise<void> }): void => {
+  pendingRuns.push(run)
+}
+
 const observeBeforeOperation: CollectionBeforeOperationHook = ({ req }) => {
   if (req.file) {
     hookObservations.beforeOperation.push(`${req.file.name}:${req.file.mimetype}`)
@@ -84,16 +114,23 @@ const observeBeforeChange: CollectionBeforeChangeHook = ({ data, req }) => {
   return data
 }
 
-const upload = (
+/**
+ * Uploads and then runs whatever conversion it dispatched, so the returned document
+ * is the pre-conversion response and a re-fetch shows the finished result.
+ */
+const upload = async (
   collection: string,
   file: { data: Buffer; mimetype: string; name: string },
   data: Record<string, unknown> = {},
-) =>
-  payload.create({
+) => {
+  const created = await payload.create({
     collection,
     data,
     file: { ...file, size: file.data.byteLength },
   })
+  await drain()
+  return created
+}
 
 const fetchDoc = (collection: string, id: number | string): Promise<JsonObject> =>
   payload.findByID({ id, collection, depth: 0 }) as Promise<JsonObject>
@@ -170,6 +207,8 @@ beforeAll(async () => {
       },
       uploadCollection('capped'),
       uploadCollection('ladder'),
+      uploadCollection('redundant'),
+      uploadCollection('quiet'),
       uploadCollection('vp8-media'),
       uploadCollection('filtered'),
       uploadCollection('deferred'),
@@ -181,8 +220,6 @@ beforeAll(async () => {
       push: true,
     }),
     plugins: [
-      // Default (no dispatch): the job runs inline, so payload.create resolves
-      // only after the conversion finished — convenient for these tests.
       videoWebmPlugin({
         collections: {
           archive: true,
@@ -192,8 +229,13 @@ beforeAll(async () => {
           // Two renditions from the ready-made quality ladder (tiny ones for speed).
           ladder: { presets: resolutionPresets([144, 240]) },
           media: true,
+          // No metadata group: the conversion must still queue and run.
+          quiet: { metadataFields: false },
+          // The 320x240 source can't fill the 360p rung — it must be skipped.
+          redundant: { presets: resolutionPresets([144, 240, 360]) },
           'vp8-media': { encoding: { codec: 'vp8', crf: 50, speed: 16 } },
         },
+        dispatch: captureRun,
         // Cheapest settings that still exercise the real pipeline.
         encoding: { crf: 50, speed: 5 },
         maxConcurrentEncodes: 2,
@@ -215,6 +257,7 @@ beforeAll(async () => {
       // deterministically exercising the skipIfLarger guard.
       videoWebmPlugin({
         collections: ['guarded'],
+        dispatch: captureRun,
         ffmpegPath: inflatingBinary,
         onConversionComplete: (outcome) => {
           outcomes.push(outcome)
@@ -224,6 +267,7 @@ beforeAll(async () => {
       // Broken ffmpeg — the job must fail, record the error, and leave the original.
       videoWebmPlugin({
         collections: ['failing'],
+        dispatch: captureRun,
         ffmpegPath: path.join(tmpDir, 'missing-ffmpeg'),
         taskSlug: 'video-webm-convert-failing',
       }),
@@ -369,6 +413,220 @@ describe.skipIf(!ffmpegAvailable)('async conversion (requires ffmpeg)', () => {
     expect(getVideoSources(doc).map((s) => s.preset)).toEqual([null])
   })
 
+  it('regenerates one preset via the endpoint, replacing only that rendition', async () => {
+    const created = await upload('ladder', {
+      name: 'regen.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    const before = await fetchDoc('ladder', created.id as number)
+    const kept240 = versionRows(before).find((r) => r.preset === '240p')
+    expect(versionRows(before)).toHaveLength(2)
+
+    const user = await payload.create({
+      collection: 'users',
+      data: { email: 'regen@example.com', password: 'test1234' },
+    })
+    const endpoint = payload.config.endpoints.find(
+      (e) => e.path === '/video-webm-convert/regenerate' && e.method === 'post',
+    )
+    expect(endpoint).toBeDefined()
+    const req = await createLocalReq({ user: { ...user, collection: 'users' } }, payload)
+    Object.assign(req, {
+      json: () => Promise.resolve({ id: created.id, collection: 'ladder', preset: '144p' }),
+    })
+    const response = await endpoint!.handler(req)
+    expect(response.status).toBe(202)
+    await drain()
+
+    const after = await fetchDoc('ladder', created.id as number)
+    expect(after.videoWebm).toMatchObject({ status: 'complete' })
+    const rows = versionRows(after)
+    // Declaration order survives a partial regenerate — the re-encoded 144p is
+    // sorted back to the front, not appended.
+    expect(rows.map((r) => r.preset)).toEqual(['144p', '240p'])
+    // The untouched preset kept its sidecar; the regenerated one is a fresh doc.
+    expect(rows.find((r) => r.preset === '240p')?.video).toBe(kept240?.video)
+    const sidecars = await payload.find({
+      collection: 'ladder',
+      depth: 0,
+      where: { isWebmDerivative: { equals: true }, webmPreset: { equals: '144p' } },
+    })
+    expect(sidecars.docs.filter((d) => String(d.filename).startsWith('regen'))).toHaveLength(1)
+  })
+
+  it('rejects unauthenticated and invalid regenerate requests', async () => {
+    const endpoint = payload.config.endpoints.find(
+      (e) => e.path === '/video-webm-convert/regenerate' && e.method === 'post',
+    )
+    const anonReq = await createLocalReq({}, payload)
+    Object.assign(anonReq, {
+      json: () => Promise.resolve({ id: 1, collection: 'ladder' }),
+    })
+    expect((await endpoint!.handler(anonReq)).status).toBe(403)
+
+    const user = await payload.find({ collection: 'users', limit: 1 })
+    const req = await createLocalReq({ user: { ...user.docs[0], collection: 'users' } }, payload)
+    Object.assign(req, {
+      json: () => Promise.resolve({ id: 999, collection: 'ladder', preset: 'nope' }),
+    })
+    expect((await endpoint!.handler(req)).status).toBe(400)
+  })
+
+  it('converts even when the metadata group is disabled', async () => {
+    // Regression: the queue hook used to trigger off the stamped status field, so a
+    // collection without the metadata group never queued anything at all.
+    const created = await upload('quiet', {
+      name: 'quiet.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+
+    const doc = await fetchDoc('quiet', created.id as number)
+    expect(doc.videoWebm).toBeUndefined()
+    expect(storedRows(doc)).toHaveLength(1)
+    const sidecar = await fetchDoc('quiet', firstSidecarId(doc)!)
+    expect(sidecar.mimeType).toBe('video/webm')
+    expect(isWebm(fs.readFileSync(path.join(tmpDir, 'quiet', String(sidecar.filename))))).toBe(true)
+  })
+
+  it('skips ladder rungs the source is too small to fill', async () => {
+    const created = await upload('redundant', {
+      name: 'small.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+
+    const doc = await fetchDoc('redundant', created.id as number)
+    const rows = versionRows(doc)
+    // Every preset is decided; 360p is recorded as skipped rather than encoded into
+    // a second copy of the 240p-tall source.
+    expect(rows.map((row) => row.preset)).toEqual(['144p', '240p', '360p'])
+    expect(rows.find((row) => row.preset === '360p')?.skippedReason).toBe('source-smaller')
+    expect(relationId(rows.find((row) => row.preset === '360p')?.video)).toBeNull()
+    expect(storedRows(doc).map((row) => row.preset)).toEqual(['144p', '240p'])
+    expect(doc.videoWebm).toMatchObject({ status: 'complete' })
+  })
+
+  it('gives a duplicated document its own conversion state', async () => {
+    // Payload never sets req.file when duplicating, so the copy used to inherit the
+    // original's rows — and deleting the copy then deleted the original's renditions.
+    const created = await upload('media', {
+      name: 'original.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    const sidecarId = firstSidecarId(await fetchDoc('media', created.id as number))
+    expect(sidecarId).not.toBeNull()
+
+    const copy = await payload.duplicate({ id: created.id, collection: 'media' })
+    const copyDoc = await fetchDoc('media', copy.id as number)
+    expect(storedRows(copyDoc).map((row) => relationId(row.video))).not.toContain(sidecarId)
+
+    await payload.delete({ id: copy.id, collection: 'media' })
+    await expect(fetchDoc('media', sidecarId!)).resolves.toBeTruthy()
+    expect(firstSidecarId(await fetchDoc('media', created.id as number))).toBe(sidecarId)
+  })
+
+  it('keeps renditions when an ordinary update carries a stale webmVersions snapshot', async () => {
+    // What restoring an old version looks like: rows cleared, no file, no plugin
+    // context. Collecting on that would delete live files the document still needs.
+    const created = await upload('media', {
+      name: 'snapshot.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    const sidecarId = firstSidecarId(await fetchDoc('media', created.id as number))
+    expect(sidecarId).not.toBeNull()
+
+    await payload.update({ id: created.id, collection: 'media', data: { webmVersions: [] } })
+    await expect(fetchDoc('media', sidecarId!)).resolves.toBeTruthy()
+  })
+
+  it('discards a job the document has moved past', async () => {
+    const created = await upload('media', {
+      name: 'stale-job.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    // Clear the rows without collecting (as above) so a stale job would have real
+    // work to do — the generation guard is the only thing stopping it.
+    await payload.update({ id: created.id, collection: 'media', data: { webmVersions: [] } })
+    const before = await payload.count({ collection: 'media' })
+
+    const job = (await payload.jobs.queue({
+      input: {
+        collection: 'media',
+        docId: created.id,
+        generation: 0,
+        sourceFilename: 'stale-job.mp4',
+      },
+      queue: 'video-webm',
+      task: 'video-webm-convert',
+    } as never)) as { id: number | string }
+    await payload.jobs.runByID({ id: job.id })
+
+    expect((await payload.count({ collection: 'media' })).totalDocs).toBe(before.totalDocs)
+    expect(versionRows(await fetchDoc('media', created.id as number))).toHaveLength(0)
+  })
+
+  it('re-encodes a preset whose rendition was deleted behind the plugin', async () => {
+    const created = await upload('media', {
+      name: 'dangling.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    const doc = await fetchDoc('media', created.id as number)
+    const sidecarId = firstSidecarId(doc)!
+    await payload.delete({ id: sidecarId, collection: 'media' })
+
+    // The cron safety net picking the document up again: the dangling row must not
+    // count as a finished rendition.
+    const job = (await payload.jobs.queue({
+      input: {
+        collection: 'media',
+        docId: created.id,
+        generation: Number(doc.webmGeneration),
+        sourceFilename: 'dangling.mp4',
+      },
+      queue: 'video-webm',
+      task: 'video-webm-convert',
+    } as never)) as { id: number | string }
+    await payload.jobs.runByID({ id: job.id })
+
+    const repaired = await fetchDoc('media', created.id as number)
+    expect(repaired.videoWebm).toMatchObject({ status: 'complete' })
+    const rebuilt = firstSidecarId(repaired)
+    expect(rebuilt).not.toBeNull()
+    await expect(fetchDoc('media', rebuilt!)).resolves.toBeTruthy()
+  })
+
+  it('refuses to queue another conversion while one is still in flight', async () => {
+    const created = await upload('deferred', {
+      name: 'busy.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+    // The deferred plugin captured the run instead of executing it, so this document
+    // is genuinely mid-conversion.
+    expect((await fetchDoc('deferred', created.id as number)).videoWebm).toMatchObject({
+      status: 'queued',
+    })
+
+    const endpoint = payload.config.endpoints.find(
+      (e) => e.path === '/video-webm-convert-deferred/regenerate' && e.method === 'post',
+    )
+    const user = await payload.create({
+      collection: 'users',
+      data: { email: 'cooldown@example.com', password: 'test1234' },
+    })
+    const req = await createLocalReq({ user: { ...user, collection: 'users' } }, payload)
+    Object.assign(req, {
+      json: () => Promise.resolve({ id: created.id, collection: 'deferred' }),
+    })
+    expect((await endpoint!.handler(req)).status).toBe(409)
+  })
+
   it('copies user fields onto the sidecar so required fields validate', async () => {
     const created = await upload(
       'archive',
@@ -400,6 +658,7 @@ describe.skipIf(!ffmpegAvailable)('async conversion (requires ffmpeg)', () => {
         size: sampleMov.byteLength,
       },
     })
+    await drain()
     // Ids can be reused by sqlite after a delete, so assert by content: the doc
     // now links a sidecar for the NEW file, and only one sidecar exists for it.
     const second = firstSidecarId(await fetchDoc('media', created.id as number))
@@ -552,7 +811,9 @@ describe.skipIf(process.platform === 'win32')('deterministic paths (no ffmpeg ne
     expect(doc.mimeType).toBe('video/mp4')
     expect(doc.filesize).toBe(source.data.byteLength)
     expect(doc.videoWebm).toMatchObject({ skippedReason: 'output-larger', status: 'skipped' })
-    expect(versionRows(doc)).toHaveLength(0)
+    // The skip is recorded as a row so later runs don't encode it again forever.
+    expect(versionRows(doc)).toMatchObject([{ preset: 'webm', skippedReason: 'output-larger' }])
+    expect(storedRows(doc)).toHaveLength(0)
     // Byte-identical original — the discarded WebM never touched it.
     expect(fs.readFileSync(path.join(tmpDir, 'guarded', 'tiny.mp4')).equals(source.data)).toBe(true)
 

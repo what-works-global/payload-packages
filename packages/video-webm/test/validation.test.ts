@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolutionPresets, resolveConfig } from '../src/core/defaults.js'
+import { resolutionPresets, resolveConfig, sourcePreset } from '../src/core/defaults.js'
 
 describe('resolveConfig validation', () => {
   it('rejects out-of-range crf', () => {
@@ -79,6 +79,32 @@ describe('resolveConfig validation', () => {
     expect(resolutionPresets([333])['333p'].encoding).toEqual({ crf: 32, maxHeight: 333 })
     // Default ladder.
     expect(Object.keys(resolutionPresets())).toEqual(['360p', '720p', '1080p'])
+  })
+
+  it('sourcePreset converts at the source resolution and ignores inherited caps', () => {
+    const resolved = resolveConfig({
+      // A collection-wide cap that the faithful rendition must not inherit.
+      encoding: { audioBitrate: '96k', maxHeight: 480, speed: 4 },
+      presets: { ...resolutionPresets([360]), ...sourcePreset() },
+    })
+
+    const source = resolved.presets.webm
+    expect(source.label).toBe('Original quality')
+    expect(source.encoding.maxHeight).toBeUndefined()
+    expect(source.encoding.maxWidth).toBeUndefined()
+    expect(source.encoding.crf).toBe(18)
+    // Everything the preset doesn't speak to is still inherited untouched.
+    expect(source.encoding.audioBitrate).toBe('96k')
+    expect(source.encoding.speed).toBe(4)
+    // The ladder rung alongside it keeps its own cap.
+    expect(resolved.presets['360p'].encoding.maxHeight).toBe(360)
+  })
+
+  it('sourcePreset takes explicit overrides, including true lossless', () => {
+    const presets = sourcePreset({ crf: 24, extraArgs: ['-lossless', '1'] })
+    expect(presets.webm.encoding).toMatchObject({ crf: 24, extraArgs: ['-lossless', '1'] })
+    // Still the `webm` key, so the file stays `clip.webm` with no suffix.
+    expect(Object.keys(presets)).toEqual(['webm'])
   })
 
   it('accepts a fully defaulted config', () => {

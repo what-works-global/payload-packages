@@ -69,7 +69,6 @@ export interface Config {
   collections: {
     users: User;
     media: Media;
-    'raw-media': RawMedia;
     'payload-kv': PayloadKv;
     'payload-jobs': PayloadJob;
     'payload-locked-documents': PayloadLockedDocument;
@@ -80,7 +79,6 @@ export interface Config {
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
-    'raw-media': RawMediaSelect<false> | RawMediaSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-jobs': PayloadJobsSelect<false> | PayloadJobsSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
@@ -153,7 +151,7 @@ export interface User {
   collection: 'users';
 }
 /**
- * Upload an mp4/mov — it stores unchanged and returns immediately; a background job then attaches a WebM sidecar (webmVersion). Refresh to watch the status flip from queued to complete.
+ * Upload an mp4/mov — the source stores unchanged and the response returns immediately; a background job then encodes the presets and links them under "WebM versions" in the sidebar. Refresh to watch the status flip from queued to complete.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "media".
@@ -188,24 +186,6 @@ export interface Media {
     | null;
   isWebmDerivative?: boolean | null;
   webmPreset?: string | null;
-  updatedAt: string;
-  createdAt: string;
-  url?: string | null;
-  thumbnailURL?: string | null;
-  filename?: string | null;
-  mimeType?: string | null;
-  filesize?: number | null;
-  width?: number | null;
-  height?: number | null;
-  focalX?: number | null;
-  focalY?: number | null;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "raw-media".
- */
-export interface RawMedia {
-  id: number;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -341,10 +321,6 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'media';
         value: number | Media;
-      } | null)
-    | ({
-        relationTo: 'raw-media';
-        value: number | RawMedia;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -436,23 +412,6 @@ export interface MediaSelect<T extends boolean = true> {
       };
   isWebmDerivative?: T;
   webmPreset?: T;
-  updatedAt?: T;
-  createdAt?: T;
-  url?: T;
-  thumbnailURL?: T;
-  filename?: T;
-  mimeType?: T;
-  filesize?: T;
-  width?: T;
-  height?: T;
-  focalX?: T;
-  focalY?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "raw-media_select".
- */
-export interface RawMediaSelect<T extends boolean = true> {
   updatedAt?: T;
   createdAt?: T;
   url?: T;

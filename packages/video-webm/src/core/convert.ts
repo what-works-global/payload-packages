@@ -127,6 +127,106 @@ const runFfmpeg = (ffmpegPath: string, args: string[], timeoutMs: number): Promi
     })
   })
 
+/** Bound on the dimension probe — it decodes nothing, so seconds are generous. */
+const PROBE_TIMEOUT_MS = 30_000
+
+export interface VideoDimensions {
+  /** Display height in pixels, with any rotation metadata already applied. */
+  height: number
+  width: number
+}
+
+/**
+ * Reads a video's display dimensions from `ffmpeg -i` (which prints the stream
+ * table to stderr and exits non-zero because no output file was given) — one cheap
+ * spawn, no ffprobe dependency. Resolves `null` whenever anything is unexpected:
+ * callers must treat unknown dimensions as "encode everything".
+ */
+export const probeVideoDimensions = (
+  ffmpegPath: string,
+  inputPath: string,
+): Promise<null | VideoDimensions> =>
+  new Promise((resolve) => {
+    const child = spawn(ffmpegPath, ['-hide_banner', '-i', inputPath], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      child.stderr.destroy()
+      resolve(null)
+    }, PROBE_TIMEOUT_MS)
+
+    let stderr = ''
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-STDERR_TAIL_BYTES)
+    })
+
+    child.on('error', () => {
+      clearTimeout(timer)
+      resolve(null)
+    })
+    child.on('close', () => {
+      clearTimeout(timer)
+      resolve(parseDimensions(stderr))
+    })
+  })
+
+/**
+ * Pulls `WxH` off the first video stream line. A quarter-turn `displaymatrix`
+ * rotation means the coded dimensions are transposed on screen, so they are
+ * swapped back — otherwise a portrait phone clip reads as landscape and the
+ * redundancy check would drop renditions that are real downscales.
+ */
+const parseDimensions = (stderr: string): null | VideoDimensions => {
+  const lines = stderr.split('\n')
+  const index = lines.findIndex((line) => /:\s+Video:/.test(line))
+  if (index === -1) {
+    return null
+  }
+  const match = /\b(\d{2,5})x(\d{2,5})\b/.exec(lines[index] ?? '')
+  if (!match) {
+    return null
+  }
+  const width = Number(match[1])
+  const height = Number(match[2])
+
+  // Side data belonging to this stream is indented underneath it, before the next
+  // "Stream #" line.
+  const sideData = []
+  for (const line of lines.slice(index + 1)) {
+    if (/^\s*Stream #/.test(line)) {
+      break
+    }
+    sideData.push(line)
+  }
+  const rotation = /rotation of (-?[\d.]+) degrees/.exec(sideData.join('\n'))
+  const quarterTurned = rotation ? Math.abs(Number(rotation[1])) % 180 === 90 : false
+
+  return quarterTurned ? { height: width, width: height } : { height, width }
+}
+
+export interface EncodeToFileOptions {
+  config: Pick<ResolvedVideoWebmConfig, 'encoding' | 'ffmpegPath' | 'timeoutMs'>
+  inputPath: string
+  outputPath: string
+}
+
+/**
+ * The core transcode: file in, file out, nothing buffered in memory. The conversion
+ * job works in these terms so a multi-gigabyte master never lands on the Node heap.
+ */
+export const encodeToFile = ({
+  config,
+  inputPath,
+  outputPath,
+}: EncodeToFileOptions): Promise<void> =>
+  runFfmpeg(
+    config.ffmpegPath,
+    buildFfmpegArgs({ encoding: config.encoding, inputPath, outputPath }),
+    config.timeoutMs,
+  )
+
 export interface ConvertToWebmOptions {
   config: Pick<ResolvedVideoWebmConfig, 'encoding' | 'ffmpegPath' | 'timeoutMs'>
   /** Buffer of the source video, used when no `inputPath` is given. */
@@ -142,16 +242,17 @@ export interface ConvertToWebmOptions {
  * filesystem — ffmpeg probes input containers by content, so the rest of the name
  * carries no information and would only import length/encoding problems.
  */
-const tempInputName = (originalName: string): string => {
+export const tempInputName = (originalName: string): string => {
   const ext = path.extname(path.basename(originalName))
   const safeExt = /^\.[\w-]{1,16}$/.test(ext) ? ext : ''
   return `input${safeExt}`
 }
 
 /**
- * Transcodes a video to WebM through temp files in a fresh `os.tmpdir()` directory,
- * returning the output bytes. The temp directory is always removed in `finally` —
- * success, ffmpeg failure, and timeout included — so no partial files leak.
+ * Buffer-in, buffer-out convenience wrapper around {@link encodeToFile}, working in
+ * a fresh `os.tmpdir()` directory that is always removed in `finally` — success,
+ * ffmpeg failure, and timeout included — so no partial files leak. The conversion
+ * job uses `encodeToFile` directly to keep whole videos off the heap.
  */
 export const convertToWebm = async ({
   config,
@@ -169,13 +270,7 @@ export const convertToWebm = async ({
     }
 
     const outputPath = path.join(tmpDir, 'output.webm')
-    const args = buildFfmpegArgs({
-      encoding: config.encoding,
-      inputPath: sourcePath,
-      outputPath,
-    })
-
-    await runFfmpeg(config.ffmpegPath, args, config.timeoutMs)
+    await encodeToFile({ config, inputPath: sourcePath, outputPath })
 
     return await fs.readFile(outputPath)
   } finally {

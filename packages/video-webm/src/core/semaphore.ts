@@ -16,9 +16,14 @@ export class Semaphore {
 
   async acquire(): Promise<() => void> {
     if (this.active >= this.limit) {
+      // The released permit is handed straight to this waiter — `active` is never
+      // decremented in between. Decrementing first would open a window in which an
+      // `acquire()` continuation scheduled ahead of the waiter's takes the permit,
+      // overshooting the limit and breaking FIFO order.
       await new Promise<void>((resolve) => this.waiting.push(resolve))
+    } else {
+      this.active++
     }
-    this.active++
 
     let released = false
     return () => {
@@ -26,8 +31,12 @@ export class Semaphore {
         return
       }
       released = true
-      this.active--
-      this.waiting.shift()?.()
+      const next = this.waiting.shift()
+      if (next) {
+        next()
+      } else {
+        this.active--
+      }
     }
   }
 }

@@ -45,10 +45,18 @@
       "types": "./src/exports/frontend.ts",
       "import": "./src/exports/frontend.ts",
       "default": "./src/exports/frontend.ts"
+    },
+    "./client": {
+      "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
     }
   },
   "peerDependencies": {
-    "payload": ">=3.54.0 <4"
+    "@payloadcms/ui": ">=3.54.0 <4",
+    "payload": ">=3.54.0 <4",
+    "react": ">=19.0.0 <20",
+    "react-dom": ">=19.0.0 <20"
   },
   "whatworks": {
     "peerMatrix": {
@@ -95,7 +103,23 @@
         "types": "./dist/exports/frontend.d.ts",
         "import": "./dist/exports/frontend.js",
         "default": "./dist/exports/frontend.js"
+      },
+      "./client": {
+        "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
+        "default": "./dist/exports/client.js"
       }
+    }
+  },
+  "peerDependenciesMeta": {
+    "@payloadcms/ui": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
     }
   }
 }

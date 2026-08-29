@@ -10,6 +10,7 @@ import { encodeLimited } from '../src/hooks/shared.js'
 let fixtureDir: string
 let failingBinary: string
 let sleepingBinary: string
+let source: { inputPath: string; outputPath: string }
 
 beforeAll(() => {
   fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'video-webm-permits-'))
@@ -17,13 +18,15 @@ beforeAll(() => {
   fs.writeFileSync(failingBinary, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
   sleepingBinary = path.join(fixtureDir, 'sleeping-ffmpeg')
   fs.writeFileSync(sleepingBinary, '#!/bin/sh\nsleep 60\n', { mode: 0o755 })
+
+  const inputPath = path.join(fixtureDir, 'clip.mp4')
+  fs.writeFileSync(inputPath, 'not really a video')
+  source = { inputPath, outputPath: path.join(fixtureDir, 'out.webm') }
 })
 
 afterAll(() => {
   fs.rmSync(fixtureDir, { force: true, recursive: true })
 })
-
-const source = { name: 'clip.mp4', data: Buffer.from('not really a video') }
 
 const settle = (promise: Promise<unknown>) =>
   promise.then(
