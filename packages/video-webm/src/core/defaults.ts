@@ -7,6 +7,8 @@ import type {
   WebmEncodingOptions,
 } from '../types.js'
 
+import { parseAspectRatio } from './args.js'
+
 /**
  * Video mime types converted by default — the common non-WebM containers browsers
  * and phones actually produce. `video/webm` is intentionally absent (nothing to do)
@@ -90,6 +92,58 @@ export const resolutionPresets = (
   )
 
 /**
+ * A width ladder spaced ~1.5× apart. File size tracks pixel count and pixel count is
+ * width squared, so each rung is roughly half the bytes of the one above it: close
+ * enough that no request is served a badly oversized file, far enough apart that the
+ * extra encodes earn their keep.
+ *
+ * The default covers every slot a 1440px laptop at 2× can produce, from thumbnail to
+ * full-bleed hero.
+ */
+export const DEFAULT_WIDTH_LADDER = [2560, 1920, 1280, 854, 640, 426]
+
+/** 16:9 height for a ladder width, used only to pick that rung's CRF from the table. */
+const ladderCrfForWidth = (width: number): number =>
+  LADDER_CRF[Math.round(width / (16 / 9) / 2) * 2] ?? 33
+
+/**
+ * Width-based ladder: one preset per width, capped so nothing is ever upscaled, with
+ * each rung's CRF taken from the resolution table via its 16:9 height. Widths suit
+ * layout work better than heights — a slot is measured by how wide it is.
+ *
+ * ```ts
+ * presets: {
+ *   ...widthPresets(),                                                   // 2560w … 426w
+ *   ...widthPresets([1080, 720], { aspectRatio: '9:16', prefix: 'portrait' }),
+ * }
+ * ```
+ *
+ * With `aspectRatio` the rungs are cropped to that shape first (positioned by the
+ * document's focal point), which is the one case worth a separate encode: `cover` on
+ * a landscape master in a 9:16 slot downloads roughly 3× the pixels it shows.
+ */
+export const widthPresets = (
+  widths: number[] = DEFAULT_WIDTH_LADDER,
+  options: { aspectRatio?: string; prefix?: string } = {},
+): Record<string, VideoPreset> =>
+  Object.fromEntries(
+    widths.map((width) => {
+      const name = options.prefix ? `${options.prefix}-${width}w` : `${width}w`
+      return [
+        name,
+        {
+          encoding: {
+            ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
+            crf: ladderCrfForWidth(width),
+            maxWidth: width,
+          },
+          label: options.prefix ? `${options.prefix} ${width}px` : `${width}px`,
+        } satisfies VideoPreset,
+      ]
+    }),
+  )
+
+/**
  * Constant-quality target for {@link sourcePreset}. VP9 is visually transparent for
  * most material somewhere around CRF 15–24; 18 sits at the high-quality end of that
  * band without the size explosion of true lossless.
@@ -165,8 +219,15 @@ const resolveEncoding = (
   if (encoding.maxHeight !== undefined) {
     assertPositiveInteger(encoding.maxHeight, `${context}.maxHeight`)
   }
+  if (encoding.aspectRatio !== undefined && parseAspectRatio(encoding.aspectRatio) === null) {
+    fail(
+      `${context}.aspectRatio must look like 'W:H' with positive numbers, got ${JSON.stringify(encoding.aspectRatio)}`,
+    )
+  }
 
   return {
+    aspectRatio: encoding.aspectRatio,
+    audio: encoding.audio !== false,
     audioBitrate: encoding.audioBitrate ?? '128k',
     codec,
     crf,
@@ -249,27 +310,61 @@ export const resolveConfig = (pluginConfig: VideoWebmPluginConfig): ResolvedVide
 
 /**
  * Presets that would only duplicate an earlier rendition because the source is too
- * small to fill them: among the height-capped presets at or above the source height,
- * the first is the full-quality rendition and every later one encodes the same
- * frame size again. Uncapped presets never take part — they may differ by CRF alone.
- * Declaration order decides, so the answer doesn't depend on which presets are
- * currently pending.
+ * small to fill them. Nothing is ever upscaled, so every rung whose cap sits at or
+ * above the source encodes the *same* frame size: the first of them is the
+ * full-size rendition and the rest are copies of it.
+ *
+ * Cropped presets are judged against the crop window rather than the whole frame — a
+ * 9:16 window out of a 1920×1080 master is only 607px wide, so a 1080px-wide portrait
+ * rung is already full size. Each aspect ratio keeps its own full-size rung, and
+ * uncapped presets never take part since they may differ by CRF alone.
+ *
+ * The rung kept is the one whose cap fits the source most tightly: every full-size
+ * rung yields the same pixels, so keeping `1280w` over `1920w` for a 1280px master
+ * means the stored file's name matches what it actually is. The result depends only
+ * on the preset set and the source, never on which presets happen to be pending.
  */
 export const redundantPresets = (
   presets: Record<string, ResolvedPreset>,
-  sourceHeight: number,
+  source: { height: number; width: number },
 ): Set<string> => {
   const redundant = new Set<string>()
-  let fullHeightTaken = false
+  const keptPerFamily = new Map<string, { cap: number; name: string }>()
+
   for (const [name, preset] of Object.entries(presets)) {
-    const { maxHeight } = preset.encoding
-    if (maxHeight === undefined || maxHeight < sourceHeight) {
+    const { aspectRatio, maxHeight, maxWidth } = preset.encoding
+    if (maxWidth === undefined && maxHeight === undefined) {
       continue
     }
-    if (fullHeightTaken) {
-      redundant.add(name)
+
+    const ratio = aspectRatio ? parseAspectRatio(aspectRatio) : null
+    const available =
+      ratio === null
+        ? source
+        : {
+            height: Math.min(source.height, source.width / ratio),
+            width: Math.min(source.width, source.height * ratio),
+          }
+
+    const fillsWidth = maxWidth === undefined || maxWidth >= available.width
+    const fillsHeight = maxHeight === undefined || maxHeight >= available.height
+    if (!fillsWidth || !fillsHeight) {
+      continue // a real downscale
+    }
+
+    // Compared as widths so height- and width-capped rungs can be ranked together.
+    const cap =
+      maxWidth ??
+      (maxHeight as number) * (available.height ? available.width / available.height : 1)
+    const family = aspectRatio ?? 'source'
+    const kept = keptPerFamily.get(family)
+    if (!kept) {
+      keptPerFamily.set(family, { name, cap })
+    } else if (cap < kept.cap) {
+      redundant.add(kept.name)
+      keptPerFamily.set(family, { name, cap })
     } else {
-      fullHeightTaken = true
+      redundant.add(name)
     }
   }
   return redundant

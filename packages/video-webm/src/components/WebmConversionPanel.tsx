@@ -4,6 +4,7 @@ import { Pill, useConfig, useDocumentInfo } from '@payloadcms/ui'
 import React, { useCallback, useEffect, useState } from 'react'
 
 import { formatBytes } from './formatBytes.js'
+import { summariseSkipped } from './skipSummary.js'
 
 /** Poll cadence while a conversion is queued; the panel stops once it settles. */
 const POLL_MS = 2500
@@ -31,11 +32,6 @@ const STATUS_PILL: Record<string, { label: string; style: 'error' | 'success' | 
   failed: { label: 'Failed', style: 'error' },
   queued: { label: 'Optimising…', style: 'warning' },
   skipped: { label: 'Skipped', style: 'warning' },
-}
-
-const SKIP_LABEL: Record<string, string> = {
-  'output-larger': 'larger than source',
-  'source-smaller': 'source too small',
 }
 
 const cellStyle: React.CSSProperties = {
@@ -197,6 +193,20 @@ export const WebmConversionPanel: React.FC<{
     ? (STATUS_PILL[state.status] ?? { label: state.status, style: 'warning' as const })
     : { label: 'Not converted', style: 'warning' as const }
 
+  // Only renditions that exist earn a row: a table entry reading "larger than
+  // source" looks like a failure when it is the size guard working as intended.
+  const stored = state.renditions.filter((rendition) => rendition.url)
+  // …but a configured preset vanishing without explanation is its own confusion, so
+  // the skipped ones collapse into a single footnote. Redundant when nothing at all
+  // was stored — the status message above already says why.
+  const skippedNote =
+    stored.length > 0
+      ? summariseSkipped(
+          state.renditions.filter((rendition) => !rendition.url),
+          presetLabels,
+        )
+      : null
+
   return (
     <div className="field-type" style={{ marginBottom: 'var(--base)' }}>
       <div
@@ -246,7 +256,7 @@ export const WebmConversionPanel: React.FC<{
 
       {notice && <p style={{ ...noteStyle, color: 'var(--theme-error-500)' }}>{notice}</p>}
 
-      {state.renditions.length > 0 && (
+      {stored.length > 0 && (
         <table
           style={{
             borderCollapse: 'collapse',
@@ -256,7 +266,7 @@ export const WebmConversionPanel: React.FC<{
           }}
         >
           <tbody>
-            {state.renditions.map((rendition) => {
+            {stored.map((rendition) => {
               const savings =
                 state.originalFilesize > 0 && rendition.filesize > 0
                   ? Math.round((1 - rendition.filesize / state.originalFilesize) * 100)
@@ -273,29 +283,19 @@ export const WebmConversionPanel: React.FC<{
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {rendition.url ? (
-                      <>
-                        {formatBytes(rendition.filesize)}
-                        {savings !== null && savings > 0 ? ` (−${savings}%)` : ''}
-                      </>
-                    ) : (
-                      (SKIP_LABEL[rendition.skippedReason ?? ''] ??
-                      rendition.skippedReason ??
-                      'not stored')
-                    )}
+                    {formatBytes(rendition.filesize)}
+                    {savings !== null && savings > 0 ? ` (−${savings}%)` : ''}
                   </td>
                   <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {rendition.url && (
-                      <a
-                        href={rendition.url}
-                        rel="noopener noreferrer"
-                        style={actionStyle}
-                        target="_blank"
-                        title="Open this rendition in a new tab"
-                      >
-                        Open ↗
-                      </a>
-                    )}{' '}
+                    <a
+                      href={rendition.url ?? undefined}
+                      rel="noopener noreferrer"
+                      style={actionStyle}
+                      target="_blank"
+                      title="Open this rendition in a new tab"
+                    >
+                      Open ↗
+                    </a>{' '}
                     {regeneratePath && (
                       <button
                         disabled={busy !== null}
@@ -313,6 +313,18 @@ export const WebmConversionPanel: React.FC<{
             })}
           </tbody>
         </table>
+      )}
+
+      {skippedNote && (
+        <p
+          style={{
+            color: 'var(--theme-elevation-400)',
+            fontSize: '0.75rem',
+            margin: 'calc(var(--base) / 4) 0 0',
+          }}
+        >
+          Not stored — {skippedNote}
+        </p>
       )}
 
       {state.status === 'complete' && state.encodeDurationMs !== null && (

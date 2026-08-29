@@ -26,6 +26,8 @@ const skippedOutcome = (collection: string, file: UploadedFile, reason: SkipReas
   converted: false,
   convertedFilename: null,
   convertedFilesize: null,
+  // These decisions happen in beforeChange, where a new document has no id yet.
+  docId: null,
   encodeDurationMs: null,
   error: null,
   originalFilename: file.name,

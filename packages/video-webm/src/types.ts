@@ -3,6 +3,23 @@ import type { JsonObject, Payload, PayloadRequest } from 'payload'
 export type VideoCodec = 'vp8' | 'vp9'
 
 export interface WebmEncodingOptions {
+  /**
+   * Crop to this aspect ratio before scaling, written `'W:H'` (e.g. `'9:16'`). The
+   * widest (or tallest) window of that shape is taken, positioned by the document's
+   * focal point and clamped to stay inside the frame, then the size caps apply.
+   *
+   * A rung is a *resize* — same framing, fewer pixels, invisible to the viewer. A
+   * ratio variant is a *crop* — different framing, an editorial decision. Only
+   * reach for one when `object-fit: cover` would overdraw badly, which in practice
+   * means portrait slots fed by landscape masters.
+   */
+  aspectRatio?: string
+  /**
+   * Keep the audio track. `false` passes `-an`, which is what background/muted
+   * video wants — an autoplaying loop that can never be unmuted shouldn't carry
+   * (or pay for) an audio stream. Defaults to `true`.
+   */
+  audio?: boolean
   /** Opus audio bitrate passed to `-b:a`. Defaults to `'128k'`. */
   audioBitrate?: string
   /** WebM video codec — `'vp9'` (libvpx-vp9, default) or `'vp8'` (libvpx). */
@@ -135,6 +152,12 @@ export interface ConversionOutcome {
   convertedFilename: null | string
   /** WebM size in bytes; `null` when the conversion was skipped or failed. */
   convertedFilesize: null | number
+  /**
+   * ID of the source document, for cache invalidation (`revalidateTag`) and
+   * bookkeeping. `null` for upload-time decisions, which are made in `beforeChange` —
+   * a document being created doesn't have an id yet.
+   */
+  docId: null | number | string
   /** Wall-clock ffmpeg time in ms; `null` when no encode ran. */
   encodeDurationMs: null | number
   /** Error message when the job failed; `null` otherwise. */
@@ -292,8 +315,8 @@ export interface VideoWebmPluginConfig {
 
 /** {@link VideoWebmPluginConfig} with every default applied and validated. */
 export interface ResolvedVideoWebmConfig {
-  encoding: Pick<WebmEncodingOptions, 'maxHeight' | 'maxWidth'> &
-    Required<Omit<WebmEncodingOptions, 'maxHeight' | 'maxWidth'>>
+  encoding: Pick<WebmEncodingOptions, 'aspectRatio' | 'maxHeight' | 'maxWidth'> &
+    Required<Omit<WebmEncodingOptions, 'aspectRatio' | 'maxHeight' | 'maxWidth'>>
   fetchSource: ((args: FetchSourceArgs) => Promise<FetchedSource>) | null
   ffmpegPath: string
   inputMimeTypes: string[]

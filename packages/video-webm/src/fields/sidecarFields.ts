@@ -59,6 +59,16 @@ export const webmVersionsField = (collectionSlug: string): ArrayField => ({
       type: 'relationship',
       relationTo: asCollectionSlug(collectionSlug),
     },
+    // Measured off the encoded file. Payload only derives width/height for images,
+    // and picking a rendition by how wide it is shouldn't cost a second query.
+    {
+      name: 'width',
+      type: 'number',
+    },
+    {
+      name: 'height',
+      type: 'number',
+    },
     {
       // Deliberately text, not select: a future skip reason must never fail
       // validation on a document written by a newer version of the plugin.

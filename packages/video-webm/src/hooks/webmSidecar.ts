@@ -45,9 +45,12 @@ const NON_COPYABLE_KEYS = new Set([
  * why — which is a decision, not a gap: later runs must not re-encode it.
  */
 export interface WebmVersionRow {
+  /** Encoded dimensions, measured off the file; `null` when the probe couldn't read them. */
+  height: null | number
   preset: string
   skippedReason: null | string
   video: null | number | string
+  width: null | number
 }
 
 /** Normalizes a document's `webmVersions` into rows with plain ids. */
@@ -66,10 +69,14 @@ export const webmVersionRows = (doc: JsonObject | undefined): WebmVersionRow[] =
       continue
     }
     const skippedReason = (row as JsonObject).skippedReason
+    const width = (row as JsonObject).width
+    const height = (row as JsonObject).height
     rows.push({
+      height: typeof height === 'number' ? height : null,
       preset,
       skippedReason: typeof skippedReason === 'string' ? skippedReason : null,
       video: relationId((row as JsonObject).video),
+      width: typeof width === 'number' ? width : null,
     })
   }
   return rows

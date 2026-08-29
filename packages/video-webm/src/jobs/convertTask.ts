@@ -10,6 +10,7 @@ import type { Semaphore } from '../core/semaphore.js'
 import type { WebmVersionRow } from '../hooks/webmSidecar.js'
 import type { ConversionStatus, ResolvedVideoWebmConfig, SkipReason } from '../types.js'
 
+import { CENTRE_FOCAL_POINT } from '../core/args.js'
 import { asCollectionSlug, asTaskSlug } from '../core/collectionSlug.js'
 import { probeVideoDimensions, tempInputName } from '../core/convert.js'
 import { redundantPresets } from '../core/defaults.js'
@@ -280,6 +281,7 @@ const runConversion = async ({
 
   const outcomeBase = {
     collection,
+    docId,
     originalFilename: String(doc.filename),
     originalFilesize: Number(doc.filesize),
     originalMimeType: String(doc.mimeType),
@@ -386,15 +388,28 @@ const runConversion = async ({
           ? await probeVideoDimensions(config.ffmpegPath, sourcePath)
           : null
         const redundant = dimensions
-          ? redundantPresets(config.presets, dimensions.height)
+          ? redundantPresets(config.presets, dimensions)
           : new Set<string>()
+
+        // Payload stores focal points as percentages; an upload collection with
+        // focalPoint disabled simply has none, which centres every crop.
+        const focal = {
+          x: typeof doc.focalX === 'number' ? doc.focalX : CENTRE_FOCAL_POINT.x,
+          y: typeof doc.focalY === 'number' ? doc.focalY : CENTRE_FOCAL_POINT.y,
+        }
 
         for (const [preset, resolved] of pending) {
           if (redundant.has(preset)) {
             payload.logger.info(
               `[payload-video-webm] not encoding "${preset}" for "${doc.filename}": the source is only ${dimensions?.height}px tall`,
             )
-            producedRows.push({ preset, skippedReason: 'source-smaller', video: null })
+            producedRows.push({
+              height: null,
+              preset,
+              skippedReason: 'source-smaller',
+              video: null,
+              width: null,
+            })
             await report(config, payload.logger, {
               ...outcomeBase,
               converted: false,
@@ -412,7 +427,7 @@ const runConversion = async ({
           const { encodeDurationMs } = await encodeLimited(
             { ...config, encoding: resolved.encoding },
             limiter,
-            { inputPath: sourcePath, outputPath },
+            { focal, inputPath: sourcePath, outputPath },
           )
           totalEncodeMs += encodeDurationMs
           const outputSize = (await fs.stat(outputPath)).size
@@ -421,7 +436,13 @@ const runConversion = async ({
             payload.logger.info(
               `[payload-video-webm] not storing "${preset}" for "${doc.filename}": output would be larger (${outputSize} >= ${sourceSize} bytes)`,
             )
-            producedRows.push({ preset, skippedReason: 'output-larger', video: null })
+            producedRows.push({
+              height: null,
+              preset,
+              skippedReason: 'output-larger',
+              video: null,
+              width: null,
+            })
             await fs.rm(outputPath, { force: true })
             await report(config, payload.logger, {
               ...outcomeBase,
@@ -436,12 +457,23 @@ const runConversion = async ({
             continue
           }
 
+          // Measured before the file goes: selecting a rendition by how wide it is
+          // shouldn't cost the frontend a second query, and Payload only derives
+          // width/height for images.
+          const encoded = await probeVideoDimensions(config.ffmpegPath, outputPath)
+
           // Payload reads uploads into memory regardless, so the bytes are only
           // loaded once the rendition is actually being kept.
           const output = await fs.readFile(outputPath)
           const sidecarId = await createSidecarDocument(payload, collection, doc, output, preset)
           createdSidecars.push(sidecarId)
-          producedRows.push({ preset, skippedReason: null, video: sidecarId })
+          producedRows.push({
+            height: encoded?.height ?? null,
+            preset,
+            skippedReason: null,
+            video: sidecarId,
+            width: encoded?.width ?? null,
+          })
           await fs.rm(outputPath, { force: true })
 
           await report(config, payload.logger, {

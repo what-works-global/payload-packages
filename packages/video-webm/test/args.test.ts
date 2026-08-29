@@ -54,8 +54,43 @@ describe('buildFfmpegArgs', () => {
   })
 
   it('appends extraArgs after generated options so they win on conflict', () => {
-    const args = argsFor({ extraArgs: ['-an'] })
-    expect(args.indexOf('-an')).toBeGreaterThan(args.indexOf('-c:a'))
-    expect(args.indexOf('-an')).toBeLessThan(args.indexOf('-f'))
+    const args = argsFor({ extraArgs: ['-ac', '2'] })
+    expect(args.indexOf('-ac')).toBeGreaterThan(args.indexOf('-c:a'))
+    expect(args.indexOf('-ac')).toBeLessThan(args.indexOf('-f'))
+  })
+
+  it('drops the audio stream entirely when audio is disabled', () => {
+    const args = argsFor({ audio: false })
+    expect(args).toContain('-an')
+    expect(args).not.toContain('-c:a')
+    expect(args).not.toContain('-b:a')
+  })
+
+  it('crops to the target aspect ratio around the focal point, then scales', () => {
+    const args = buildFfmpegArgs({
+      encoding: encodingFor({ aspectRatio: '9:16', maxWidth: 1080 }),
+      focal: { x: 25, y: 60 },
+      inputPath: '/tmp/in.mp4',
+      outputPath: '/tmp/out.webm',
+    })
+    const filters = valueOf(args, '-vf')!
+
+    // Crop precedes scale: reframing decides which pixels exist before any cap on
+    // how many to keep.
+    expect(filters.indexOf('crop=')).toBeLessThan(filters.indexOf('scale='))
+    // The window is the largest 9:16 rectangle that fits, both sides even.
+    expect(filters).toContain(
+      `crop='2*floor(min(iw,ih*0.562500)/2)':'2*floor(min(ih,iw/0.562500)/2)'`,
+    )
+    // Positioned by the focal point, clamped so it can never leave the frame.
+    expect(filters).toContain(`'max(0,min(iw-ow,0.2500*iw-ow/2))'`)
+    expect(filters).toContain(`'max(0,min(ih-oh,0.6000*ih-oh/2))'`)
+    expect(filters).toContain(`scale='min(iw,1080)':-2`)
+  })
+
+  it('centres the crop when the document has no focal point', () => {
+    const filters = valueOf(argsFor({ aspectRatio: '1:1' }), '-vf')!
+    expect(filters).toContain(`'max(0,min(iw-ow,0.5000*iw-ow/2))'`)
+    expect(filters).toContain(`'max(0,min(ih-oh,0.5000*ih-oh/2))'`)
   })
 })

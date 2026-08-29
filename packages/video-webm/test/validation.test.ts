@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolutionPresets, resolveConfig, sourcePreset } from '../src/core/defaults.js'
+import {
+  redundantPresets,
+  resolutionPresets,
+  resolveConfig,
+  sourcePreset,
+  widthPresets,
+} from '../src/core/defaults.js'
 
 describe('resolveConfig validation', () => {
   it('rejects out-of-range crf', () => {
@@ -105,6 +111,46 @@ describe('resolveConfig validation', () => {
     expect(presets.webm.encoding).toMatchObject({ crf: 24, extraArgs: ['-lossless', '1'] })
     // Still the `webm` key, so the file stays `clip.webm` with no suffix.
     expect(Object.keys(presets)).toEqual(['webm'])
+  })
+
+  it('widthPresets builds the 1.5×-spaced ladder, optionally cropped', () => {
+    const ladder = widthPresets()
+    expect(Object.keys(ladder)).toEqual(['2560w', '1920w', '1280w', '854w', '640w', '426w'])
+    // Each rung's CRF comes from the resolution table via its 16:9 height.
+    expect(ladder['1920w'].encoding).toEqual({ crf: 31, maxWidth: 1920 })
+    expect(ladder['426w'].encoding).toEqual({ crf: 37, maxWidth: 426 })
+
+    const portrait = widthPresets([1080], { aspectRatio: '9:16', prefix: 'portrait' })
+    expect(Object.keys(portrait)).toEqual(['portrait-1080w'])
+    expect(portrait['portrait-1080w'].encoding).toMatchObject({
+      aspectRatio: '9:16',
+      maxWidth: 1080,
+    })
+  })
+
+  it('rejects an unparseable aspect ratio at init', () => {
+    expect(() => resolveConfig({ encoding: { aspectRatio: '9x16' } })).toThrow(/aspectRatio/)
+    expect(() => resolveConfig({ encoding: { aspectRatio: '0:16' } })).toThrow(/aspectRatio/)
+    expect(resolveConfig({ encoding: { aspectRatio: '9:16' } }).encoding.aspectRatio).toBe('9:16')
+  })
+
+  it('marks ladder rungs the source cannot fill as redundant, per aspect ratio', () => {
+    const { presets } = resolveConfig({
+      presets: {
+        ...widthPresets([1920, 1280, 640]),
+        ...widthPresets([1080, 720], { aspectRatio: '9:16', prefix: 'portrait' }),
+      },
+    })
+
+    // A 1280x720 master: 1920w and 1280w would encode the same pixels, so the
+    // tighter-fitting 1280w is kept. The 9:16 window out of it is only 405px wide,
+    // so both portrait rungs are full size and the tighter 720 one wins.
+    expect([...redundantPresets(presets, { height: 720, width: 1280 })].sort()).toEqual(
+      ['1920w', 'portrait-1080w'].sort(),
+    )
+
+    // A 4K master fills every rung — nothing is redundant.
+    expect(redundantPresets(presets, { height: 2160, width: 3840 }).size).toBe(0)
   })
 
   it('accepts a fully defaulted config', () => {

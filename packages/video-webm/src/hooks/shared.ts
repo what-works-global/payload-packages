@@ -2,6 +2,7 @@ import type { PayloadRequest } from 'payload'
 
 import fs from 'node:fs/promises'
 
+import type { FocalPoint } from '../core/args.js'
 import type { Semaphore } from '../core/semaphore.js'
 import type {
   ConversionOutcome,
@@ -172,12 +173,17 @@ export const report = async (
 export const encodeLimited = async (
   config: ResolvedVideoWebmConfig,
   limiter: null | Semaphore,
-  paths: { inputPath: string; outputPath: string },
+  paths: { focal?: FocalPoint; inputPath: string; outputPath: string },
 ): Promise<{ encodeDurationMs: number }> => {
   const release = limiter ? await limiter.acquire() : null
   try {
     const startedAt = Date.now()
-    await encodeToFile({ config, inputPath: paths.inputPath, outputPath: paths.outputPath })
+    await encodeToFile({
+      config,
+      focal: paths.focal,
+      inputPath: paths.inputPath,
+      outputPath: paths.outputPath,
+    })
     return { encodeDurationMs: Date.now() - startedAt }
   } finally {
     release?.()

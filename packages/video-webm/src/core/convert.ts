@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import type { ResolvedVideoWebmConfig, VideoCodec } from '../types.js'
+import type { FocalPoint } from './args.js'
 
 import { buildFfmpegArgs } from './args.js'
 
@@ -208,6 +209,8 @@ const parseDimensions = (stderr: string): null | VideoDimensions => {
 
 export interface EncodeToFileOptions {
   config: Pick<ResolvedVideoWebmConfig, 'encoding' | 'ffmpegPath' | 'timeoutMs'>
+  /** Focal point of the source document, honoured by `aspectRatio` crops. */
+  focal?: FocalPoint
   inputPath: string
   outputPath: string
 }
@@ -218,12 +221,13 @@ export interface EncodeToFileOptions {
  */
 export const encodeToFile = ({
   config,
+  focal,
   inputPath,
   outputPath,
 }: EncodeToFileOptions): Promise<void> =>
   runFfmpeg(
     config.ffmpegPath,
-    buildFfmpegArgs({ encoding: config.encoding, inputPath, outputPath }),
+    buildFfmpegArgs({ encoding: config.encoding, focal, inputPath, outputPath }),
     config.timeoutMs,
   )
 

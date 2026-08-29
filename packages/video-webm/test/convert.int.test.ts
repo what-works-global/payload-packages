@@ -18,7 +18,7 @@ import type { ConversionOutcome, DispatchJob } from '../src/index.js'
 
 import { isFfmpegAvailable } from '../src/core/convert.js'
 import { getVideoSources, getWebmUrl } from '../src/exports/frontend.js'
-import { resolutionPresets, videoWebmPlugin } from '../src/index.js'
+import { resolutionPresets, videoWebmPlugin, widthPresets } from '../src/index.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -47,9 +47,11 @@ const relationId = (value: unknown): null | number | string => {
 }
 
 interface VersionRow {
+  height?: null | number
   preset: string
   skippedReason?: null | string
   video: unknown
+  width?: null | number
 }
 
 /** Every decided preset — stored renditions and recorded skips alike. */
@@ -209,6 +211,7 @@ beforeAll(async () => {
       uploadCollection('ladder'),
       uploadCollection('redundant'),
       uploadCollection('quiet'),
+      uploadCollection('cropped'),
       uploadCollection('vp8-media'),
       uploadCollection('filtered'),
       uploadCollection('deferred'),
@@ -229,6 +232,14 @@ beforeAll(async () => {
           // Two renditions from the ready-made quality ladder (tiny ones for speed).
           ladder: { presets: resolutionPresets([144, 240]) },
           media: true,
+          // A portrait crop plus a plain rung, and no audio track on either.
+          cropped: {
+            encoding: { audio: false },
+            presets: {
+              ...widthPresets([160]),
+              ...widthPresets([1080], { aspectRatio: '9:16', prefix: 'portrait' }),
+            },
+          },
           // No metadata group: the conversion must still queue and run.
           quiet: { metadataFields: false },
           // The 320x240 source can't fill the 360p rung — it must be skipped.
@@ -506,6 +517,40 @@ describe.skipIf(!ffmpegAvailable)('async conversion (requires ffmpeg)', () => {
     expect(relationId(rows.find((row) => row.preset === '360p')?.video)).toBeNull()
     expect(storedRows(doc).map((row) => row.preset)).toEqual(['144p', '240p'])
     expect(doc.videoWebm).toMatchObject({ status: 'complete' })
+  })
+
+  it('crops to a target aspect ratio, records dimensions, and can drop the audio track', async () => {
+    const created = await upload('cropped', {
+      name: 'framed.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+
+    const doc = await fetchDoc('cropped', created.id as number)
+    const rows = versionRows(doc)
+    expect(rows.map((row) => row.preset)).toEqual(['160w', 'portrait-1080w'])
+
+    // The plain rung is a straight downscale of the 320x240 source.
+    expect(rows[0]).toMatchObject({ height: 120, width: 160 })
+
+    // The portrait rung takes the widest 9:16 window that fits — 240 tall, so
+    // 135px wide, rounded down to an even 134 for the chroma grid — and never
+    // upscales it to the 1080 cap.
+    const portrait = rows[1]
+    expect(portrait).toMatchObject({ height: 240, width: 134 })
+    expect(portrait.width! / portrait.height!).toBeCloseTo(9 / 16, 1)
+
+    // Dimensions are measured off the encoded files, not assumed.
+    for (const row of rows) {
+      const sidecar = await fetchDoc('cropped', relationId(row.video)!)
+      const { stderr } = await execFileAsync(
+        ffmpegPath,
+        ['-hide_banner', '-i', path.join(tmpDir, 'cropped', String(sidecar.filename))],
+        { encoding: 'utf8' },
+      ).catch((error: { stderr: string }) => error) // `-i` with no output always exits non-zero
+      expect(stderr).toContain(`${row.width}x${row.height}`)
+      expect(stderr).not.toContain('Audio:')
+    }
   })
 
   it('gives a duplicated document its own conversion state', async () => {

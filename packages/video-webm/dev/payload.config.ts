@@ -2,9 +2,9 @@ import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
 import {
   EXCLUDE_WEBM_DERIVATIVES,
-  resolutionPresets,
   sourcePreset,
   videoWebmPlugin,
+  widthPresets,
 } from '@whatworks/payload-video-webm'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -68,9 +68,12 @@ export default buildDevConfig({
         speed: 4,
       },
       presets: {
-        // A small quality ladder: each upload gets a 360p and a 720p WebM rendition.
-        // Declaration order is preference order, so the delivery sizes come first.
-        ...resolutionPresets([360, 720]),
+        // A small width ladder — the sizes a layout actually asks for.
+        // Declaration order is preference order, so delivery sizes come first.
+        ...widthPresets([1280, 640]),
+        // A 9:16 crop for portrait slots, framed by the document's focal point.
+        // Upload a landscape clip and compare it against the rungs above.
+        ...widthPresets([720], { aspectRatio: '9:16', prefix: 'portrait' }),
         // …and a straight conversion of the source last: same resolution, nothing
         // resized or cropped, near-transparent quality. Stored as plain `clip.webm`.
         ...sourcePreset(),
