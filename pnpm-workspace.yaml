@@ -2,6 +2,18 @@ packages:
   - 'packages/*'
   - 'tools/*'
 
+onlyBuiltDependencies:
+  - 'ffmpeg-static'
+  - 'sharp'
+  - 'esbuild'
+  - 'unrs-resolver'
+  - '@embedded-postgres/darwin-arm64'
+  - '@embedded-postgres/darwin-x64'
+  - '@embedded-postgres/linux-arm64'
+  - '@embedded-postgres/linux-x64'
+  - 'core-js'
+  - 'mongodb-memory-server'
+
 catalog:
   '@types/node': 22.19.9
   '@types/react': 19.2.9
