@@ -26,7 +26,7 @@ body:
         - "@whatworks/payload-select-search-field"
         - "@whatworks/payload-sitemap"
         - "@whatworks/payload-switch-env"
-        - "@whatworks/payload-video-webm"
+        - "@whatworks/payload-video-optimizer"
         - "New package / not sure"
     validations:
       required: true

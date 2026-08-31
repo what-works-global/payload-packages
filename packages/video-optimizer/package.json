@@ -1,0 +1,142 @@
+{
+  "name": "@whatworks/payload-video-optimizer",
+  "version": "0.1.0",
+  "description": "Optimise video uploads into a WebM (VP9/Opus) size ladder with background jobs — the source is never touched, renditions are linked sidecar documents, and a sizes solver picks the right one per viewport with no client JavaScript.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsdown",
+    "check:exports": "publint && node ../../scripts/check-package-exports.mjs",
+    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "dev": "next dev dev",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "dev:payload": "cd dev && cross-env PAYLOAD_CONFIG_PATH=./payload.config.ts payload",
+    "generate:importmap": "pnpm dev:generate-importmap",
+    "generate:types": "pnpm dev:generate-types",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepublishOnly": "node ../../scripts/guard-publish.mjs && pnpm build",
+    "test": "vitest run",
+    "test:peer": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typecheck:dev": "tsc -p dev/tsconfig.json --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/what-works-global/payload-packages",
+    "directory": "packages/video-optimizer"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./frontend": {
+      "types": "./src/exports/frontend.ts",
+      "import": "./src/exports/frontend.ts",
+      "default": "./src/exports/frontend.ts"
+    },
+    "./client": {
+      "types": "./src/exports/client.ts",
+      "import": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    },
+    "./sizes-devtools": {
+      "types": "./src/exports/sizesDevtools.ts",
+      "import": "./src/exports/sizesDevtools.ts",
+      "default": "./src/exports/sizesDevtools.ts"
+    }
+  },
+  "peerDependencies": {
+    "@payloadcms/ui": ">=3.54.0 <4",
+    "payload": ">=3.54.0 <4",
+    "react": ">=19.0.0 <20",
+    "react-dom": ">=19.0.0 <20",
+    "playwright": "*"
+  },
+  "whatworks": {
+    "peerMatrix": {
+      "payload": {
+        "min": "3.54.0"
+      }
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
+    "@payloadcms/db-sqlite": "catalog:",
+    "@payloadcms/eslint-config": "catalog:",
+    "@payloadcms/next": "catalog:",
+    "@payloadcms/ui": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "cross-env": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-next": "catalog:",
+    "next": "catalog:",
+    "payload": "catalog:",
+    "publint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "rimraf": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./frontend": {
+        "types": "./dist/exports/frontend.d.ts",
+        "import": "./dist/exports/frontend.js",
+        "default": "./dist/exports/frontend.js"
+      },
+      "./client": {
+        "types": "./dist/exports/client.d.ts",
+        "import": "./dist/exports/client.js",
+        "default": "./dist/exports/client.js"
+      },
+      "./sizes-devtools": {
+        "types": "./dist/exports/sizesDevtools.d.ts",
+        "import": "./dist/exports/sizesDevtools.js",
+        "default": "./dist/exports/sizesDevtools.js"
+      }
+    }
+  },
+  "peerDependenciesMeta": {
+    "@payloadcms/ui": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "playwright": {
+      "optional": true
+    }
+  },
+  "bin": {
+    "payload-video-sizes": "./dist/bin/sizes.js"
+  }
+}
