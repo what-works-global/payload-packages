@@ -1,12 +1,13 @@
 import type { BaseListFilter, CollectionConfig, Config, Where } from 'payload'
 
-import type { ConvertTaskRegistryEntry } from './jobs/convertTask.js'
+import type { ContinueChain, ConvertTaskRegistryEntry } from './jobs/convertTask.js'
 import type {
   VideoCodec,
   VideoOptimizerCollectionOverrides,
   VideoOptimizerConfig,
 } from './types.js'
 
+import { signJobId } from './core/chain.js'
 import { checkFfmpeg, requiredEncodersFor } from './core/convert.js'
 import {
   DEFAULT_QUEUE,
@@ -18,6 +19,7 @@ import {
 } from './core/defaults.js'
 import { Semaphore } from './core/semaphore.js'
 import { mimeTypeMatches } from './core/shouldConvert.js'
+import { createContinueEndpoint } from './endpoints/continue.js'
 import { createRegenerateEndpoint } from './endpoints/regenerate.js'
 import { conversionMetadataField, METADATA_GROUP_NAME } from './fields/conversionMetadataField.js'
 import {
@@ -231,13 +233,59 @@ export const videoOptimizerPlugin =
           `[payload-video-optimizer] a job task with slug "${taskSlug}" is already registered — running two plugin instances requires a distinct taskSlug per instance`,
         )
       }
+      /**
+       * Starts the next chunk of a run that stopped on `jobs.maxRunMs`.
+       *
+       * The row is queued either way — that is the durable continuation, and cron
+       * settles it if the request below never lands. The request only buys latency:
+       * without it the rest of the ladder waits for the next cron tick.
+       *
+       * Deliberately *not* handed to `dispatch`: on a serverless host that would run
+       * the next chunk inside this same invocation, against the same timeout the
+       * split exists to escape. It has to arrive as a new request.
+       */
+      const continueChain: ContinueChain = async ({
+        collection,
+        docId,
+        generation,
+        origin,
+        req,
+        sourceFilename,
+      }) => {
+        const job = (await req.payload.jobs.queue({
+          input: { collection, docId, generation, origin, sourceFilename },
+          queue,
+          task: taskSlug,
+        } as never)) as { id: number | string }
+
+        if (!origin) {
+          return // no web context (a CLI worker) — nothing to call, cron drains it
+        }
+        const apiRoute = req.payload.config.routes?.api ?? '/api'
+        try {
+          await fetch(`${origin}${apiRoute}/${taskSlug}/continue`, {
+            body: JSON.stringify({
+              jobId: job.id,
+              token: signJobId(req.payload.secret, job.id),
+            }),
+            headers: { 'content-type': 'application/json' },
+            method: 'POST',
+          })
+        } catch (error) {
+          req.payload.logger.warn(
+            `[payload-video-optimizer] could not start the next conversion chunk at ${origin} (${error instanceof Error ? error.message : String(error)}); the queued job stands and cron will pick it up`,
+          )
+        }
+      }
+
       config.jobs = {
         ...config.jobs,
-        tasks: [...existingTasks, createConvertTask(taskSlug, retries, registry)],
+        tasks: [...existingTasks, createConvertTask(taskSlug, retries, registry, continueChain)],
       }
       config.endpoints = [
         ...(config.endpoints ?? []),
         createRegenerateEndpoint({ dispatch, queue, taskSlug }, registry),
+        createContinueEndpoint({ dispatch, queue, taskSlug }),
       ]
 
       const ffmpegPath = pluginResolved.ffmpegPath
@@ -262,6 +310,15 @@ export const videoOptimizerPlugin =
         } else if (check.missingEncoders.length > 0) {
           payload.logger.warn(
             `[payload-video-optimizer] ffmpeg at "${ffmpegPath}" is missing required encoders: ${check.missingEncoders.join(', ')} — conversions will fail until a build with libvpx/libopus is installed`,
+          )
+        }
+        // A chunked ladder is only as reliable as whatever drains the queue: the
+        // continue request is best-effort, and a chunk that fails needs its retry
+        // picked up by something. autoRun is the only drainer visible from here —
+        // an external cron is not, hence the softer wording.
+        if (pluginResolved.maxRunMs !== null && !config.jobs?.autoRun) {
+          payload.logger.warn(
+            `[payload-video-optimizer] jobs.maxRunMs is set, which splits a conversion across several runs. Make sure something drains the "${queue}" queue — jobs.autoRun, an external cron hitting /api/payload-jobs/run, or a payload jobs:run worker — or a chunked conversion that loses its continue request, or fails a chunk, will never resume.`,
           )
         }
         if (!dispatchIsDeliberate) {

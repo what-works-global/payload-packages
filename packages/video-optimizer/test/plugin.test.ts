@@ -87,10 +87,14 @@ describe('videoOptimizerPlugin config shaping', () => {
     expect(posts.fields).toHaveLength(1)
   })
 
-  it('registers the regenerate endpoint under the task slug', () => {
+  it('registers its endpoints under the task slug', () => {
     const config = videoOptimizerPlugin()(baseConfig())
-    const endpoint = config.endpoints?.find((e) => e.path === '/video-convert/regenerate')
-    expect(endpoint).toMatchObject({ method: 'post' })
+    expect(config.endpoints?.find((e) => e.path === '/video-convert/regenerate')).toMatchObject({
+      method: 'post',
+    })
+    expect(config.endpoints?.find((e) => e.path === '/video-convert/continue')).toMatchObject({
+      method: 'post',
+    })
 
     // Two instances get distinct endpoints, like distinct task slugs.
     const two = videoOptimizerPlugin({
@@ -99,7 +103,9 @@ describe('videoOptimizerPlugin config shaping', () => {
     })(videoOptimizerPlugin({ collections: ['media'] })(baseConfig()))
     expect(two.endpoints?.map((e) => e.path)).toEqual([
       '/video-convert/regenerate',
+      '/video-convert/continue',
       '/video-optimizer-second/regenerate',
+      '/video-optimizer-second/continue',
     ])
   })
 

@@ -88,6 +88,12 @@ export interface DispatchJob {
   generation: number
   /** ID of the durable Payload Jobs row — run it with `payload.jobs.runByID({ id })`. */
   jobId: number | string
+  /**
+   * Origin of the request that queued this conversion, for chunked runs to continue
+   * against. `null` when there was no request — a CLI worker, say, where chaining is
+   * inert because there is no function timeout to work around.
+   */
+  origin: null | string
   /** Filename of the source at queue time (the job no-ops if it changed since). */
   sourceFilename: string
 }

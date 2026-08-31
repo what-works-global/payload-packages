@@ -39,8 +39,23 @@ interface ConvertTaskInput {
   docId: number | string
   /** Absent on rows queued by an older version of the plugin — then unenforced. */
   generation?: number
+  /** Where to send the continue request for a chunked run; absent off the web. */
+  origin?: null | string
   sourceFilename: string
 }
+
+/**
+ * Starts the next chunk of a run that stopped on its budget. Supplied by the plugin,
+ * which owns the queue name, the task slug and the host's `dispatch`.
+ */
+export type ContinueChain = (args: {
+  collection: string
+  docId: number | string
+  generation: number | undefined
+  origin: null | string | undefined
+  req: PayloadRequest
+  sourceFilename: string
+}) => Promise<void>
 
 /** Resolves the collection's local upload directory, or `null` for remote storage. */
 const localSourcePath = (
@@ -155,6 +170,7 @@ export const createConvertTask = (
   taskSlug: string,
   retries: number,
   registry: Map<string, ConvertTaskRegistryEntry>,
+  continueChain: ContinueChain,
 ): TaskConfig => {
   // One conversion per document at a time in this process: the immediate run and a
   // cron worker picking up the same row would otherwise encode everything twice.
@@ -169,7 +185,7 @@ export const createConvertTask = (
     job?: { totalTried?: number }
     req: PayloadRequest
   }) => {
-    const { collection, docId, generation, sourceFilename } = input as ConvertTaskInput
+    const { collection, docId, generation, origin, sourceFilename } = input as ConvertTaskInput
     const entry = registry.get(collection)
     if (!entry) {
       return { output: {} }
@@ -180,9 +196,11 @@ export const createConvertTask = (
         attempt: job?.totalTried ?? 0,
         collection,
         config: entry.config,
+        continueChain,
         docId,
         generation,
         limiter: entry.limiter,
+        origin,
         req,
         retries,
         sourceFilename,
@@ -212,9 +230,11 @@ const runConversion = async ({
   attempt,
   collection,
   config,
+  continueChain,
   docId,
   generation,
   limiter,
+  origin,
   req,
   retries,
   sourceFilename,
@@ -222,9 +242,11 @@ const runConversion = async ({
   attempt: number
   collection: string
   config: ResolvedVideoOptimizerConfig
+  continueChain: ContinueChain
   docId: number | string
   generation: number | undefined
   limiter: null | Semaphore
+  origin: null | string | undefined
   req: PayloadRequest
   retries: number
   sourceFilename: string
@@ -577,6 +599,12 @@ const runConversion = async ({
     const decidedNow = new Set(producedRows.map((row) => row.preset))
     const pendingRemain = pending.some(([name]) => !decidedNow.has(name))
     await finalize({ encodeDurationMs: totalEncodeMs, error: null, pendingRemain })
+
+    if (pendingRemain) {
+      // Best-effort: a lost continue leaves a runnable row, which cron settles. The
+      // chain is a latency optimisation over that, never a replacement for it.
+      await continueChain({ collection, docId, generation, origin, req, sourceFilename })
+    }
     return { output: {} }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

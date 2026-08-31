@@ -8,6 +8,7 @@ import type {
   UploadedFile,
 } from '../types.js'
 
+import { requestOrigin } from '../core/chain.js'
 import { shouldConvert as passesStaticGuards } from '../core/shouldConvert.js'
 import { METADATA_GROUP_NAME } from '../fields/conversionMetadataField.js'
 import { RENDITION_GENERATION_FIELD_NAME, RENDITIONS_FIELD_NAME } from '../fields/sidecarFields.js'
@@ -172,10 +173,13 @@ export const queueConversionJob = async ({
   req: Parameters<CollectionAfterChangeHook>[0]['req']
   sourceFilename: string
 } & QueueHookOptions): Promise<void> => {
+  // Captured here because the task's own `req` is synthetic — `runByID` is called
+  // without one, so by the time the job runs there is no request to read a host from.
+  const origin = requestOrigin(req)
   // Apps with generated types narrow task slugs to their literal union, which a
   // library cannot know — hence the cast on the way in and out.
   const job = (await req.payload.jobs.queue({
-    input: { collection, docId, generation, sourceFilename },
+    input: { collection, docId, generation, origin, sourceFilename },
     queue,
     task: taskSlug,
   } as never)) as { id: number | string }
@@ -195,7 +199,10 @@ export const queueConversionJob = async ({
   }
 
   if (dispatch) {
-    await dispatch({ collection, docId, generation, jobId: job.id, sourceFilename }, { req, run })
+    await dispatch(
+      { collection, docId, generation, jobId: job.id, origin, sourceFilename },
+      { req, run },
+    )
     return
   }
   if (await openTransaction(req)) {
