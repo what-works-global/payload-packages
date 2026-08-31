@@ -75,6 +75,76 @@ import { getVideoSourceSet } from '@whatworks/payload-video-optimizer/frontend'
 
 > **One gotcha that bites silently:** query one level deeper than you think. See [Query deep enough](#query-deep-enough).
 
+### 5. Deploying to Vercel
+
+Everything above works locally as-is. Vercel needs four things, and the first is the one people miss.
+
+**Ship ffmpeg with your app.** Nothing on Vercel has it installed, and Next's file tracing won't find a binary that's only spawned at runtime:
+
+```sh
+pnpm add ffmpeg-static   # a dependency, not a devDependency — Vercel prunes dev deps
+```
+
+```yaml
+# pnpm-workspace.yaml — pnpm 10 blocks install scripts, and ffmpeg-static
+# downloads its binary in one. Without this you get no binary and no build error.
+onlyBuiltDependencies:
+  - ffmpeg-static
+```
+
+```js
+// next.config.mjs
+outputFileTracingIncludes: { '/api/**': ['./node_modules/ffmpeg-static/ffmpeg'] }
+```
+
+Then point the plugin at it with `FFMPEG_PATH`, so nothing else in your app has to import an 80 MB binary.
+
+**Give the function room.** Encoding is CPU-bound, and more memory buys more vCPU:
+
+```json
+// vercel.json
+{
+  "functions": {
+    "app/(payload)/api/[...slug]/route.ts": { "maxDuration": 300, "memory": 3009 }
+  }
+}
+```
+
+**Split long videos across runs.** One run encodes the whole ladder, so without this the ceiling is one function timeout for everything — roughly 90 seconds of source video inside 300s:
+
+```ts
+videoOptimizerPlugin({
+  dispatch: (_job, { run }) => after(run),
+  jobs: { maxRunMs: 240_000 }, // below maxDuration, not equal to it
+})
+```
+
+Each chunk starts the next one itself, in a fresh function with a fresh timeout. Skip it if your videos are short clips — a 15-second 1080p clip finishes comfortably inside 300s on its own.
+
+**Cron is optional, and here's exactly what it buys.** The chain is self-propelling, so nothing routine depends on cron:
+
+|                                    | Without cron                                           | With cron                |
+| ---------------------------------- | ------------------------------------------------------ | ------------------------ |
+| Normal conversion                  | works                                                  | works                    |
+| A continue request is lost         | stalls until someone clicks **↺**                      | resumes on the next tick |
+| A chunk fails (an S3 blip, an OOM) | `retries: 3` never fires — nothing polls for the retry | retried automatically    |
+
+So it's the difference between **self-healing** and **manual recovery**, not between working and broken. A stalled conversion isn't a broken page either — the frontend falls back to the original file.
+
+If you want it, hourly is the sweet spot (~0.04¢/month), and `&limit=1` matters because the default is 10 — one tick with a backlog would try ten conversions in a single invocation and time out:
+
+```json
+{
+  "crons": [
+    { "path": "/api/payload-jobs/run?queue=video-conversion&limit=1", "schedule": "0 * * * *" }
+  ]
+}
+```
+
+That endpoint's access **defaults to open**, so set `CRON_SECRET` and check it — see [The cron safety net](#the-cron-safety-net). Vercel Cron needs Pro for anything more frequent than daily.
+
+> **Two hard limits on Vercel.** Uploads over 100 MB can't go through a function at all, and the `clientUploads` route around that bypasses the hook, so those files are never converted. And storage must be remote (Vercel Blob, S3) — the filesystem is ephemeral.
+
 ---
 
 ## Showing videos on your frontend
