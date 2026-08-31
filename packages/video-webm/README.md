@@ -9,35 +9,28 @@
 
 &nbsp;
 
-Payload plugin that optimises video uploads to **WebM (VP9 + Opus)** in the background, so your frontend serves often substantially smaller files. The source file is **always stored untouched** as the document's own asset; each configured **preset** (a single WebM by default, or a full quality ladder) lands as a hidden sidecar document linked from the source via `webmVersions`, created by a durable Payload Jobs task after the upload response has already returned.
+Payload plugin that turns video uploads into **WebM (VP9 + Opus)** in the background, at a range of sizes, so your frontend serves each visitor a file that fits their screen instead of one big file for everyone.
 
-```
-upload → storage write → afterChange:
-                           ├─ jobs.queue(...)       durable row
-                           └─ dispatch(job, {run})  host decides how to background it
-         response returns ─┘
-                              → runByID → transcode per preset → sidecar docs → link on source
+Your original upload is **never touched**. Every optimised version is a separate hidden document, created by a durable background job after the upload response has already returned.
 
-cron → /api/payload-jobs/run?queue=video-webm     safety net, always on
-```
+- **Uploads stay fast** — the editor's upload returns as soon as the file is stored. Encoding happens afterwards.
+- **A ladder of sizes, by default** — six widths from 2560px down to 426px, so a phone doesn't download a file made for a desktop.
+- **The frontend picks the right one for free** — one line of config per video slot, generated for you by a CLI that measures your actual page.
+- **The original is never replaced or deleted** — every optimised version can be regenerated at any time.
+- **Live admin panel** — shows progress while the job runs, then file sizes, savings, and one-click regeneration.
+- **Zero runtime dependencies** — spawns the `ffmpeg` binary directly. No Redis, no external workers, no wrapper libraries.
 
-- **The original is never replaced or deleted** — optimised versions can always be regenerated from the stored source.
-- **Named presets & quality ladders** — typed per-preset encoding options (not raw ffmpeg strings), with `widthPresets()` shipping a ~1.5×-spaced width ladder and `resolutionPresets()` the height-based equivalent, both on Google's recommended VP9 CRF table. Rungs the source can't fill are skipped, never upscaled.
-- **Focal-point aspect-ratio crops** — a `9:16` variant for portrait slots, framed by the document's focal point, because `object-fit: cover` on a landscape master there downloads roughly 3× the pixels it shows.
-- **Selection without a component** — every rendition's real dimensions are stored on its row, so `pickVideoVariant(doc, { width, height, dpr })` picks the smallest file that covers a slot (and the right _shape_) with no extra query, or `getVideoSourceSet` emits `media`-gated `<source>` tags and lets the browser choose with no JavaScript at all. The markup and styling stay yours.
-- **Non-blocking uploads** — the editor's upload returns as soon as the file is stored, with the conversion `queued`; renditions appear when the job finishes.
-- **Storage-adapter agnostic** — the sidecar is a normal document in the same collection, so it flows through the exact storage adapter (S3, Vercel Blob, local disk) the collection already uses.
-- **Durable, not fire-and-forget** — conversions are Payload Jobs rows with `retries: 3`, guarded by a generation counter so a slow or duplicated run can never overwrite newer renditions.
-- **Live admin control panel** — polls while the job runs (no refreshing), then shows a condensed per-preset table with sizes and savings, open-in-new-tab, and one-click regeneration against the current config.
-- **Zero runtime dependencies** — spawns the `ffmpeg` binary directly via argument arrays (never through a shell). No fluent-ffmpeg, no Redis, no external workers.
+---
 
-## Installation
+## Quick start
+
+### 1. Install
 
 ```sh
 pnpm add @whatworks/payload-video-webm
 ```
 
-## Quick usage
+### 2. Add the plugin
 
 ```ts
 import { videoWebmPlugin } from '@whatworks/payload-video-webm'
@@ -48,47 +41,205 @@ export default buildConfig({
   // ...
   plugins: [
     videoWebmPlugin({
-      // How your platform backgrounds the conversion (see "Dispatch" below).
+      // How your platform runs background work (see "Dispatch" below).
       dispatch: (_job, { run }) => after(run), // Next.js on Vercel
     }),
   ],
 })
 ```
 
-Then regenerate the import map so the admin can resolve the plugin's status panel:
+Then regenerate the import map so the admin can find the plugin's status panel:
 
 ```sh
 payload generate:importmap
 ```
 
-Upload an mp4 — it stores as-is and the response returns immediately, while the sidebar panel shows **Optimising…** and updates itself when the job finishes (status, each rendition's file size and savings, links to the sidecar documents). No refresh needed. On the frontend, use the dependency-free helpers from the **`/frontend`** subpath, querying deep enough to populate the renditions (`depth: 1` reading the upload collection directly, `depth: 2` through a page — see [Choosing which rendition to serve](#choosing-which-rendition-to-serve)):
+### 3. Upload a video
+
+Upload an mp4 or mov. The response returns immediately, the sidebar shows **Optimising…**, and it fills itself in when the job finishes — no refreshing.
+
+You now have your original file plus up to six WebM versions of it at different widths.
+
+### 4. Show it on your frontend
 
 ```tsx
-import { getVideoSources } from '@whatworks/payload-video-webm/frontend'
-;<video controls>
-  {getVideoSources(media).map((s) => (
-    <source key={s.src} src={s.src} type={s.type} />
+import { getVideoSourceSet } from '@whatworks/payload-video-webm/frontend'
+
+;<video controls playsInline>
+  {getVideoSourceSet(media, { sizes: '100vw' }).map(({ media: query, src, type }) => (
+    <source key={src + query} media={query} src={src} type={type} />
   ))}
 </video>
 ```
 
-`getVideoSources` lists every rendition in preference order and always appends the original file last — browsers play the first source they can, so **something always plays**: before the job finishes, for skipped/failed conversions, and for browsers without WebM support alike. For a single URL there's `getWebmUrl(media, '720p') ?? media.url`.
+`sizes: '100vw'` means *"this video is displayed as wide as the browser window"*. If that's true for your layout, you're done. If it isn't, the next section explains what to put there instead — and how to have it written for you.
 
-## Choosing which rendition to serve
+> **One gotcha that bites silently:** query one level deeper than you think. See [Query deep enough](#query-deep-enough).
 
-**Nothing picks a size for you.** `<video>` has no `srcset`/`sizes` — that's an `<img>` feature. Given several `<source>` elements a browser takes the **first one it can play**, not the best-sized one. So the plugin's job is to make the choice cheap; the choice itself is yours, and there are three ways to make it.
+---
 
-### Query deep enough first
+## Showing videos on your frontend
 
-This one bites silently. Renditions are separate documents, so reaching them costs a relationship hop _beyond_ the video itself:
+This is the part worth reading properly. It's short, and it starts from zero.
 
-| Query                                             | `page.hero`  | `hero.webmVersions[].video`      |
-| ------------------------------------------------- | ------------ | -------------------------------- |
-| `payload.find({ collection: 'media', depth: 1 })` | —            | populated ✅                     |
-| `payload.find({ collection: 'pages', depth: 1 })` | media doc ✅ | bare ids ❌ — original is served |
-| `payload.find({ collection: 'pages', depth: 2 })` | media doc ✅ | populated ✅                     |
+### The problem, in plain terms
 
-At too shallow a depth everything still "works" — the helpers just fall back to the original file and the optimisation quietly does nothing. In development they log a warning saying exactly this. Deep queries are also where `populate` earns its keep, since renditions only need a few fields:
+A video file has a fixed pixel width baked into it. A 2560px-wide file shown in a 400px-wide box on a phone still downloads every one of those pixels — around **40× the data** actually needed — and then throws them away.
+
+So the plugin makes the same video at several widths:
+
+| Rendition | Pixel width | Roughly good for |
+| --- | --- | --- |
+| `2560w` | 2560 | full-screen on a retina laptop |
+| `1920w` | 1920 | full-screen on a normal desktop |
+| `1280w` | 1280 | a large column, or full-screen on a phone at 2× |
+| `854w` | 854 | a half-width block |
+| `640w` | 640 | a card in a grid |
+| `426w` | 426 | a thumbnail |
+
+Each rung is about half the file size of the one above it. Now something has to pick.
+
+### Why the browser can't just work it out
+
+For images, you may have seen this:
+
+```html
+<img srcset="hero-640.jpg 640w, hero-1280.jpg 1280w" sizes="100vw">
+```
+
+That `sizes` attribute is you telling the browser **how wide the image will be on the page**. It feels redundant — surely the browser can see its own layout? — but it can't, not at the moment it has to choose. Images start downloading from a quick scan of the raw HTML, before the CSS has even arrived, let alone been applied. By the time layout exists, the download should already be in flight. So the author states the answer up front.
+
+`<video>` never got `srcset`/`sizes` at all. It only has `media` queries on each `<source>`, and the browser takes the **first source it can play** — not the best-sized one.
+
+So this plugin does that same arithmetic for you, at render time. You supply one thing: **how wide the video is on the page.**
+
+### `sizes`: how wide is your video?
+
+`sizes` is a comma-separated list, read left to right, and **the first match wins**:
+
+```
+(min-width: 1024px) 800px, 100vw
+```
+
+Read it as: *"once the window is at least 1024px wide, the video is 800px wide. Otherwise it's the full window width."*
+
+Three kinds of value are allowed:
+
+| You write | It means |
+| --- | --- |
+| `400px` | the video is always 400px wide here |
+| `50vw` | the video is half the window width |
+| `calc(50vw - 24px)` | half the window, minus 24px of padding |
+
+Two rules, and they're the only ways to get this wrong:
+
+1. **Widest first.** The first match wins, so `(min-width: 1024px)` must come before `(min-width: 640px)`.
+2. **End with a plain value and no condition** — the fallback for narrow windows.
+
+That's the entire syntax. Nothing about phones, retina screens, or file sizes: **device pixel ratio is handled for you.** You describe your CSS, the plugin handles the device.
+
+### Don't write it by hand — generate it
+
+Getting `sizes` exactly right by reading your own stylesheet is harder than it looks, and being wrong is silent: the video just looks soft, or quietly wastes bandwidth. So measure it instead.
+
+With your dev server running:
+
+```sh
+pnpm add -D playwright && pnpm exec playwright install chromium
+
+pnpm exec video-webm-sizes http://localhost:3000/blog --selector "[data-slot=card]"
+```
+
+```
+sweeping 320 → 2560px … 148 samples, 4 segments found
+
+  (min-width: 1200px) 368px, (min-width: 1024px) calc(33.333vw - 32px), (min-width: 640px) calc(50vw - 36px), calc(100vw - 48px)
+
+⚠ 1200px is a max-width plateau, not a media query — easy to miss by hand.
+```
+
+It loads the page, resizes the window across the whole range, measures your element at each width, and works out the formula. Paste the line into your component:
+
+```tsx
+// app/blog/VideoCard.tsx
+const SIZES =
+  '(min-width: 1200px) 368px, (min-width: 1024px) calc(33.333vw - 32px), (min-width: 640px) calc(50vw - 36px), calc(100vw - 48px)'
+
+export const VideoCard = ({ media }) => (
+  <video data-slot="card" controls playsInline>
+    {getVideoSourceSet(media, { sizes: SIZES }).map(({ media: query, src, type }) => (
+      <source key={src + query} media={query} src={src} type={type} />
+    ))}
+  </video>
+)
+```
+
+That's the whole workflow. Run it once when you build the component; it rarely changes after that.
+
+Note the warning in the output. `1200px` appears nowhere in that project's CSS — it's where a `max-width: 1200px` container stops growing, so the card stops growing too. It's a real breakpoint for sizing purposes and it's invisible if you're working from your list of media queries. Measuring finds it; reading your stylesheet doesn't.
+
+### Catching it when your layout changes
+
+The `sizes` string is now a constant in your source. Change the grid from three columns to four and it's wrong — silently. Add one test:
+
+```ts
+import { expectSizesAccurate } from '@whatworks/payload-video-webm/sizes-devtools'
+
+import { SIZES } from '@/app/blog/VideoCard'
+
+test('blog card sizes stays accurate', async ({ page }) => {
+  await page.goto('/blog')
+  await expectSizesAccurate(page, '[data-slot=card]', { sizes: SIZES })
+})
+```
+
+```
+✗ at 1280px the slot measures 272px, but sizes predicts 368px
+  → serving 854w where 640w is right (37 viewport/dpr combinations affected)
+  current:  (min-width: 1200px) 368px, …
+  measured: (min-width: 1200px) 276px, …
+```
+
+It only fails when the difference actually changes which file gets served — a few pixels out inside one rung's range is harmless and ignored.
+
+### Videos that change shape
+
+`object-fit: cover` handles most shape mismatches for free: a 16:9 video in a 4:3 box just has a bit cropped off by the browser, costing you around 1.3× the pixels. Not worth a separate file.
+
+Portrait is the exception. A landscape video in a full-screen phone slot downloads roughly **3.2×** the pixels it shows. So the plugin can make cropped 9:16 versions:
+
+```ts
+videoWebmPlugin({ portrait: true }) // adds 1080w and 720w 9:16 renditions
+```
+
+The crop takes the tallest 9:16 window that fits, positioned by the document's **focal point** (Payload's own `focalX`/`focalY`), so the subject stays in frame.
+
+Then tell the frontend where your slot changes shape, using the same grammar with ratio values:
+
+```tsx
+getVideoSourceSet(media, {
+  sizes: '(min-width: 768px) 1200px, 100vw',
+  aspect: '(min-width: 768px) 16/9, 9/16', // wide on desktop, portrait on mobile
+})
+```
+
+Only reach for `aspect` when your slot genuinely changes shape *and* you've enabled `portrait`. Without it every size stays on the video's original framing, which is usually what you want — a crop is an editorial decision, not a smaller file.
+
+> A focal point can't rescue a subject sitting right at the edge of the frame. Check your masters before relying on portrait crops for faces.
+
+### Query deep enough
+
+The optimised versions are separate documents, so reaching them costs one more relationship hop than you'd expect:
+
+| Your query | Gets the video | Gets its renditions |
+| --- | --- | --- |
+| `find({ collection: 'media', depth: 1 })` | — | ✅ |
+| `find({ collection: 'pages', depth: 1 })` | ✅ | ❌ — **the original is served** |
+| `find({ collection: 'pages', depth: 2 })` | ✅ | ✅ |
+
+At too shallow a depth everything still *works* — the helpers fall back to the original file and the optimisation quietly does nothing. In development they log a warning saying exactly that.
+
+Since renditions only need a few fields, `populate` is worth using here:
 
 ```ts
 await payload.find({
@@ -100,87 +251,188 @@ await payload.find({
 })
 ```
 
-### 1. Let the browser choose — no JavaScript
+### Other ways to choose
 
-`getVideoSourceSet` emits `<source>` elements with `media` queries. Support returned in Chrome 120 and Firefox 120 (November 2023) and Safari never dropped it:
+`getVideoSourceSet` needs no JavaScript and works with static rendering, but browsers pick a video source **once, at load** — nothing swaps on resize or rotation. Two alternatives:
 
-```tsx
-<video controls>
-  {getVideoSourceSet(page.hero, {
-    dpr: 2,
-    sizes: [
-      { minWidth: 1280, width: 800 }, // widest first — first match wins
-      { minWidth: 768, width: 600 },
-      { width: 400 }, // unconditional, last
-    ],
-  }).map(({ media, src, type }) => (
-    <source key={src + media} media={media} src={src} type={type} />
-  ))}
-</video>
-```
-
-Each rule states what the slot _measures_ when its query matches, and the right rendition is chosen for it. Rules are emitted in order and **the first match wins** — the opposite of the CSS cascade — so list them widest-first; a development warning fires if they're ascending.
-
-The catch: browsers evaluate video sources **once, at load**. Unlike `<picture>`, nothing swaps on resize or rotation. Perfect for static rendering and full route caches, wrong for a slot whose shape changes with orientation.
-
-### 2. Measure the slot — exact, and re-evaluates
+**Measure the slot yourself** — exact, and re-evaluates:
 
 ```tsx
-const variant = pickVideoVariant(page.hero, { dpr: devicePixelRatio, height, width })
-<video src={variant?.src ?? page.hero.url ?? undefined} />
+const variant = pickVideoVariant(media, { dpr: devicePixelRatio, height, width })
+<video src={variant?.src ?? media.url} />
 ```
 
-Picks the smallest rendition that still covers `width × dpr`. Pass `height` too and it also picks the _shape_, switching to a cropped family only when covering with the source shape would overdraw more than 2× — that's the only way a portrait crop is ever chosen. Without a height it stays on the source shape, because a crop is different framing, not a wider file. Feed it a `ResizeObserver` and re-key the `<video>` to swap on rotation.
+Pass a `height` too and it also picks the shape, switching to a cropped rendition only when covering with the original shape would overdraw more than 2×. Feed it a `ResizeObserver` and re-key the `<video>` to swap on rotation.
 
-### 3. Don't choose
+**Don't choose at all:**
 
-`getVideoSources(page.hero)` and let the browser take the first playable source — which is **your first-declared preset**, for every visitor. Fine for small uniform slots; if you rely on it, declare the ladder ascending (`widthPresets([640, 1280])`) so the cheap file wins.
+```tsx
+getVideoSources(media).map((s) => <source key={s.src} src={s.src} type={s.type} />)
+```
 
-`getVideoVariants` returns the same renditions with their measured dimensions if you'd rather write the picker yourself.
+Every rendition in order, with the original appended last, so **something always plays** — before the job finishes, for skipped conversions, and in browsers without WebM support alike. The browser takes the first it can play, which is your first-declared preset for every visitor. Fine for small, uniform slots.
 
-**The plugin deliberately ships no `<Video />` component.** Selection is the hard, reusable part and it's above; markup, poster handling, rotation re-keying and CSS belong in your codebase where you can style them.
+`getVideoVariants(media)` returns the renditions with their measured dimensions if you'd rather write your own picker. And `getWebmUrl(media, '720p') ?? media.url` gets you a single URL by name.
+
+**The plugin deliberately ships no `<Video />` component.** Choosing the file is the hard, reusable part and it's above; markup, posters, and CSS belong in your codebase where you can style them.
+
+---
+
+## The admin panel
+
+Each document gets a **WebM conversion** panel in the sidebar:
+
+- **Live status** — polls every 2.5s while the job runs and flips in place from *Optimising…* to the result. Failures and skips are explained inline.
+- **A row per stored rendition** — its label, file size and % saved, an **Open ↗** action, and a **↺** to regenerate just that one. Renditions the job decided not to store collapse into one muted footnote saying why, so a missing size reads as a decision rather than a failure.
+- **↺ all** — drops every rendition and re-queues the job, so files are re-encoded against your *current* config. Change `presets` or `quality`, hit ↺, and the new settings apply.
+
+Regeneration is gated by the collection's own `update` access control, via `POST /api/<taskSlug>/regenerate` with `{ collection, id, preset? }` — callable from your own tooling too.
+
+---
 
 ## Compatibility
 
-| Requirement | Supported                                                                                                                                                                                               |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payload     | `>=3.54.0 <4` (peer dependency; uses the built-in Jobs Queue)                                                                                                                                           |
-| Node.js     | `>=20.9.0`                                                                                                                                                                                              |
-| ffmpeg      | Any build with the `libvpx`/`libvpx-vp9` and `libopus` encoders — every standard distribution build (apt, brew, static builds, [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static)) has them |
-| OS          | Linux and macOS (anywhere `ffmpeg` can be spawned); Windows should work but is untested                                                                                                                 |
+| Requirement | Supported |
+| --- | --- |
+| Payload | `>=3.54.0 <4` (peer dependency; uses the built-in Jobs Queue) |
+| Node.js | `>=20.9.0` |
+| ffmpeg | Any build with `libvpx`/`libvpx-vp9` and `libopus` — every standard distribution build (apt, brew, static builds, [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static)) has them |
+| OS | Linux and macOS (anywhere `ffmpeg` can be spawned); Windows should work but is untested |
 
-ffmpeg is only needed by the **process that runs the jobs**. It looks for `ffmpeg` on `PATH`, or wherever `FFMPEG_PATH` / the `ffmpegPath` option points. At boot the plugin verifies the binary is executable **and** that the required encoders are compiled in, warning otherwise.
+ffmpeg is only needed by the **process that runs the jobs**. It looks for `ffmpeg` on `PATH`, or wherever `FFMPEG_PATH` / the `ffmpeg.path` option points. At boot the plugin checks the binary is executable **and** that the required encoders are compiled in, warning otherwise.
 
-## Dispatch — how conversions get off the request
+---
 
-The plugin can't know what platform it's on, so the host passes in how to defer the run:
+## Configuration
+
+Everything is optional except `dispatch`.
 
 ```ts
-dispatch: (_job, { run }) => after(run) // Next.js on Vercel
-dispatch: (_job, { run }) => waitUntil(run()) // Cloudflare Workers
-dispatch: (_job, { run }) => void run() // long-running Node server
-dispatch: (job) => qstash.publishJSON({ body: job }) // external queue — run the row yourself
+videoWebmPlugin({
+  // ── The one thing to get right in production ──────────────────────────────
+  // How your platform runs work after the response. See "Dispatch" below.
+  dispatch: (_job, { run }) => after(run),
+
+  // ── Common ────────────────────────────────────────────────────────────────
+  // Which upload collections to convert. Defaults to all of them.
+  collections: ['media'],
+
+  // Also make 9:16 crops for portrait slots. Off by default.
+  portrait: true, // or { widths: [1080] }
+
+  // Shift every rendition's quality. 'high' | 'balanced' (default) | 'small'.
+  quality: 'balanced',
+
+  // Kill switch: false leaves the Payload config completely untouched.
+  enabled: true,
+
+  // ── Renditions ────────────────────────────────────────────────────────────
+  // Defaults to widthPresets() — 2560w, 1920w, 1280w, 854w, 640w, 426w.
+  presets: widthPresets([1920, 1280, 640]),
+
+  // Settings shared by every rendition. Most people only touch `audio`.
+  encoding: {
+    audio: true, // false passes -an: a muted background loop shouldn't carry audio
+    crf: 32, // 0-63, lower = better quality and a bigger file
+    maxWidth: 1920, // cap dimensions; smaller sources are never upscaled
+    maxHeight: 1080,
+
+    // Advanced ffmpeg knobs — you can almost certainly ignore these.
+    aspectRatio: '9:16', // crop before scaling, framed by the focal point
+    codec: 'vp9', // 'vp9' (default) or 'vp8'
+    speed: 2, // -cpu-used: 0 slowest/best … 5 (VP9) / 16 (VP8) fastest
+    audioBitrate: '128k',
+    pixelFormat: 'yuv420p', // null keeps the source format
+    videoBitrate: '0', // '0' for VP9 (pure CRF), '1M' ceiling for VP8
+    extraArgs: ['-an'], // raw output args, appended last
+  },
+
+  // ── Guards (all sensible by default) ──────────────────────────────────────
+  skipIfLarger: true, // don't store a WebM that lost to the source
+  skipRedundantPresets: true, // don't encode rungs the source is too small to fill
+  maxInputFileSize: 500 * 1024 * 1024, // don't queue conversions above this size
+
+  // Which uploads count as video, matched against the client-declared mime type.
+  // 'video/*' wildcards work. video/webm is always left alone.
+  inputMimeTypes: ['video/mp4', 'video/quicktime'],
+
+  // ── Rarely touched ────────────────────────────────────────────────────────
+  ffmpeg: {
+    path: '/usr/bin/ffmpeg', // defaults to FFMPEG_PATH or `ffmpeg` on PATH
+    maxConcurrent: 2, // simultaneous encodes per Node process; null = unlimited
+    timeoutMs: 10 * 60 * 1000, // per encode, not per job
+  },
+  jobs: {
+    queue: 'video-webm',
+    retries: 3,
+    taskSlug: 'video-webm-convert', // only matters with two plugin instances
+  },
+
+  // Inject the read-only sidebar panel and metadata group. Default true.
+  metadataFields: true,
+
+  // ── Escape hatches ────────────────────────────────────────────────────────
+  // Veto individual conversions at upload time, after every guard above passed.
+  shouldConvert: ({ collection, file, req }) => !file.name.includes('raw'),
+
+  // Supply the source video to the job yourself — for access-controlled storage
+  // the default (staticDir, else streaming doc.url) can't reach. Return a Buffer,
+  // or { filePath } to keep it off the heap.
+  fetchSource: async ({ doc }) => myBucket.get(String(doc.filename)),
+
+  // Called after every conversion decision on a candidate video.
+  onConversionComplete: (outcome) => {
+    console.log(outcome.collection, outcome.originalFilename, outcome.converted)
+  },
+})
 ```
 
-`job` is serialisable (`{ collection, docId, generation, jobId, sourceFilename }`) for hosts with real queue infrastructure; `run` executes the queued row in-process via `payload.jobs.runByID`, waiting first for the upload's transaction to commit so the job can actually see the document.
+`collections` also takes an object, where `true` inherits the plugin settings and an object overrides them per collection (`encoding` merges key by key):
 
-**When `dispatch` is unset** the plugin falls back to running the job itself, and what that means depends on your database:
+```ts
+collections: {
+  media: true,
+  videos: { encoding: { crf: 30 }, portrait: true },
+}
+```
 
-| Database                                    | Without `dispatch`                                                                                                            |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| No transactions (Mongo standalone, SQLite)  | The job runs **inline** — `payload.create()` resolves only once the encode is done.                                           |
+Unknown or non-upload slugs throw at init, so typos surface immediately. `dispatch`, `enabled`, `ffmpeg` and `jobs` are plugin-wide and can't be set per collection.
+
+---
+
+## Advanced
+
+### Dispatch — how conversions get off the request
+
+The plugin can't know what platform it's on, so you say how to defer the work:
+
+```ts
+dispatch: (_job, { run }) => after(run)          // Next.js on Vercel
+dispatch: (_job, { run }) => waitUntil(run())    // Cloudflare Workers
+dispatch: (_job, { run }) => void run()          // long-running Node server
+dispatch: (job) => qstash.publishJSON({ body: job })  // external queue
+dispatch: 'inline'                               // deliberately block the upload
+```
+
+`job` is serialisable (`{ collection, docId, generation, jobId, sourceFilename }`) for hosts with real queue infrastructure. `run` executes the queued row in-process via `payload.jobs.runByID`, waiting first for the upload's transaction to commit so the job can actually see the document.
+
+**When `dispatch` is unset** the plugin runs the job itself and warns at boot. What that means depends on your database:
+
+| Database | Without `dispatch` |
+| --- | --- |
+| No transactions (Mongo standalone, SQLite) | The job runs **inline** — `payload.create()` resolves only once the encode is done. |
 | Transactions (Postgres, Mongo replica sets) | The job starts **detached** after the upload commits, because awaiting it inside the hook would deadlock against that commit. |
 
-The detached case is exactly where a platform that freezes after the response can lose the run, so **configure `dispatch` (or a jobs runner) in production**; the plugin warns at boot when it isn't set. The durable row survives either way.
+The detached case is exactly where a platform that freezes after the response can lose the run, so **configure `dispatch` (or a jobs runner) in production**. The durable row survives either way. Pass `dispatch: 'inline'` if you genuinely want the upload to block and would rather not see the warning.
 
 ### The cron safety net
 
-A durable row means an interrupted conversion isn't lost — with one important limit. Payload marks a job `processing` the moment it starts and has no lease or stall recovery, so:
+A durable row means an interrupted conversion isn't lost — with one limit. Payload marks a job `processing` the moment it starts and has no lease or stall recovery, so:
 
-- **Never-started and cleanly-failed rows** (a `dispatch` that only enqueues externally, an encode that threw, retries still pending) are picked up by cron. This is the guarantee.
-- **A run killed mid-encode** (SIGKILL, a frozen serverless instance) leaves its row claimed. Cron will not re-run it, and the document stays `queued`. The fix is one click of **↺ all** in the sidebar panel — it queues a _fresh_ job, and the per-preset idempotency means only what's missing is encoded.
+- **Never-started and cleanly-failed rows** (an external-queue `dispatch`, an encode that threw, retries still pending) are picked up by cron. This is the guarantee.
+- **A run killed mid-encode** (SIGKILL, a frozen serverless instance) leaves its row claimed. Cron won't re-run it and the document stays `queued`. The fix is one click of **↺ all** — it queues a *fresh* job, and per-preset idempotency means only what's missing gets encoded.
 
-Run the queue on a schedule — either Payload's built-in autorun:
+Run the queue on a schedule, either through Payload's autorun:
 
 ```ts
 jobs: {
@@ -190,13 +442,13 @@ jobs: {
 
 or an external cron hitting `GET /api/payload-jobs/run?queue=video-webm`, or `payload jobs:run --queue video-webm` in a worker container. That last shape is also the answer to ffmpeg's ~80 MB weight on serverless: keep the web app ffmpeg-free (it only writes queue rows and serves uploads) and run the jobs in a container that carries ffmpeg, pointed at the same database.
 
-## Presets — one rendition or a whole ladder
+### Presets
 
-By default every video gets a single `webm` rendition using the collection's `encoding`. Define `presets` for more control — each preset is a named, **typed** encoding override (merged key-by-key over `encoding`), and each becomes its own sidecar document with a suffixed filename (`clip-720p.webm`):
+Each preset is a named encoding override, merged over `encoding`, and each becomes its own sidecar document with a suffixed filename (`clip-720p.webm`). Declaration order is preference order.
 
 ```ts
 videoWebmPlugin({
-  encoding: { audioBitrate: '96k' }, // shared by all presets
+  encoding: { audioBitrate: '96k' }, // shared
   presets: {
     '720p': { label: '720p HD', encoding: { maxHeight: 720, crf: 32 } },
     '360p': { label: '360p Mobile', encoding: { maxHeight: 360, crf: 36 } },
@@ -204,7 +456,18 @@ videoWebmPlugin({
 })
 ```
 
-Declaration order is preference order — the first preset is what `getVideoSources` serves first. Or take the ready-made quality ladder, built on Google's published VP9 CRF-per-resolution recommendations (heights never upscale, so a 480p source's `1080p` rendition stays 480p):
+Two ready-made builders save you writing them out. `widthPresets()` is the default and builds a width ladder ~1.5× apart:
+
+```ts
+import { widthPresets } from '@whatworks/payload-video-webm'
+
+presets: widthPresets() // 2560w, 1920w, 1280w, 854w, 640w, 426w
+presets: widthPresets([1920, 1280, 640]) // just three
+```
+
+Widths suit layout work because a slot is measured by how wide it is. File size tracks pixel count and pixel count is width squared, so each rung is roughly half the bytes of the one above. Closer spacing buys a few percent per request for a whole extra encode; wider spacing (2×) leaves gaps where a 1000px slot gets either a soft 640 or a wasteful 1280.
+
+`resolutionPresets()` is the height-based equivalent, if you think in `720p`:
 
 ```ts
 import { resolutionPresets } from '@whatworks/payload-video-webm'
@@ -213,209 +476,60 @@ presets: resolutionPresets([360, 720, 1080])
 // → { '360p': …crf 36, '720p': …crf 32, '1080p': …crf 31 }
 ```
 
-### Width ladders
+Both take their per-rung CRF from Google's published VP9 recommendations, by pixel count — so a 9:16 crop 1080px wide (1080×1920) gets the same quality as a 1920×1080 landscape rung, which has exactly the same number of pixels.
 
-Layout slots are measured by how wide they are, so `widthPresets()` builds the ladder that way. The default is six widths spaced ~1.5× apart:
+**Six encodes sounds like a lot, and isn't.** Cost tracks pixel count, so on a 4K master the whole ladder is 7.4 megapixels against 8.3 for a single uncapped encode of the source — the ladder is *cheaper* than converting the file once at its own resolution. The bottom four rungs together are about 10% of the job. And smaller sources encode fewer rungs automatically: a 1080p master does five, a 720p master four.
 
-```ts
-import { widthPresets } from '@whatworks/payload-video-webm'
+### Aspect-ratio crops beyond portrait
 
-presets: widthPresets() // 2560w, 1920w, 1280w, 854w, 640w, 426w
-```
+`portrait: true` covers the case that matters. For anything else, `widthPresets` takes a ratio directly:
 
-File size tracks pixel count and pixel count is width squared, so each rung is roughly half the bytes of the one above. Closer spacing buys a few percent per request for a whole extra encode; wider spacing (2×) leaves gaps where a 1000px slot gets either a soft 640 or a wasteful 1280. Six rungs covers everything a 1440px laptop at 2× can ask for, from thumbnail to full-bleed hero. Each rung's CRF comes from the resolution table via its 16:9 height.
-
-Rungs the source can't fill are skipped, not upscaled — a 1280px master under the full ladder encodes `1280w` and below, and records the rest as `source-smaller`.
-
-### Aspect-ratio crops
-
-A rung is a **resize**: same framing, fewer pixels, invisible to the viewer. A ratio variant is a **crop**: different framing, an editorial decision. Most shape mismatches don't need one, because `object-fit: cover` handles them for free and the only cost is downloaded-but-unseen pixels:
-
-| Slot shape     | Overdraw with `cover` | Worth an encode? |
-| -------------- | --------------------- | ---------------- |
-| 21:9 ultrawide | 1.3×                  | no               |
-| 4:3            | 1.3×                  | no               |
-| 1:1 square     | 1.8×                  | no               |
-| 9:16 portrait  | **3.2×**              | yes              |
-
-So portrait is the case that earns its own encode — a phone hero fed by a landscape master:
+| Slot shape | Overdraw with `cover` | Worth an encode? |
+| --- | --- | --- |
+| 21:9 ultrawide | 1.3× | no |
+| 4:3 | 1.3× | no |
+| 1:1 square | 1.8× | no |
+| 9:16 portrait | **3.2×** | yes |
 
 ```ts
 presets: {
   ...widthPresets(),
-  ...widthPresets([1080, 720], { aspectRatio: '9:16', prefix: 'portrait' }),
+  ...widthPresets([1080, 720], { aspectRatio: '1:1' }), // → 1x1-1080w, 1x1-720w
 }
 ```
 
-The crop takes the largest window of that shape which fits, positioned by the document's **focal point** (Payload's own `focalX`/`focalY`, centred when the collection has none) and clamped so it can never run off an edge. Crop happens before scaling, and both sides stay even for the 4:2:0 chroma grid. It's expressed in ffmpeg's own filter expressions rather than computed from probed dimensions, so the framing is right even for rotated phone footage.
+The prefix defaults to a slug of the ratio, so cropped ladders can't collide with the landscape ones. Pass `prefix` to name them yourself.
+
+The crop takes the largest window of that shape which fits, positioned by the document's focal point (centred if the collection has none) and clamped so it can never run off an edge. Cropping happens before scaling, and both sides stay even for the 4:2:0 chroma grid. It's expressed in ffmpeg's own filter expressions rather than computed from probed dimensions, so the framing is right even for rotated phone footage.
 
 Portrait widths look small but aren't: a 9:16 file at 1080 wide is 1080×1920 — 2.07 MP, exactly as many pixels as a 1920×1080 landscape file. Same cost, same encode time; only the shape rotated.
 
-A focal point can't save a crop when the subject sits at the edge of the frame. Check the master before relying on portrait for faces.
+### When a rendition isn't stored
 
-### A straight conversion of the source
-
-`sourcePreset()` is the "just make it WebM" rendition: the source's own resolution, nothing resized or cropped, at a near-transparent quality (CRF 18). It clears any `maxWidth`/`maxHeight` inherited from the collection's `encoding` — a preset that means _the source, as WebM_ must not quietly resize — and keeps the `webm` key, so the file is plain `clip.webm` with no suffix:
-
-```ts
-import { resolutionPresets, sourcePreset } from '@whatworks/payload-video-webm'
-
-presets: {
-  ...resolutionPresets([360, 720]), // delivery sizes first
-  ...sourcePreset(),                // full-resolution copy last
-}
-```
-
-mp4 → WebM is **always** a re-encode: WebM carries only VP8/VP9/AV1 video and Opus/Vorbis audio, so an H.264 stream can't simply be remuxed into it. "Unchanged" here means nothing is resized, cropped or dropped and the quality target is high enough to be indistinguishable in normal viewing — not bit-identical. If you genuinely want mathematically lossless VP9:
-
-```ts
-sourcePreset({ extraArgs: ['-lossless', '1'] })
-```
-
-expect a file several times larger than the mp4, which `skipIfLarger` will then usually refuse to store. Overrides otherwise work as you'd expect — `sourcePreset({ crf: 24 })` trades a little quality for size.
-
-Because it sets no height cap, this preset never counts as a redundant rung, so pairing it with ladder heights at or above your typical source resolution will encode the same frame size twice at different qualities.
-
-Preset advanced needs (crop filters, stripping audio, …) go through each preset's `encoding.extraArgs` — raw ffmpeg output args with the same last-one-wins caveats as everywhere else. The job encodes presets sequentially under the concurrency limiter and is **idempotent per preset**: a retry after a partial failure resumes the missing renditions instead of duplicating finished ones.
-
-Two guards decide a preset isn't worth storing, and **both record their decision** on the document so no later run pays for the same encode twice:
+Two guards decide a preset isn't worth keeping, and **both record their decision** so no later run pays for the same encode twice:
 
 - `skipIfLarger` (default on) — the WebM lost to the source, so the source stands alone.
-- `skipRedundantPresets` (default on) — the source is too small to fill the rung. Since nothing ever upscales, a 480p master under `resolutionPresets([360, 720, 1080])` would encode `1080p` into a second copy of `720p`; only the first rung at or above the source height is encoded and the rest are marked `source-smaller`. Costs one `ffmpeg -i` probe per job, only applies to presets that set `maxHeight`, and skips nothing if the probe can't read the dimensions.
+- `skipRedundantPresets` (default on) — the source is too small to fill the rung. Nothing ever upscales, so a 480p master under a `1080p` rung would just produce a second copy of `720p`. Only the first rung at or above the source is encoded; the rest are marked `source-smaller`. Presets capping `maxWidth` or `maxHeight` take part, each aspect ratio judged against its own crop window; uncapped presets always encode. Costs one `ffmpeg -i` probe per job, and skips nothing if the probe can't read the dimensions.
 
-Either way the rendition is simply absent and the frontend helpers fall back — and the sidebar panel shows the preset with the reason instead of a size.
-
-## Options
-
-```ts
-videoWebmPlugin({
-  // Upload collections to convert. Defaults to every upload collection.
-  // Array form — these collections, plugin-level settings:
-  //   collections: ['media'],
-  // …or object form — `true` inherits, an object overrides per collection
-  // (`encoding` merges key-by-key). Unknown or non-upload slugs throw at init.
-  collections: {
-    media: true,
-    videos: { encoding: { crf: 30, maxWidth: 1920 } },
-  },
-
-  // Kill switch: `false` leaves the Payload config completely untouched.
-  enabled: true,
-
-  // Renditions to generate — see "Presets" above. Default: one `webm` preset
-  // using `encoding` unchanged. Keys become filename suffixes.
-  presets: resolutionPresets([360, 720, 1080]),
-
-  // How to background conversions — see "Dispatch" above. Unset = inline + warning.
-  dispatch: (_job, { run }) => after(run),
-
-  // Jobs plumbing. Defaults shown; taskSlug only matters with two plugin instances.
-  queue: 'video-webm',
-  retries: 3,
-  taskSlug: 'video-webm-convert',
-
-  // How the job gets the source video. Return a Buffer, or `{ filePath }` to keep
-  // it off the heap entirely. Default: the collection's staticDir read in place for
-  // local storage, else streaming doc.url (against serverURL) to a temp file.
-  // Override for access-controlled storage the default can't reach.
-  fetchSource: async ({ doc }) => myBucket.get(String(doc.filename)),
-
-  // Mime types eligible for conversion, matched against the client-declared
-  // req.file.mimetype ('video/*' wildcards supported). `video/webm` uploads are
-  // always left alone, even if listed here. Defaults (exact list):
-  // video/3gpp, video/mp4, video/mpeg, video/ogg, video/quicktime, video/x-flv,
-  // video/x-m4v, video/x-matroska, video/x-ms-wmv, video/x-msvideo
-  inputMimeTypes: ['video/mp4', 'video/quicktime'],
-
-  // ffmpeg binary — only the jobs-running process needs it.
-  ffmpegPath: '/usr/bin/ffmpeg',
-
-  encoding: {
-    // Crop to this shape before scaling, framed by the document's focal point.
-    // Unset means no crop — the source's own framing. See "Aspect-ratio crops".
-    aspectRatio: '9:16',
-    // false passes -an: background/muted video shouldn't carry an audio stream.
-    audio: true,
-    codec: 'vp9', // 'vp9' (default) or 'vp8'
-    crf: 32, // constant quality 0–63, lower = better/larger (default 32)
-    speed: 2, // -cpu-used: 0 slowest/best … 5 (VP9) / 16 (VP8) fastest (default 2)
-    audioBitrate: '128k', // Opus bitrate (default '128k')
-    maxWidth: 1920, // cap dimensions — smaller sources are never upscaled
-    maxHeight: 1080,
-    pixelFormat: 'yuv420p', // default; pass null to keep the source format
-    videoBitrate: '0', // default '0' for VP9 (pure CRF), '1M' ceiling for VP8
-    // Advanced: appended after the generated output options, before the pinned
-    // `-f webm`. ffmpeg usually honours the last occurrence of a repeated option,
-    // so these tend to win — but semantics vary per option, and invalid or
-    // conflicting arguments will fail the conversion.
-    extraArgs: ['-an'],
-  },
-
-  // Skip storing the WebM when it would be larger than the source. Default true.
-  skipIfLarger: true,
-
-  // Skip ladder rungs the source is too small to fill (nothing ever upscales, so
-  // they'd duplicate a smaller rung). Costs one ffmpeg probe per job. Default true.
-  skipRedundantPresets: true,
-
-  // Don't queue conversions for files above this many bytes. This is a conversion
-  // guard only — it does not raise Payload's upload.limits or any host body limit.
-  maxInputFileSize: 500 * 1024 * 1024,
-
-  // Cap simultaneous ffmpeg processes per Node.js process. Defaults to 2 — each
-  // VP9 encode saturates several cores. Pass null for unlimited.
-  maxConcurrentEncodes: 2,
-
-  // Kill ffmpeg (SIGKILL) and fail the job attempt after this long. Default 10 min.
-  timeoutMs: 10 * 60 * 1000,
-
-  // Injects the read-only `videoWebm` sidebar group. Default true.
-  metadataFields: true,
-
-  // Advanced veto at upload time, called only for files that already passed every
-  // guard above. Return false to leave the file alone — reported to
-  // onConversionComplete as 'filtered', but not recorded in the metadata group.
-  shouldConvert: ({ collection, file, req }) => !file.name.includes('raw'),
-
-  // Called after every conversion decision on a candidate video: converted,
-  // output-larger, failed (from the job), or already-webm / filtered /
-  // input-too-large (at upload time). Never for non-video uploads. Errors here
-  // are logged and never fail anything.
-  onConversionComplete: (outcome) => {
-    console.log(outcome.collection, outcome.originalFilename, outcome.converted)
-  },
-})
-```
-
-## The admin panel and the `videoWebm` metadata group
-
-The document sidebar gets a single **WebM conversion** control panel (a `ui` field pointing at `@whatworks/payload-video-webm/client#WebmConversionPanel`):
-
-- **Live status** — while the job runs it polls every 2.5s and flips in place from _Optimising…_ to the result, no refresh needed; failures and skips are explained inline.
-- **Condensed rendition table** — one row per **stored** rendition, labelled with the preset's `label`, showing its file size and % saved (no filenames cluttering the sidebar), an **Open ↗** action that opens the video file in a new tab, and a **↺ regenerate** action per row (plus **↺ all** in the header). Presets the job decided not to store don't get a row — they collapse into one muted footnote naming them and why, so a missing preset is explained without a table entry that reads like a failure.
-- **Regenerate** drops the rendition(s) and re-queues the background job, so the file is re-encoded with the _current_ plugin config — change `presets`/`crf` in your config, hit ↺, and the new quality applies. Gated by the collection's own `update` access control via `POST /api/<taskSlug>/regenerate` `{ collection, id, preset? }` (also callable from your own tooling).
-
-- **Recovery** — the header action stays available while a conversion is queued, which is how you restart a run that was killed mid-encode (see "The cron safety net"). A conversion that is genuinely still running is refused with `409` rather than piled onto.
-
-The underlying `videoWebm` status group and `webmVersions` array are hidden in the admin (the panel presents them) but remain fully readable through the API. `metadataFields: false` removes the group and the panel; conversions still happen.
+Either way the rendition is simply absent, the frontend helpers fall back, and the sidebar shows the reason instead of a size.
 
 ### The `videoWebm` metadata group
 
-Every targeted collection gets a read-only sidebar group (opt out with `metadataFields: false`), hidden in the admin until the plugin recorded something:
+Every targeted collection gets a read-only sidebar group (opt out with `metadataFields: false`), hidden until the plugin records something:
 
-| Field              | Meaning                                                                            |
-| ------------------ | ---------------------------------------------------------------------------------- |
-| `status`           | `queued` → `complete` \| `skipped` \| `failed`. Stamped `queued` at upload time.   |
-| `originalFilename` | The source filename, e.g. `clip.mp4`.                                              |
-| `originalMimeType` | The source mime type, e.g. `video/mp4`.                                            |
-| `originalFilesize` | Source size in bytes — compare with the sidecar's `filesize` for the savings.      |
-| `encodeDurationMs` | Wall-clock ffmpeg time for the successful encode.                                  |
-| `skippedReason`    | `input-too-large` (at upload time), or `output-larger` / `source-smaller` (job).   |
-| `error`            | Last job error, truncated — retries may still flip the status to `complete` later. |
+| Field | Meaning |
+| --- | --- |
+| `status` | `queued` → `complete` \| `skipped` \| `failed`. Stamped `queued` at upload time. |
+| `originalFilename` | The source filename, e.g. `clip.mp4`. |
+| `originalMimeType` | The source mime type. |
+| `originalFilesize` | Source size in bytes — compare with a rendition's `filesize` for the savings. |
+| `encodeDurationMs` | Wall-clock ffmpeg time for the successful encode. |
+| `skippedReason` | `input-too-large` (upload time), or `output-larger` / `source-smaller` (job). |
+| `error` | Last job error, truncated — retries may still flip the status to `complete`. |
 
-The group is stamped only on requests that actually carry a file, so re-saving a document never clobbers the record, while replacing the file resets it (and queues a fresh conversion). `metadataFields: false` removes the group and the panel; conversions still run — the queue is driven by the request, not by the stamped status.
+The group is stamped only on requests that actually carry a file, so re-saving a document never clobbers it, while replacing the file resets it and queues a fresh conversion.
 
-Per-preset outcomes live in `webmVersions` rather than in this group: every row is either a stored rendition (`{ preset, video, width, height }`) or a recorded skip (`{ preset, skippedReason }`). Dimensions are measured off each encoded file — Payload only derives width/height for images — so picking a rendition by how wide it is costs no extra query:
+Per-preset outcomes live in `webmVersions`: each row is either a stored rendition or a recorded skip. Dimensions are measured off each encoded file — Payload only derives width/height for images — so picking a rendition by width costs no extra query:
 
 ```ts
 {
@@ -441,11 +555,11 @@ onConversionComplete: async ({ collection, docId }) => {
 }
 ```
 
-Tag the fetches that read the video with the same key and a finished encode purges exactly the routes using it. The page re-renders once, picks up the fuller `webmVersions` array, and caches again — nothing is ever resolved per request.
+Tag the fetches that read the video with the same key and a finished encode purges exactly the routes using it.
 
-## Derivatives are real documents
+### Renditions are real documents
 
-The renditions are ordinary documents in the same collection — that is exactly what keeps them on whatever storage adapter the collection already uses — flagged with a hidden `isWebmDerivative` checkbox. The plugin hides them from the **admin list view** via `baseListFilter`, and that is the only place Payload applies such a filter. Everywhere else you have to exclude them yourself, which is one import:
+They're ordinary documents in the same collection — which is what keeps them on whatever storage adapter the collection already uses — flagged with a hidden `isWebmDerivative` checkbox. The plugin hides them from the **admin list view** via `baseListFilter`, and that's the only place Payload applies such a filter. Everywhere else you exclude them yourself, which is one import:
 
 ```ts
 import { EXCLUDE_WEBM_DERIVATIVES } from '@whatworks/payload-video-webm'
@@ -454,45 +568,45 @@ import { EXCLUDE_WEBM_DERIVATIVES } from '@whatworks/payload-video-webm'
 await payload.find({ collection: 'media', where: EXCLUDE_WEBM_DERIVATIVES })
 
 // Every relationship/upload field pointing at a converted collection — without this
-// the picker offers editors clip.mp4, clip-360p.webm, clip-720p.webm and clip-1080p.webm.
+// the picker offers editors clip.mp4, clip-640w.webm, clip-1280w.webm and the rest.
 { name: 'hero', type: 'upload', relationTo: 'media', filterOptions: EXCLUDE_WEBM_DERIVATIVES }
 ```
 
-The same applies to REST/GraphQL list endpoints and to `count`. Access control is inherited from the collection: anyone who can read a source document can read its renditions.
+The same applies to REST/GraphQL list endpoints and to `count`. Access control is inherited: anyone who can read a source document can read its renditions.
 
 ### Drafts, versions and duplicates
 
-- **Versioned collections work**, with one caveat: the job's bookkeeping write goes through `payload.update`, so on a drafts-enabled collection it creates a version like any other update. Restoring an old version can't destroy renditions — the cleanup only runs for writes that actually retire them (a new file, the job itself, or the regenerate endpoint), never for a stale snapshot of `webmVersions`.
-- **Duplicating a document** gives the copy a clean slate rather than a shared one: Payload never sets `req.file` when duplicating, so the copy starts unconverted (its panel offers **Convert**) instead of inheriting rows that point at the original's renditions.
+- **Versioned collections work**, with one caveat: the job's bookkeeping write goes through `payload.update`, so on a drafts-enabled collection it creates a version like any other update. Restoring an old version can't destroy renditions — cleanup only runs for writes that actually retire them (a new file, the job itself, or the regenerate endpoint), never for a stale snapshot of `webmVersions`.
+- **Duplicating a document** gives the copy a clean slate: Payload never sets `req.file` when duplicating, so the copy starts unconverted (its panel offers **Convert**) rather than inheriting rows pointing at the original's renditions.
 
-## How it works
+### How it works
 
-1. **Upload time** (`beforeChange`): the cheap guards run against the client-declared `req.file.mimetype` (no content sniffing), `maxInputFileSize`, and your `shouldConvert` predicate. Candidates are stamped `status: 'queued'`; `req.file` is never touched, so the source stores byte-for-byte as uploaded.
-2. **After the write** (`afterChange`): a durable job row is queued — deliberately without `req`, so the row isn't trapped inside the request's transaction — and handed to `dispatch`, along with the document's `webmGeneration` counter, which the stamp hook has just bumped. The response returns.
-3. **In the job**: the handler re-reads the document and bails unless it is still the one that was queued — same file, same generation. It then puts the source on disk (local storage is read in place; remote storage is streamed to a temp file, never buffered), probes its dimensions, and encodes each undecided preset under the concurrency limiter. Every rendition is a hidden sidecar document in the same collection, linked as a `{ preset, video }` row in `webmVersions`.
-4. **On the way out**: the document is read _again_ and this run's rows are merged onto it, so a slow run can't overwrite renditions that were created or retired while it worked; if the generation moved on, the run discards its own output instead. Failures link whatever finished, record `status: 'failed'`, and rethrow so Payload's retries resume the missing presets.
+1. **Upload time** (`beforeChange`): cheap guards run against the client-declared `req.file.mimetype` (no content sniffing), `maxInputFileSize`, and your `shouldConvert` predicate. Candidates are stamped `status: 'queued'`; `req.file` is never touched, so the source stores byte-for-byte as uploaded.
+2. **After the write** (`afterChange`): a durable job row is queued — deliberately without `req`, so the row isn't trapped inside the request's transaction — and handed to `dispatch`, along with the document's `webmGeneration` counter. The response returns.
+3. **In the job**: the handler re-reads the document and bails unless it's still the one that was queued — same file, same generation. It puts the source on disk (local storage is read in place; remote storage is streamed to a temp file, never buffered), probes its dimensions, and encodes each undecided preset under the concurrency limiter. Every rendition becomes a hidden sidecar document linked as a `{ preset, video }` row.
+4. **On the way out**: the document is read *again* and this run's rows merged onto it, so a slow run can't overwrite renditions created or retired while it worked; if the generation moved on, the run discards its own output. Failures link whatever finished, record `status: 'failed'`, and rethrow so Payload's retries resume the missing presets.
 
-**Lifecycle guarantees**: replacing the document's file queues a re-encode of every preset and garbage-collects the stale renditions; replacing a video with a non-video clears everything; deleting the original deletes all its renditions, in the same transaction as the delete. Renditions are only ever collected by writes that genuinely retire them, so an ordinary save or a restored version can't take live files down with it. A rendition deleted behind the plugin's back is noticed and re-encoded on the next run. Other document fields are copied onto the sidecar so required fields validate; collections with `unique` non-upload fields will conflict on sidecar creation, so avoid targeting those.
+**Lifecycle guarantees**: replacing the file queues a re-encode of every preset and garbage-collects the stale renditions; replacing a video with a non-video clears everything; deleting the original deletes all its renditions in the same transaction. Renditions are only collected by writes that genuinely retire them, so an ordinary save or a restored version can't take live files down. A rendition deleted behind the plugin's back is noticed and re-encoded on the next run. Other document fields are copied onto the sidecar so required fields validate; collections with `unique` non-upload fields will conflict on sidecar creation, so avoid targeting those.
 
 **Concurrency**: two runs of the same conversion (the immediate run racing cron, or two retries) are serialised in-process by a per-document lock, and across processes the generation check plus the merged final write make the loser harmless — it deletes its own duplicate renditions rather than leaving them orphaned.
 
-**Hook ordering**: the plugin's hooks are appended after any hooks the collection already declares, and since nothing mutates `req.file`, your hooks always see the original upload. The sidecar arrives later as its own document create, which runs your collection hooks too — check `isWebmDerivative` in your hooks if you need to tell them apart.
+**Hook ordering**: the plugin's hooks are appended after any the collection already declares, and since nothing mutates `req.file`, your hooks always see the original upload. The sidecar arrives later as its own document create, which runs your collection hooks too — check `isWebmDerivative` if you need to tell them apart.
 
-## Performance and cost
+### Performance and cost
 
-- Storage is source + one WebM per preset — that's the point: the source is never sacrificed, and optimised versions can be regenerated at any time. A full ladder multiplies encode time and storage accordingly; start with the sizes your players actually use.
-- VP9 is CPU-intensive. `maxConcurrentEncodes` (default 2, per process) stops simultaneous uploads from stampeding the encoder; for real volume, move the queue to a dedicated `payload jobs:run` container.
-- `maxInputFileSize` keeps oversized masters out of the encoder entirely; `skipIfLarger` (default on) refuses to store a WebM that lost to the original; `skipRedundantPresets` (default on) refuses to encode a ladder rung the source can't fill.
-- **Memory**: source videos are never held in memory — ffmpeg reads them from disk, and remote storage is streamed to a temp file. Each _stored_ rendition is read into a buffer once to hand to Payload's upload pipeline, so peak usage tracks output size, not input size. Temp directories are removed in `finally`, timeouts included.
+- Storage is source + one WebM per preset. The source is never sacrificed, so optimised versions can be regenerated at any time.
+- VP9 is CPU-intensive. `ffmpeg.maxConcurrent` (default 2, per process) stops simultaneous uploads stampeding the encoder; for real volume, move the queue to a dedicated `payload jobs:run` container.
+- `maxInputFileSize` keeps oversized masters out of the encoder entirely; `skipIfLarger` and `skipRedundantPresets` (both on) refuse work that wouldn't pay for itself.
+- **Memory**: source videos are never held in memory — ffmpeg reads them from disk, and remote storage is streamed to a temp file. Each *stored* rendition is read into a buffer once to hand to Payload's upload pipeline, so peak usage tracks output size, not input size. Temp directories are removed in `finally`, timeouts included.
 - Encodes are only queued by writes that pass access control, and the regenerate endpoint refuses to stack a second conversion onto a document whose conversion is still in flight.
 - Client-side uploads that bypass the Payload server (`upload.clientUploads`, presigned flows) never trigger the `afterChange` hook and are not converted.
 
-## Scope
+### Scope
 
 This plugin is deliberately WebM-only: `webmVersions`, `isWebmDerivative` and the `video/webm` output are part of its stored schema, not placeholders for a general transcoding pipeline. Other output formats (MP4/AV1 fallbacks, poster frames, audio-only) are out of scope and would arrive as a separate package rather than a schema migration here.
 
-## Development and testing
+### Development and testing
 
-The dev sandbox (`pnpm dev`) boots a Payload admin backed by SQLite with a `media` collection wired to a width ladder, a 9:16 portrait crop and a full-resolution rendition — upload an mp4/mov and watch the response return immediately while the sidebar panel fills in. A `pages` collection sits alongside it to demonstrate the `filterOptions` rule for upload fields.
+The dev sandbox (`pnpm dev`) boots a Payload admin backed by SQLite with a `media` collection wired to a small width ladder and a portrait crop — upload an mp4/mov and watch the response return immediately while the sidebar panel fills in. A `pages` collection sits alongside it to demonstrate the `filterOptions` rule for upload fields.
 
-Tests (`pnpm test`) generate their video fixtures with your local ffmpeg; the encode-dependent suite skips automatically when no binary is installed, while jobs plumbing, process handling, concurrency and failure modes are exercised with stand-in binaries and run everywhere.
+Tests (`pnpm test`) generate their video fixtures with your local ffmpeg; the encode-dependent suite skips automatically when no binary is installed, while jobs plumbing, process handling, concurrency, `sizes` parsing/solving and failure modes are exercised without one and run everywhere.
