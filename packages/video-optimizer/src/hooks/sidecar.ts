@@ -167,6 +167,10 @@ export const deleteSidecarDocument = async (
  * save, a restored version, a document duplicated from one that had renditions —
  * carries an older snapshot of `renditions` through no fault of the renditions,
  * and deleting live files on the strength of it would be data loss.
+ *
+ * `renditions` is currently the only place sidecar ids live. A second one (a poster
+ * image, say) has to be read here *and* in the delete hook below, or its documents
+ * leak. `test/sidecarGc.test.ts` pins the behaviour either way.
  */
 export const createSidecarCleanupHook =
   (): CollectionAfterChangeHook =>
