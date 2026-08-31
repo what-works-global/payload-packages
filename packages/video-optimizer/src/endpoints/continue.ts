@@ -39,19 +39,30 @@ export const createContinueEndpoint = ({ dispatch, taskSlug }: QueueHookOptions)
 
     // Read the descriptor from the row rather than the body: the token authorises
     // running this job, and nothing else in the request needs to be trusted.
-    let input: JsonObject
+    let row: JsonObject
     try {
-      const row = (await req.payload.findByID({
+      row = (await req.payload.findByID({
         id: jobId,
         collection: 'payload-jobs' as never,
         depth: 0,
         overrideAccess: true,
       })) as JsonObject
-      input = (row.input ?? {}) as JsonObject
     } catch {
       // Already collected, or never existed. Cron settles anything still runnable.
       return json(404, { error: 'job not found' })
     }
+
+    // `runByID` has no state guards of its own — unlike the batch path it does not
+    // filter on `completedAt`/`hasError`/`processing`, it just flips `processing`
+    // and runs. So a replayed token would re-run finished work, or pile onto a run
+    // already in flight. And a token is only ever a licence to continue *our* task.
+    if (row.taskSlug !== taskSlug) {
+      return json(403, { error: 'job does not belong to this task' })
+    }
+    if (row.completedAt || row.hasError || row.processing) {
+      return json(409, { error: 'job is not runnable' })
+    }
+    const input = (row.input ?? {}) as JsonObject
 
     const run = async (): Promise<void> => {
       try {
