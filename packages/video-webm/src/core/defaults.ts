@@ -56,7 +56,7 @@ export const DEFAULT_MAX_CONCURRENT_ENCODES = 2
 
 /**
  * Google's published VP9 VOD constant-quality recommendations, by frame height.
- * Heights outside the table fall back to the plugin's CRF default.
+ * Heights are 16:9, which is how the table is published.
  */
 const LADDER_CRF: Record<number, number> = {
   144: 40,
@@ -102,9 +102,29 @@ export const resolutionPresets = (
  */
 export const DEFAULT_WIDTH_LADDER = [2560, 1920, 1280, 854, 640, 426]
 
-/** 16:9 height for a ladder width, used only to pick that rung's CRF from the table. */
-const ladderCrfForWidth = (width: number): number =>
-  LADDER_CRF[Math.round(width / (16 / 9) / 2) * 2] ?? 33
+/**
+ * The same table keyed by pixel count instead of height. Quality should follow how
+ * many pixels a rung actually has, not how tall it would be if it were 16:9 — a 9:16
+ * crop 1080px wide is 1080×1920, the same 2.07 MP as a 1920×1080 landscape rung, and
+ * belongs at the same CRF rather than being judged as a 608px-tall thumbnail.
+ */
+const CRF_BY_PIXELS = Object.entries(LADDER_CRF)
+  .map(([height, crf]) => ({ crf, pixels: Number(height) * Number(height) * (16 / 9) }))
+  .sort((a, b) => a.pixels - b.pixels)
+
+/**
+ * Nearest tier in log space, so a width that falls between two rungs picks whichever
+ * it is proportionally closer to rather than always rounding one way.
+ */
+const crfForPixels = (pixels: number): number =>
+  CRF_BY_PIXELS.reduce((best, tier) =>
+    Math.abs(Math.log(tier.pixels / pixels)) < Math.abs(Math.log(best.pixels / pixels))
+      ? tier
+      : best,
+  ).crf
+
+/** `'9:16'` → `'9x16'`: preset keys become filenames, so `:` and `/` can't survive. */
+const ratioSlug = (ratio: string): string => ratio.replace(/\s+/g, '').replace(/[:/]/g, 'x')
 
 /**
  * Width-based ladder: one preset per width, capped so nothing is ever upscaled, with
@@ -125,23 +145,30 @@ const ladderCrfForWidth = (width: number): number =>
 export const widthPresets = (
   widths: number[] = DEFAULT_WIDTH_LADDER,
   options: { aspectRatio?: string; prefix?: string } = {},
-): Record<string, VideoPreset> =>
-  Object.fromEntries(
+): Record<string, VideoPreset> => {
+  // Without a prefix a cropped ladder collides key-for-key with the landscape one
+  // (`1080w` twice), and the later spread silently wins. Derive one from the ratio.
+  const prefix =
+    options.prefix ?? (options.aspectRatio ? ratioSlug(options.aspectRatio) : undefined)
+  const ratio = (options.aspectRatio ? parseAspectRatio(options.aspectRatio) : null) ?? 16 / 9
+
+  return Object.fromEntries(
     widths.map((width) => {
-      const name = options.prefix ? `${options.prefix}-${width}w` : `${width}w`
+      const name = prefix ? `${prefix}-${width}w` : `${width}w`
       return [
         name,
         {
           encoding: {
             ...(options.aspectRatio ? { aspectRatio: options.aspectRatio } : {}),
-            crf: ladderCrfForWidth(width),
+            crf: crfForPixels((width * width) / ratio),
             maxWidth: width,
           },
-          label: options.prefix ? `${options.prefix} ${width}px` : `${width}px`,
+          label: prefix ? `${prefix} ${width}px` : `${width}px`,
         } satisfies VideoPreset,
       ]
     }),
   )
+}
 
 /**
  * Constant-quality target for {@link sourcePreset}. VP9 is visually transparent for

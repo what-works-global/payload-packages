@@ -128,6 +128,23 @@ describe('resolveConfig validation', () => {
     })
   })
 
+  it('picks a cropped rung’s CRF from its real pixel count, not an implied 16:9 height', () => {
+    // 1080×1920 is 2.07 MP — the same as a 1920×1080 landscape rung, so it belongs at
+    // the same CRF. Judged as a 16:9 rung it would look 608px tall and land 2 worse.
+    const portrait = widthPresets([1080, 720], { aspectRatio: '9:16' })
+    expect(portrait['9x16-1080w'].encoding.crf).toBe(widthPresets([1920])['1920w'].encoding.crf)
+    expect(portrait['9x16-720w'].encoding.crf).toBe(widthPresets([1280])['1280w'].encoding.crf)
+  })
+
+  it('derives a prefix from the aspect ratio so cropped ladders cannot collide', () => {
+    const mixed = { ...widthPresets([1080]), ...widthPresets([1080], { aspectRatio: '9:16' }) }
+    expect(Object.keys(mixed)).toEqual(['1080w', '9x16-1080w'])
+    // An explicit prefix still wins.
+    expect(Object.keys(widthPresets([1080], { aspectRatio: '9:16', prefix: 'portrait' }))).toEqual([
+      'portrait-1080w',
+    ])
+  })
+
   it('rejects an unparseable aspect ratio at init', () => {
     expect(() => resolveConfig({ encoding: { aspectRatio: '9x16' } })).toThrow(/aspectRatio/)
     expect(() => resolveConfig({ encoding: { aspectRatio: '0:16' } })).toThrow(/aspectRatio/)
