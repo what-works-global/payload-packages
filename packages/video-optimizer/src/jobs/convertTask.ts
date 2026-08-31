@@ -386,9 +386,11 @@ const runConversion = async ({
       status = 'complete'
     } else {
       status = 'skipped'
-      skippedReason = rows.every((row) => row.skippedReason === 'source-smaller')
-        ? 'source-smaller'
-        : 'output-larger'
+      // One reason for the whole document only when the rows agree; a mixed set has
+      // no single answer, and reporting the first-listed would be arbitrary.
+      const reasons = new Set(rows.map((row) => row.skippedReason))
+      skippedReason =
+        reasons.size === 1 ? ((rows[0]?.skippedReason ?? null) as SkipReason) : 'output-larger'
     }
 
     // Conditional, not by id: `superseded` was checked against a read that happened

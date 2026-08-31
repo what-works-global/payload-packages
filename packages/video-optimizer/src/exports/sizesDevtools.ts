@@ -62,7 +62,7 @@ const measure = (page: SweepablePage, selector: string): Promise<null | number> 
  * ```ts
  * await page.goto('http://localhost:3000/blog')
  * const samples = await sweepSizes(page, '[data-slot=card]')
- * console.log(fitSizes(samples, { ladder: DEFAULT_WIDTH_LADDER }).sizes)
+ * console.log(fitSizes(samples).sizes)
  * ```
  */
 export const sweepSizes = async (

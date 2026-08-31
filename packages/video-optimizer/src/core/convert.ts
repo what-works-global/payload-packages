@@ -111,7 +111,7 @@ const runFfmpeg = (ffmpegPath: string, args: string[], timeoutMs: number): Promi
       clearTimeout(timer)
       reject(
         new FfmpegError(
-          `could not spawn ffmpeg at "${ffmpegPath}" — is it installed and on PATH, or set via the ffmpegPath option / FFMPEG_PATH? (${error.message})`,
+          `could not spawn ffmpeg at "${ffmpegPath}" — is it installed and on PATH, or set via the ffmpeg.path option / FFMPEG_PATH? (${error.message})`,
         ),
       )
     })

@@ -123,11 +123,11 @@ Each chunk starts the next one itself, in a fresh function with a fresh timeout.
 
 **Cron is optional, and here's exactly what it buys.** The chain is self-propelling, so nothing routine depends on cron:
 
-|                                    | Without cron                                           | With cron                |
-| ---------------------------------- | ------------------------------------------------------ | ------------------------ |
-| Normal conversion                  | works                                                  | works                    |
-| A continue request is lost         | stalls until someone clicks **↺**                      | resumes on the next tick |
-| A chunk fails (an S3 blip, an OOM) | `retries: 3` never fires — nothing polls for the retry | retried automatically    |
+|                                    | Without cron                                                          | With cron                |
+| ---------------------------------- | --------------------------------------------------------------------- | ------------------------ |
+| Normal conversion                  | works                                                                 | works                    |
+| A continue request is lost         | stalls until someone clicks **↺** (which re-encodes the whole ladder) | resumes on the next tick |
+| A chunk fails (an S3 blip, an OOM) | `retries: 3` never fires — nothing polls for the retry                | retried automatically    |
 
 So it's the difference between **self-healing** and **manual recovery**, not between working and broken. A stalled conversion isn't a broken page either — the frontend falls back to the original file.
 
@@ -143,7 +143,7 @@ If you want it, hourly is the sweet spot (~0.04¢/month), and `&limit=1` matters
 
 That endpoint's access **defaults to open**, so set `CRON_SECRET` and check it — see [The cron safety net](#the-cron-safety-net). Vercel Cron needs Pro for anything more frequent than daily.
 
-> **Two hard limits on Vercel.** Uploads over 100 MB can't go through a function at all, and the `clientUploads` route around that bypasses the hook, so those files are never converted. And storage must be remote (Vercel Blob, S3) — the filesystem is ephemeral.
+> **Two hard limits on Vercel.** Uploads over 100 MB can't go through a function at all, and the `clientUploads` route around that never puts a file on the request, so nothing is queued and those files are never converted. And storage must be remote (Vercel Blob, S3) — the filesystem is ephemeral.
 
 ---
 
@@ -258,7 +258,9 @@ import { SIZES } from '@/app/blog/VideoCard'
 
 test('blog card sizes stays accurate', async ({ page }) => {
   await page.goto('/blog')
-  await expectSizesAccurate(page, '[data-slot=card]', { sizes: SIZES })
+  // `ladder` defaults to the built-in six rungs — pass your own widths if you
+  // configured `presets`, or the check compares against sizes you don't store.
+  await expectSizesAccurate(page, '[data-slot=card]', { ladder: [1920, 1280, 640], sizes: SIZES })
 })
 ```
 
@@ -387,7 +389,7 @@ ffmpeg is only needed by the **process that runs the jobs**. It looks for `ffmpe
 
 ## Configuration
 
-Everything is optional except `dispatch`.
+Everything is optional; `dispatch` is the one to get right in production.
 
 ```ts
 videoOptimizerPlugin({
@@ -412,7 +414,10 @@ videoOptimizerPlugin({
   // Defaults to widthPresets() — 2560w, 1920w, 1280w, 854w, 640w, 426w.
   presets: widthPresets([1920, 1280, 640]),
 
-  // Settings shared by every rendition. Most people only touch `audio`.
+  // Settings shared by every rendition — a key listing, not a config to paste:
+  // `aspectRatio` here would crop *every* rung, and `extraArgs: ['-an']` would undo
+  // the `audio: true` above. Dimension caps intersect with each preset's own, so
+  // `maxWidth` here really does cap the whole ladder.
   encoding: {
     audio: true, // false passes -an: a muted background loop shouldn't carry audio
     crf: 32, // 0-63, lower = better quality and a bigger file
@@ -499,7 +504,7 @@ dispatch: (job) => qstash.publishJSON({ body: job }) // external queue
 dispatch: 'inline' // deliberately block the upload
 ```
 
-`job` is serialisable (`{ collection, docId, generation, jobId, sourceFilename }`) for hosts with real queue infrastructure. `run` executes the queued row in-process via `payload.jobs.runByID`, waiting first for the upload's transaction to commit so the job can actually see the document.
+`job` is serialisable (`{ collection, docId, generation, jobId, origin, sourceFilename }`) for hosts with real queue infrastructure. `run` executes the queued row in-process via `payload.jobs.runByID`, waiting first for the upload's transaction to commit so the job can actually see the document.
 
 **When `dispatch` is unset** the plugin runs the job itself and warns at boot. What that means depends on your database:
 
@@ -515,7 +520,7 @@ The detached case is exactly where a platform that freezes after the response ca
 A durable row means an interrupted conversion isn't lost — with one limit. Payload marks a job `processing` the moment it starts and has no lease or stall recovery, so:
 
 - **Never-started and cleanly-failed rows** (an external-queue `dispatch`, an encode that threw, retries still pending) are picked up by cron. This is the guarantee.
-- **A run killed mid-encode** (SIGKILL, a frozen serverless instance) leaves its row claimed. Cron won't re-run it and the document stays `queued`. The fix is one click of **↺ all** — it queues a _fresh_ job, and per-preset idempotency means only what's missing gets encoded.
+- **A run killed mid-encode** (SIGKILL, a frozen serverless instance) leaves its row claimed. Cron won't re-run it and the document stays `queued`. The fix is one click of **↺ all**. Note it drops every rendition and re-encodes the whole ladder rather than resuming — per-preset idempotency resumes a _retry_, not a manual regenerate.
 
 Run the queue on a schedule, either through Payload's autorun:
 
@@ -566,7 +571,7 @@ Three things worth knowing:
 
 - **Something must drain the queue.** The continue request is best-effort — the durable row is the real continuation. If the request is lost, or a chunk fails and needs its retry, cron is what picks it up. The plugin warns at boot if it can't see a runner.
 - **A preset too big for any budget is skipped, not retried.** Cost is projected from a completed rung's measured throughput (chunked runs encode cheapest-first so there's a measurement to work from). A rung that can't fit is recorded as `exceeds-budget` and named in the sidebar, rather than failing three times to discover the same thing. The other rungs still encode, and the frontend falls back.
-- **It's inert off the web.** A worker has no function timeout to work around, and no request origin to continue against, so the queue simply drains normally.
+- **The continue request needs a deferring `dispatch`.** Without one there is no fresh context to chain into, so the plugin queues the next chunk and leaves it to the queue runner — which is also what happens when there is no request origin to continue against, as on a CLI worker.
 
 ### Presets
 
@@ -725,7 +730,7 @@ The same applies to REST/GraphQL list endpoints and to `count`. Access control i
 - `maxInputFileSize` keeps oversized masters out of the encoder entirely; `skipIfLarger` and `skipRedundantPresets` (both on) refuse work that wouldn't pay for itself.
 - **Memory**: source videos are never held in memory — ffmpeg reads them from disk, and remote storage is streamed to a temp file. Each _stored_ rendition is read into a buffer once to hand to Payload's upload pipeline, so peak usage tracks output size, not input size. Temp directories are removed in `finally`, timeouts included.
 - Encodes are only queued by writes that pass access control, and the regenerate endpoint refuses to stack a second conversion onto a document whose conversion is still in flight.
-- Client-side uploads that bypass the Payload server (`upload.clientUploads`, presigned flows) never trigger the `afterChange` hook and are not converted.
+- Client-side uploads that bypass the Payload server (`upload.clientUploads`, presigned flows) never put a file on the request, so nothing is queued and they are not converted. Hit the regenerate endpoint afterwards to convert one.
 
 ### Scope
 

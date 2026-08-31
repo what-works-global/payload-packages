@@ -179,8 +179,8 @@ export interface ConversionOutcome {
 /**
  * Per-collection settings for the `collections` object form. Everything from the
  * plugin config except the plugin-scoped keys: targeting (`collections`, `enabled`),
- * the process-wide `ffmpegPath` / `maxConcurrentEncodes`, and the job plumbing
- * (`dispatch`, `queue`, `retries`, `taskSlug`), which is one pipeline per plugin.
+ * the `ffmpeg` group (one binary, one concurrency cap, one timeout per process) and
+ * the `jobs` group (one queue and one task per plugin instance).
  */
 export type VideoOptimizerCollectionOverrides = Omit<
   VideoOptimizerConfig,

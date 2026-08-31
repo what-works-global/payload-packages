@@ -326,7 +326,7 @@ export const videoOptimizerPlugin =
         const check = await checkFfmpeg(ffmpegPath, requiredEncodersFor(codecs))
         if (!check.available) {
           payload.logger.warn(
-            `[payload-video-optimizer] ffmpeg not found or not executable at "${ffmpegPath}" — conversion jobs will fail in this process until it is installed (or set ffmpegPath / FFMPEG_PATH)`,
+            `[payload-video-optimizer] ffmpeg not found or not executable at "${ffmpegPath}" — conversion jobs will fail in this process until it is installed (or set ffmpeg.path / FFMPEG_PATH)`,
           )
         } else if (check.missingEncoders.length > 0) {
           payload.logger.warn(
