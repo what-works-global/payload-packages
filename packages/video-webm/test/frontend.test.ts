@@ -189,6 +189,61 @@ describe('getVideoSourceSet', () => {
     expect(sources[1]).toMatchObject({ preset: '1280w' })
   })
 
+  it('solves exact crossovers from a sizes string, per dpr bucket', () => {
+    const sources = getVideoSourceSet(ladder, { sizes: '(min-width: 1024px) 900px, calc(50vw - 24px)' })
+
+    // Widest band first within each bucket, buckets highest-dpr first, and the
+    // lowest bucket carries no resolution query because it is the fallback.
+    expect(sources.map((source) => [source.media, source.preset])).toEqual([
+      ['(min-width: 903px) and (min-resolution: 1.5dppx)', '1280w'],
+      ['(min-width: 689px) and (min-resolution: 1.5dppx)', '854w'],
+      ['(min-resolution: 1.5dppx)', '640w'],
+      ['(min-width: 1024px)', '1280w'],
+      [undefined, '640w'],
+      [undefined, null],
+    ])
+  })
+
+  it('emits breakpoints the stylesheet never mentions', () => {
+    // 903 is not a CSS breakpoint — it is where `calc(50vw - 24px)` at 2x stops
+    // fitting the 854w rung. Nobody could write it by hand without the ladder.
+    const media = getVideoSourceSet(ladder, { sizes: 'calc(50vw - 24px)' }).map((s) => s.media)
+    expect(media).toContain('(min-width: 903px) and (min-resolution: 1.5dppx)')
+  })
+
+  it('defaults to 1x and 2x, and a scalar dpr keeps the pre-bucket behaviour', () => {
+    const bucketed = getVideoSourceSet(ladder, { sizes: '100vw' })
+    expect(bucketed.some((source) => source.media?.includes('min-resolution'))).toBe(true)
+
+    const scalar = getVideoSourceSet(ladder, { dpr: 2, sizes: '100vw' })
+    expect(scalar.every((source) => !source.media?.includes('min-resolution'))).toBe(true)
+  })
+
+  it('drops a source already served by the next, broader one', () => {
+    // One rung: every band resolves to it, so all but the broadest query are noise.
+    const single = {
+      mimeType: 'video/mp4',
+      url: '/media/hero.mp4',
+      webmVersions: [
+        { preset: '640w', height: 360, width: 640, video: { mimeType: 'video/webm', url: '/media/hero-640w.webm' } },
+      ],
+    }
+    expect(getVideoSourceSet(single, { sizes: '100vw' })).toEqual([
+      { type: 'video/webm', preset: '640w', src: '/media/hero-640w.webm' },
+      { type: 'video/mp4', preset: null, src: '/media/hero.mp4' },
+    ])
+  })
+
+  it('switches to the cropped family where aspect says the slot changes shape', () => {
+    const sources = getVideoSourceSet(ladder, {
+      aspect: '(min-width: 768px) 16/9, 9/16',
+      dpr: 1,
+      sizes: '(min-width: 768px) 1200px, 100vw',
+    })
+    expect(sources.at(0)).toMatchObject({ media: '(min-width: 768px)', preset: '1280w' })
+    expect(sources.at(-2)).toMatchObject({ preset: 'portrait-1080w' })
+  })
+
   it('falls back to just the original while nothing is stored', () => {
     expect(getVideoSourceSet({ url: '/media/hero.mp4' }, { sizes: [{ width: 400 }] })).toEqual([
       { type: 'video/mp4', preset: null, src: '/media/hero.mp4' },

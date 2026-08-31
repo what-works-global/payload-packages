@@ -15,6 +15,17 @@
  * makes it from measurements you supply.
  */
 
+import type { LayoutSegment } from '../core/sizes.js'
+
+import {
+  dprBuckets,
+  layoutSegments,
+  mediaQuery,
+  parseAspect,
+  parseSizes,
+  solveSegment,
+} from '../core/sizes.js'
+
 /** The slice of a populated upload document the helpers read — structural on purpose. */
 export interface VideoDocLike {
   mimeType?: null | string
@@ -158,6 +169,37 @@ export interface PickVariantOptions {
  * largest one when the slot outgrows the ladder. Returns `null` when nothing is
  * stored yet, so callers fall back to the source.
  */
+const selectFamily = (
+  variants: VideoVariant[],
+  containerRatio: null | number,
+  maxOverdraw: number,
+): VideoVariant[] => {
+  const shaped = variants.filter((variant) => variant.aspectRatio !== null)
+  const primary = shaped[0]?.aspectRatio ?? null
+  if (primary === null) {
+    return variants
+  }
+  // Without a slot shape the primary family stands: a crop is *different framing*,
+  // never a stand-in for a wider file.
+  const closest = shaped.reduce((a, b) =>
+    containerRatio !== null &&
+    overdraw(containerRatio, b.aspectRatio!) < overdraw(containerRatio, a.aspectRatio!)
+      ? b
+      : a,
+  )
+  const family =
+    containerRatio !== null && overdraw(containerRatio, primary) > maxOverdraw
+      ? closest.aspectRatio!
+      : primary
+  return shaped.filter((variant) => sameShape(variant.aspectRatio!, family))
+}
+
+/** Smallest rendition covering `needed` physical pixels; the largest if none does. */
+const coveringVariant = (candidates: VideoVariant[], needed: number): null | VideoVariant => {
+  const sized = [...candidates].sort((a, b) => (a.width ?? 0) - (b.width ?? 0))
+  return sized.find((variant) => (variant.width ?? 0) >= needed) ?? sized.at(-1) ?? null
+}
+
 export const pickVideoVariant = (
   doc: null | undefined | VideoDocLike,
   { dpr = 1, height, maxOverdraw = 2, width }: PickVariantOptions,
@@ -166,34 +208,12 @@ export const pickVideoVariant = (
   if (variants.length === 0) {
     return null
   }
-
-  let candidates = variants
-  const shaped = variants.filter((variant) => variant.aspectRatio !== null)
-  const primary = shaped[0]?.aspectRatio ?? null
-  if (primary !== null) {
-    // Without a measured height the slot's shape is unknown, so the primary family
-    // stands: a crop is a *different framing*, never a stand-in for a wider file.
-    const containerRatio = height && height > 0 ? width / height : null
-    const closest = shaped.reduce((a, b) =>
-      containerRatio !== null &&
-      overdraw(containerRatio, b.aspectRatio!) < overdraw(containerRatio, a.aspectRatio!)
-        ? b
-        : a,
-    )
-    const family =
-      containerRatio !== null && overdraw(containerRatio, primary) > maxOverdraw
-        ? closest.aspectRatio!
-        : primary
-    candidates = shaped.filter((variant) => sameShape(variant.aspectRatio!, family))
-  }
-
-  const needed = width * dpr
-  const sized = [...candidates].sort((a, b) => (a.width ?? 0) - (b.width ?? 0))
-  return sized.find((variant) => (variant.width ?? 0) >= needed) ?? sized.at(-1) ?? null
+  const containerRatio = height && height > 0 ? width / height : null
+  return coveringVariant(selectFamily(variants, containerRatio, maxOverdraw), width * dpr)
 }
 
 export interface VideoSizeRule {
-  /** Rendered height of the slot when this rule applies; enables shape selection. */
+  /** Rendered height of the slot; enables shape selection. */
   height?: number
   /** Full media query (`'(orientation: portrait)'`). Takes precedence over `minWidth`. */
   media?: string
@@ -203,56 +223,66 @@ export interface VideoSizeRule {
   width: number
 }
 
+export interface SourceSetOptions {
+  /**
+   * The slot's *shape*, in the same grammar as `sizes`, with `W/H` ratio values:
+   * `'(min-width: 768px) 16/9, 9/16'`. Only needed when a slot changes shape and you
+   * have cropped renditions for it (see the plugin's `portrait` option) — without it
+   * every band stays on the source's own framing.
+   */
+  aspect?: string
+  /**
+   * Device pixel ratios to emit sources for. Defaults to `[1, 2]`, which serves a 1×
+   * display the file it can actually show instead of one at four times the bytes,
+   * and a 2× display a file that isn't soft. A single number reproduces the old
+   * behaviour: one assumed ratio, no resolution queries.
+   */
+  dpr?: number | number[]
+  /**
+   * How wide the video renders. Either an `<img sizes>`-style string (recommended —
+   * generate it with the `sizes` CLI), or the explicit rule array.
+   */
+  sizes: string | VideoSizeRule[]
+}
+
 /**
  * Builds a `<source>` list with `media` queries, so the **browser** picks the
  * rendition and no JavaScript is involved:
  *
  * ```tsx
  * <video controls>
- *   {getVideoSourceSet(media, {
- *     dpr: 2,
- *     sizes: [
- *       { minWidth: 1280, width: 800 },
- *       { minWidth: 768, width: 600 },
- *       { width: 400 }, // unconditional fallback, last
- *     ],
- *   }).map(({ media, src, type }) => (
- *     <source key={src + media} media={media} src={src} type={type} />
- *   ))}
+ *   {getVideoSourceSet(media, { sizes: '(min-width: 1280px) 800px, 100vw' }).map(
+ *     ({ media: query, src, type }) => (
+ *       <source key={src + query} media={query} src={src} type={type} />
+ *     ),
+ *   )}
  * </video>
  * ```
  *
- * There is no `srcset`/`sizes` for video, so each rule states what the slot measures
- * when its query matches and the widest suitable rendition is chosen for it. Rules
- * are emitted in the order given and **the first match wins** (the opposite of the
- * CSS cascade), so list them widest-first and end with an unconditional rule.
+ * `sizes` says how wide the video renders — the same thing `<img sizes>` says, and
+ * for the same reason: nothing in the markup tells the browser how your CSS lays the
+ * page out. It is the *only* thing you supply. Device pixel ratio is handled for you.
+ *
+ * Given the slot formula and the document's own rendition widths, every crossover is
+ * solved rather than guessed, so the emitted breakpoints land exactly where one rung
+ * stops being enough — including breakpoints that appear nowhere in your stylesheet,
+ * like the plateau where a `max-width` container stops growing.
  *
  * The trade-off against {@link pickVideoVariant}: this needs no client JavaScript and
  * survives static rendering, but browsers evaluate video sources **once, at load** —
- * they do not swap on resize or rotation the way `<picture>` does. For a slot whose
- * shape changes with orientation, measure instead.
+ * they do not swap on resize or rotation the way `<picture>` does.
  */
 export const getVideoSourceSet = (
   doc: null | undefined | VideoDocLike,
-  { dpr = 1, sizes }: { dpr?: number; sizes: VideoSizeRule[] },
+  { aspect, dpr = [1, 2], sizes }: SourceSetOptions,
 ): VideoSource[] => {
-  warnIfAscending(sizes)
+  const variants = populatedRenditions(doc)
+  const sources: VideoSource[] =
+    typeof sizes === 'string'
+      ? fromSizesString(variants, sizes, aspect, dpr)
+      : fromRuleArray(variants, sizes, dpr)
 
-  const sources: VideoSource[] = []
-  for (const rule of sizes) {
-    const variant = pickVideoVariant(doc, { dpr, height: rule.height, width: rule.width })
-    if (!variant) {
-      continue
-    }
-    const media = rule.media ?? (rule.minWidth ? `(min-width: ${rule.minWidth}px)` : undefined)
-    sources.push({
-      type: variant.type,
-      ...(media ? { media } : {}),
-      preset: variant.preset,
-      src: variant.src,
-    })
-  }
-
+  warnIfUnladdered(variants, sources)
   if (doc && typeof doc.url === 'string') {
     sources.push({
       type: typeof doc.mimeType === 'string' ? doc.mimeType : 'video/mp4',
@@ -263,9 +293,160 @@ export const getVideoSourceSet = (
   return sources
 }
 
+/** Solves the whole viewport axis per DPR bucket, widest band first. */
+const fromSizesString = (
+  variants: VideoVariant[],
+  sizes: string,
+  aspect: string | undefined,
+  dpr: number | number[],
+): VideoSource[] => {
+  let segments: LayoutSegment[]
+  try {
+    segments = layoutSegments(parseSizes(sizes), aspect ? parseAspect(aspect) : [])
+  } catch (error) {
+    // A bad string must not blank the video in production; the original still plays.
+    if (isDevelopment()) {
+      throw error
+    }
+    return []
+  }
+  if (variants.length === 0) {
+    return []
+  }
+
+  const buckets = dprBuckets(dpr).map((bucket) => {
+    const sources: VideoSource[] = []
+    for (const segment of segments) {
+      const family = selectFamily(variants, segment.ratio, DEFAULT_MAX_OVERDRAW)
+      const ladder = family.flatMap((variant) => (variant.width ? [variant.width] : []))
+      for (const band of solveSegment(segment, bucket.multiplier, ladder)) {
+        const variant = coveringVariant(family, band.want)
+        if (variant) {
+          push(sources, variant, mediaQuery(band.minWidth, bucket.minResolution))
+        }
+      }
+    }
+    return sources
+  })
+
+  warnIfAspectUnmatched(variants, segments, aspect)
+  return flatten(buckets)
+}
+
+/** The explicit form: one entry per rule, crossed with the DPR buckets. */
+const fromRuleArray = (
+  variants: VideoVariant[],
+  rules: VideoSizeRule[],
+  dpr: number | number[],
+): VideoSource[] => {
+  warnIfAscending(rules)
+
+  const buckets = dprBuckets(dpr).map((bucket) => {
+    const sources: VideoSource[] = []
+    for (const rule of rules) {
+      const containerRatio = rule.height && rule.height > 0 ? rule.width / rule.height : null
+      const family = selectFamily(variants, containerRatio, DEFAULT_MAX_OVERDRAW)
+      const variant = coveringVariant(family, rule.width * bucket.multiplier)
+      if (!variant) {
+        continue
+      }
+      const width = rule.media ?? (rule.minWidth ? `(min-width: ${rule.minWidth}px)` : undefined)
+      const resolution =
+        bucket.minResolution === null ? undefined : `(min-resolution: ${bucket.minResolution}dppx)`
+      push(sources, variant, [width, resolution].filter(Boolean).join(' and ') || undefined)
+    }
+    return sources
+  })
+
+  return flatten(buckets)
+}
+
+const push = (sources: VideoSource[], variant: VideoVariant, media: string | undefined): void => {
+  sources.push({
+    type: variant.type,
+    ...(media ? { media } : {}),
+    preset: variant.preset,
+    src: variant.src,
+  })
+}
+
+/**
+ * Flattens the per-bucket lists, dropping noise two ways.
+ *
+ * Within a bucket, entries descend by `min-width` under one resolution query, so
+ * anything matching an entry also matches the next — a duplicate `src` there can only
+ * ever serve what the following rule serves anyway. Across buckets that reasoning
+ * fails (a high-DPR device matching the last entry of its bucket need not match the
+ * first, narrower entry of the next), so the only safe cross-bucket collapse is
+ * dropping a bucket that is identical to the one after it.
+ */
+const flatten = (buckets: VideoSource[][]): VideoSource[] => {
+  const trimmed = buckets.map((bucket) =>
+    bucket.filter((source, index) => source.src !== bucket[index + 1]?.src),
+  )
+  const RESOLUTION = /\s*(?:and\s*)?\(min-resolution[^)]*\)/g
+  const key = (bucket: VideoSource[]): string =>
+    bucket
+      .map((source) => `${source.media?.replace(RESOLUTION, '').trim() ?? ''}|${source.src}`)
+      .join(';')
+
+  return trimmed.filter((bucket, index) => key(bucket) !== key(trimmed[index + 1] ?? [])).flat()
+}
+
+const DEFAULT_MAX_OVERDRAW = 2
+
+const isDevelopment = (): boolean =>
+  typeof process === 'undefined' || process.env?.NODE_ENV !== 'production'
+
 let warnedAboutOrder = false
 
+
 /** First match wins, so ascending `minWidth` rules would serve the smallest file everywhere. */
+let warnedAboutLadder = false
+
+/**
+ * Selection needs something to select between. With one rendition every band resolves
+ * to the same file, which looks like it works and quietly does nothing.
+ */
+const warnIfUnladdered = (variants: VideoVariant[], sources: VideoSource[]): void => {
+  if (warnedAboutLadder || variants.length === 0 || sources.length > 1 || !isDevelopment()) {
+    return
+  }
+  warnedAboutLadder = true
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[payload-video-webm] this document has ${variants.length === 1 ? 'only one rendition' : 'no usable renditions'}, so every viewport gets the same file and sizes has nothing to choose between. Configure a ladder (the default \`widthPresets()\`) and regenerate.`,
+  )
+}
+
+let warnedAboutAspect = false
+
+/** An `aspect` naming a shape you never encoded is a silent no-op otherwise. */
+const warnIfAspectUnmatched = (
+  variants: VideoVariant[],
+  segments: LayoutSegment[],
+  aspect: string | undefined,
+): void => {
+  if (warnedAboutAspect || !aspect || !isDevelopment()) {
+    return
+  }
+  const shapes = new Set(variants.flatMap((v) => (v.aspectRatio === null ? [] : [v.aspectRatio])))
+  const unmatched = segments
+    .map((segment) => segment.ratio)
+    .filter(
+      (ratio): ratio is number =>
+        ratio !== null && ![...shapes].some((shape) => sameShape(ratio, shape)),
+    )
+  if (unmatched.length === 0) {
+    return
+  }
+  warnedAboutAspect = true
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[payload-video-webm] aspect ${JSON.stringify(aspect)} asks for a shape this document has no renditions in, so it changes nothing. Encode one with the plugin's \`portrait\` option (or widthPresets with an aspectRatio).`,
+  )
+}
+
 const warnIfAscending = (sizes: VideoSizeRule[]): void => {
   if (warnedAboutOrder) {
     return
