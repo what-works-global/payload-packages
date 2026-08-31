@@ -149,6 +149,7 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
         protected: role.protected ?? false,
       })),
     ]
+    const seedRoles = pluginConfig.seedRoles !== false
     const protectedRoles = predefinedRoles.filter((role) => role.protected)
     const protectedRoleNames = protectedRoles.map((role) => role.name)
     // Credentials are self-only for every role — including roles defined only in
@@ -525,7 +526,11 @@ export const rbacPlugin = (pluginConfig: RbacPluginConfig = {}): Plugin => {
         hasLoggedOwnAccessNotice = true
         logOwnAccessNotice({ entities: entitiesWithOwnAccess, logger: payload.logger })
       }
-      if (predefinedRoles.length > 0) {
+      // `seedRoles: false` is for connections that cannot write. Seeding builds
+      // the roles indexes before its first `create`, and that build is itself a
+      // write, so this has to be skipped as a whole — there is no read-only
+      // subset of it to keep.
+      if (seedRoles && predefinedRoles.length > 0) {
         await seedPredefinedRoles(payload, { roles: predefinedRoles, rolesCollectionSlug })
       }
       if (adminRole.name) {

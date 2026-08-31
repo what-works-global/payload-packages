@@ -327,10 +327,38 @@ rbacPlugin({
     override: (field) => ({ ...field, saveToJWT: false }),
   },
 
+  // Seed `roles` and the `adminRole` on init. Set false when the connection
+  // cannot write — seeding builds the roles indexes before its first create, and
+  // that build is a write, so init throws on a read-only credential. Only safe
+  // when the roles already exist. Default: true.
+  seedRoles: true,
+
   // Disable the plugin entirely (useful per-environment). Default: true.
   enabled: true,
 })
 ```
+
+### Running against a read-only database
+
+Validating an application against a copy of production — or against production
+itself through a read-only credential — fails at init, because seeding writes
+before any of your code runs:
+
+```
+user is not allowed to do action [createIndex] on [production.roles]
+```
+
+Turn seeding off for those runs, and leave everything else in place so access
+control still behaves as it does in production:
+
+```ts
+rbacPlugin({ seedRoles: !process.env.DATABASE_READ_ONLY })
+```
+
+Note this covers the plugin's own init writes only. Mongoose separately builds
+indexes for every model on first use, which a read-only credential also cannot
+do, so pass `connectOptions: { autoCreate: false, autoIndex: false }` to
+`mongooseAdapter` for the same runs.
 
 ## Behaviour notes
 

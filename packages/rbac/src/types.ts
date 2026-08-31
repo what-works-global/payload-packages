@@ -230,6 +230,25 @@ export type RbacPluginConfig = {
     override?: (field: RelationshipField) => RelationshipField
   }
   /**
+   * Seeds {@link RbacPluginConfig.roles} (and the `adminRole`) on init, creating
+   * any that are missing and restoring drifted `protected` roles.
+   *
+   * Set `false` when the database connection cannot write — for example a
+   * read-only credential used to validate an application against production
+   * data. Seeding always builds the roles collection's indexes first (see the
+   * note on concurrent boots in `ensureRolesIndexes`), and an index build is a
+   * write, so init throws on a read-only connection before reaching any of the
+   * seed `create` calls. Disabling it skips the index build and the writes
+   * alike; nothing else about the plugin changes, so access control still
+   * behaves exactly as it does in production.
+   *
+   * Only safe when the roles already exist — a database that has never been
+   * seeded has no roles, and no user can hold one.
+   *
+   * @default true
+   */
+  seedRoles?: boolean
+  /**
    * Auth-enabled collections that receive the roles field. Defaults to every
    * auth-enabled collection in the config, falling back to `admin.user`.
    */
