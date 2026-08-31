@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -39,6 +40,24 @@ export const requiredEncodersFor = (codecs: VideoCodec[]): string[] => {
     encoders.add(codec === 'vp9' ? 'libvpx-vp9' : 'libvpx')
   }
   return [...encoders]
+}
+
+/**
+ * Why a configured ffmpeg path might not exist, when "install ffmpeg" is the wrong
+ * advice because it already is installed.
+ *
+ * `ffmpeg-static` resolves its binary as `path.join(__dirname, 'ffmpeg')`. Bundle
+ * that module into a server build and `__dirname` becomes the bundler's virtual
+ * root, so a correct config yields a path that was never on disk — Turbopack's
+ * `/ROOT/` prefix being the recognisable one. The binary is right where it always
+ * was; only the string is wrong, and no amount of installing fixes it.
+ */
+export const bundledPathHint = (ffmpegPath: string): null | string => {
+  if (!ffmpegPath.includes('node_modules') || existsSync(ffmpegPath)) {
+    return null
+  }
+  const virtualRoot = ffmpegPath.startsWith('/ROOT/')
+  return `this path points into node_modules but nothing is there${virtualRoot ? `, and "/ROOT/" is a bundler's virtual root, not a real directory` : ''} — a bundler has almost certainly inlined ffmpeg-static, whose binary path is relative to its own __dirname. Keep it external instead: serverExternalPackages: ['ffmpeg-static'] in next.config, or the equivalent externals setting for your bundler.`
 }
 
 /** Bound on the boot-time probe so a pathological binary can never hang onInit. */
@@ -124,7 +143,7 @@ const runFfmpeg = (ffmpegPath: string, args: string[], timeoutMs: null | number)
       clear()
       reject(
         new FfmpegError(
-          `could not spawn ffmpeg at "${ffmpegPath}" — is it installed and on PATH, or set via the ffmpeg.path option / FFMPEG_PATH? (${error.message})`,
+          `could not spawn ffmpeg at "${ffmpegPath}" — ${bundledPathHint(ffmpegPath) ?? 'is it installed and on PATH, or set via the ffmpeg.path option / FFMPEG_PATH?'} (${error.message})`,
         ),
       )
     })

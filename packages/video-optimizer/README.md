@@ -94,7 +94,11 @@ onlyBuiltDependencies:
 
 ```js
 // next.config.mjs
-outputFileTracingIncludes: { '/api/**': ['./node_modules/ffmpeg-static/ffmpeg'] }
+outputFileTracingIncludes: { '/api/**': ['./node_modules/ffmpeg-static/ffmpeg'] },
+// ffmpeg-static resolves its binary as path.join(__dirname, 'ffmpeg'). Bundled into
+// the server build, __dirname becomes the bundler's virtual root, so the spawn fails
+// with ENOENT on a path starting "/ROOT/node_modules/...". This keeps it a real require.
+serverExternalPackages: ['ffmpeg-static']
 ```
 
 Then point the plugin at it with `FFMPEG_PATH`, so nothing else in your app has to import an 80 MB binary.
