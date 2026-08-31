@@ -39,12 +39,6 @@ export const DEFAULT_QUEUE = 'video-webm'
  */
 export const DEFAULT_RETRIES = 3
 
-/**
- * The single default rendition: one WebM using the collection's encoding unchanged.
- * The `webm` key is special-cased in filenames (`clip.webm`, no suffix).
- */
-export const DEFAULT_PRESETS: Record<string, VideoPreset> = { webm: {} }
-
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 
 /**
@@ -128,19 +122,20 @@ const ratioSlug = (ratio: string): string => ratio.replace(/\s+/g, '').replace(/
 
 /**
  * Width-based ladder: one preset per width, capped so nothing is ever upscaled, with
- * each rung's CRF taken from the resolution table via its 16:9 height. Widths suit
- * layout work better than heights — a slot is measured by how wide it is.
+ * each rung's CRF taken from the resolution table by pixel count. Widths suit layout
+ * work better than heights — a slot is measured by how wide it is.
  *
  * ```ts
  * presets: {
- *   ...widthPresets(),                                                   // 2560w … 426w
- *   ...widthPresets([1080, 720], { aspectRatio: '9:16', prefix: 'portrait' }),
+ *   ...widthPresets(),                                    // 2560w … 426w
+ *   ...widthPresets([1080, 720], { aspectRatio: '9:16' }), // 9x16-1080w, 9x16-720w
  * }
  * ```
  *
  * With `aspectRatio` the rungs are cropped to that shape first (positioned by the
  * document's focal point), which is the one case worth a separate encode: `cover` on
- * a landscape master in a 9:16 slot downloads roughly 3× the pixels it shows.
+ * a landscape master in a 9:16 slot downloads roughly 3× the pixels it shows. Prefer
+ * the `portrait` plugin option to spelling that out.
  */
 export const widthPresets = (
   widths: number[] = DEFAULT_WIDTH_LADDER,
@@ -171,37 +166,19 @@ export const widthPresets = (
 }
 
 /**
- * Constant-quality target for {@link sourcePreset}. VP9 is visually transparent for
- * most material somewhere around CRF 15–24; 18 sits at the high-quality end of that
- * band without the size explosion of true lossless.
+ * The default renditions: the full width ladder. Encode cost tracks pixel count, so
+ * the small rungs are nearly free (`426w` is ~1% of a 4K encode) and the whole ladder
+ * still costs *less* than one uncapped source-resolution encode of a 4K master —
+ * which is what a single-rendition default would do, most phone footage now being 4K.
+ * `skipRedundantPresets` trims the rungs a smaller source can't fill.
  */
-const SOURCE_CRF = 18
+export const DEFAULT_PRESETS: Record<string, VideoPreset> = widthPresets()
 
-/**
- * A single faithful rendition: the source at its own resolution, with nothing else
- * touched. Any `maxWidth`/`maxHeight` inherited from the collection's `encoding` is
- * cleared — a preset that means "the source, as WebM" must never quietly resize.
- *
- * It keeps the `webm` key, so the file is plain `clip.webm` with no suffix:
- *
- * ```ts
- * presets: { ...resolutionPresets([360, 720]), ...sourcePreset() }
- * ```
- *
- * Note that mp4 → WebM is always a re-encode: WebM carries only VP8/VP9/AV1 video
- * and Opus/Vorbis audio, so an H.264 stream cannot simply be remuxed into it.
- * "Unchanged" here means nothing is resized, cropped or dropped and the quality
- * target is high enough to be indistinguishable in normal viewing — not
- * bit-identical. For genuinely lossless VP9, pass
- * `sourcePreset({ extraArgs: ['-lossless', '1'] })` and expect a file several times
- * larger than the source, which `skipIfLarger` will then usually discard.
- */
-export const sourcePreset = (encoding: WebmEncodingOptions = {}): Record<string, VideoPreset> => ({
-  webm: {
-    encoding: { crf: SOURCE_CRF, maxHeight: undefined, maxWidth: undefined, ...encoding },
-    label: 'Original quality',
-  },
-})
+/** Widths used by `portrait: true`. 1080×1920 and 720×1280 — phone-hero sizes. */
+export const DEFAULT_PORTRAIT_WIDTHS = [1080, 720]
+
+/** The one aspect ratio that reliably earns its own encode. See `portrait`. */
+export const PORTRAIT_ASPECT_RATIO = '9:16'
 
 const fail = (message: string): never => {
   throw new Error(`[payload-video-webm] ${message}`)

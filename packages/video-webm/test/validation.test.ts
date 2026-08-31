@@ -4,7 +4,6 @@ import {
   redundantPresets,
   resolutionPresets,
   resolveConfig,
-  sourcePreset,
   widthPresets,
 } from '../src/core/defaults.js'
 
@@ -87,30 +86,16 @@ describe('resolveConfig validation', () => {
     expect(Object.keys(resolutionPresets())).toEqual(['360p', '720p', '1080p'])
   })
 
-  it('sourcePreset converts at the source resolution and ignores inherited caps', () => {
-    const resolved = resolveConfig({
-      // A collection-wide cap that the faithful rendition must not inherit.
-      encoding: { audioBitrate: '96k', maxHeight: 480, speed: 4 },
-      presets: { ...resolutionPresets([360]), ...sourcePreset() },
-    })
-
-    const source = resolved.presets.webm
-    expect(source.label).toBe('Original quality')
-    expect(source.encoding.maxHeight).toBeUndefined()
-    expect(source.encoding.maxWidth).toBeUndefined()
-    expect(source.encoding.crf).toBe(18)
-    // Everything the preset doesn't speak to is still inherited untouched.
-    expect(source.encoding.audioBitrate).toBe('96k')
-    expect(source.encoding.speed).toBe(4)
-    // The ladder rung alongside it keeps its own cap.
-    expect(resolved.presets['360p'].encoding.maxHeight).toBe(360)
-  })
-
-  it('sourcePreset takes explicit overrides, including true lossless', () => {
-    const presets = sourcePreset({ crf: 24, extraArgs: ['-lossless', '1'] })
-    expect(presets.webm.encoding).toMatchObject({ crf: 24, extraArgs: ['-lossless', '1'] })
-    // Still the `webm` key, so the file stays `clip.webm` with no suffix.
-    expect(Object.keys(presets)).toEqual(['webm'])
+  it('defaults presets to the full width ladder', () => {
+    const resolved = resolveConfig({})
+    expect(Object.keys(resolved.presets)).toEqual([
+      '2560w',
+      '1920w',
+      '1280w',
+      '854w',
+      '640w',
+      '426w',
+    ])
   })
 
   it('widthPresets builds the 1.5×-spaced ladder, optionally cropped', () => {
@@ -132,8 +117,8 @@ describe('resolveConfig validation', () => {
     // 1080×1920 is 2.07 MP — the same as a 1920×1080 landscape rung, so it belongs at
     // the same CRF. Judged as a 16:9 rung it would look 608px tall and land 2 worse.
     const portrait = widthPresets([1080, 720], { aspectRatio: '9:16' })
-    expect(portrait['9x16-1080w'].encoding.crf).toBe(widthPresets([1920])['1920w'].encoding.crf)
-    expect(portrait['9x16-720w'].encoding.crf).toBe(widthPresets([1280])['1280w'].encoding.crf)
+    expect(portrait['9x16-1080w']?.encoding?.crf).toBe(widthPresets([1920])['1920w']?.encoding?.crf)
+    expect(portrait['9x16-720w']?.encoding?.crf).toBe(widthPresets([1280])['1280w']?.encoding?.crf)
   })
 
   it('derives a prefix from the aspect ratio so cropped ladders cannot collide', () => {
@@ -178,6 +163,6 @@ describe('resolveConfig validation', () => {
     expect(resolved.shouldConvert).toBeNull()
     expect(resolved.onConversionComplete).toBeNull()
     expect(resolved.fetchSource).toBeNull()
-    expect(Object.keys(resolved.presets)).toEqual(['webm'])
+    expect(Object.keys(resolved.presets)).toEqual(Object.keys(widthPresets()))
   })
 })

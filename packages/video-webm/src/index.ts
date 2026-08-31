@@ -4,7 +4,6 @@ export {
   DEFAULT_TASK_SLUG,
   DEFAULT_WIDTH_LADDER,
   resolutionPresets,
-  sourcePreset,
   widthPresets,
 } from './core/defaults.js'
 export { METADATA_GROUP_NAME } from './fields/conversionMetadataField.js'

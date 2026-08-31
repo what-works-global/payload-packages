@@ -249,6 +249,9 @@ beforeAll(async () => {
         dispatch: captureRun,
         // Cheapest settings that still exercise the real pipeline.
         encoding: { crf: 50, speed: 5 },
+        // Plumbing tests, not ladder tests — one rendition unless a collection
+        // above asks for more. Also keeps the ffmpeg-backed suite quick.
+        presets: { webm: {} },
         maxConcurrentEncodes: 2,
         onConversionComplete: (outcome) => {
           outcomes.push(outcome)
@@ -262,6 +265,7 @@ beforeAll(async () => {
           deferred.push({ job, run })
         },
         encoding: { crf: 50, speed: 5 },
+        presets: { webm: {} },
         taskSlug: 'video-webm-convert-deferred',
       }),
       // The inflating stand-in makes every "conversion" larger than its input,
@@ -273,6 +277,7 @@ beforeAll(async () => {
         onConversionComplete: (outcome) => {
           outcomes.push(outcome)
         },
+        presets: { webm: {} },
         taskSlug: 'video-webm-convert-guarded',
       }),
       // Broken ffmpeg — the job must fail, record the error, and leave the original.
@@ -280,6 +285,7 @@ beforeAll(async () => {
         collections: ['failing'],
         dispatch: captureRun,
         ffmpegPath: path.join(tmpDir, 'missing-ffmpeg'),
+        presets: { webm: {} },
         taskSlug: 'video-webm-convert-failing',
       }),
     ],

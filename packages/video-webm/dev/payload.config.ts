@@ -2,7 +2,6 @@ import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
 import {
   EXCLUDE_WEBM_DERIVATIVES,
-  sourcePreset,
   videoWebmPlugin,
   widthPresets,
 } from '@whatworks/payload-video-webm'
@@ -74,9 +73,6 @@ export default buildDevConfig({
         // A 9:16 crop for portrait slots, framed by the document's focal point.
         // Upload a landscape clip and compare it against the rungs above.
         ...widthPresets([720], { aspectRatio: '9:16', prefix: 'portrait' }),
-        // …and a straight conversion of the source last: same resolution, nothing
-        // resized or cropped, near-transparent quality. Stored as plain `clip.webm`.
-        ...sourcePreset(),
       },
     }),
   ],

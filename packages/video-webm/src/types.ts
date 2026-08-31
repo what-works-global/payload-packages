@@ -263,9 +263,9 @@ export interface VideoWebmPluginConfig {
    * from the source via `webmVersions` rows (`{ preset, video }`). Declaration
    * order is preference order (first = best, served first by the frontend
    * helpers). Keys become filename suffixes (`clip-720p.webm`), so stick to
-   * letters, digits and dashes. Defaults to a single `webm` preset using the
-   * collection's `encoding` unchanged. See `resolutionPresets()` for a ready-made
-   * quality ladder.
+   * letters, digits and dashes. Defaults to the full `widthPresets()` ladder —
+   * six rungs, which still costs less than one uncapped encode of a 4K master, and
+   * `skipRedundantPresets` trims the rungs a smaller source can't fill.
    */
   presets?: Record<string, VideoPreset>
   /** Payload Jobs queue name conversions are queued to. Defaults to `'video-webm'`. */
@@ -295,9 +295,10 @@ export interface VideoWebmPluginConfig {
    * `resolutionPresets([360, 720, 1080])` and a 480p master, `1080p` would be a
    * byte-for-byte near-copy of `720p` (neither upscales), so only the first rung at
    * or above the source height is encoded and the rest are recorded as skipped
-   * (`source-smaller`). Only presets that set `maxHeight` take part; uncapped
-   * presets always encode. Needs one extra `ffmpeg -i` probe per job, and skips
-   * nothing when the probe can't read the dimensions. Defaults to `true`.
+   * (`source-smaller`). Presets that cap `maxWidth` or `maxHeight` take part, each
+   * aspect ratio judged against its own crop window; uncapped presets always
+   * encode. Needs one extra `ffmpeg -i` probe per job, and skips nothing when the
+   * probe can't read the dimensions. Defaults to `true`.
    */
   skipRedundantPresets?: boolean
   /**

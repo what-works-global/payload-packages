@@ -72,7 +72,7 @@ describe('videoWebmPlugin config shaping', () => {
           components: {
             Field: {
               clientProps: {
-                presetLabels: { webm: 'webm' },
+                presetLabels: { '426w': '426px', '2560w': '2560px' },
                 regeneratePath: '/video-webm-convert/regenerate',
               },
               path: WEBM_PANEL_COMPONENT_PATH,
