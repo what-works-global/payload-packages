@@ -196,6 +196,40 @@ const assertPositiveInteger = (value: number, name: string): void => {
   }
 }
 
+/** `quality` as a CRF delta. Lower CRF is better quality and a larger file. */
+const QUALITY_CRF_OFFSET = { balanced: 0, high: -4, small: 4 } as const
+
+/**
+ * `quality` shifts every rung rather than flattening the ladder to one number, so
+ * the per-resolution tuning survives. Warns rather than throws when combined with an
+ * explicit `encoding.crf`, since the combination is coherent — just rarely intended.
+ */
+const resolveQualityOffset = (pluginConfig: VideoWebmPluginConfig): number => {
+  const offset = QUALITY_CRF_OFFSET[pluginConfig.quality ?? 'balanced']
+  if (offset !== 0 && pluginConfig.encoding?.crf !== undefined) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[payload-video-webm] both quality: '${pluginConfig.quality}' and encoding.crf are set — the offset applies on top, giving crf ${pluginConfig.encoding.crf + offset}. Set one or the other.`,
+    )
+  }
+  return offset
+}
+
+/** `presets` with the 9:16 rungs appended when `portrait` asks for them. */
+const withPortrait = (pluginConfig: VideoWebmPluginConfig): Record<string, VideoPreset> => {
+  const presets = pluginConfig.presets ?? DEFAULT_PRESETS
+  if (!pluginConfig.portrait) {
+    return presets
+  }
+  const widths =
+    (pluginConfig.portrait === true ? undefined : pluginConfig.portrait.widths) ??
+    DEFAULT_PORTRAIT_WIDTHS
+  return {
+    ...presets,
+    ...widthPresets(widths, { aspectRatio: PORTRAIT_ASPECT_RATIO, prefix: 'portrait' }),
+  }
+}
+
 /**
  * Applies defaults and validates one encoding block — the ranges ffmpeg would
  * otherwise reject with an opaque encoder error mid-job. `context` names the
@@ -204,9 +238,10 @@ const assertPositiveInteger = (value: number, name: string): void => {
 const resolveEncoding = (
   encoding: WebmEncodingOptions,
   context: string,
+  crfOffset = 0,
 ): ResolvedVideoWebmConfig['encoding'] => {
   const codec = encoding.codec ?? 'vp9'
-  const crf = encoding.crf ?? 32
+  const declaredCrf = encoding.crf ?? 32
   const speed = encoding.speed ?? 2
 
   // TS narrows codec to the union, but a typo'd value from untyped config would
@@ -214,7 +249,11 @@ const resolveEncoding = (
   if (codec !== 'vp8' && codec !== 'vp9') {
     fail(`${context}.codec must be 'vp8' or 'vp9', got ${JSON.stringify(codec)}`)
   }
-  assertIntegerInRange(crf, 0, 63, `${context}.crf`)
+  // Validate what the author wrote, then clamp — otherwise `quality: 'small'` on the
+  // 2160p rung (crf 15) could leave the range, and a typo'd crf 64 would be silently
+  // clamped into validity instead of failing at init.
+  assertIntegerInRange(declaredCrf, 0, 63, `${context}.crf`)
+  const crf = Math.min(63, Math.max(0, declaredCrf + crfOffset))
   // VP9's `good` deadline caps -cpu-used at 5; VP8 accepts up to 16.
   assertIntegerInRange(speed, 0, codec === 'vp9' ? 5 : 16, `${context}.speed`)
   if (encoding.maxWidth !== undefined) {
@@ -252,30 +291,31 @@ const PRESET_NAME_PATTERN = /^[\w-]{1,32}$/
  * included. Throws at plugin init, not upload time.
  */
 export const resolveConfig = (pluginConfig: VideoWebmPluginConfig): ResolvedVideoWebmConfig => {
-  const timeoutMs = pluginConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = pluginConfig.ffmpeg?.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const maxInputFileSize = pluginConfig.maxInputFileSize ?? null
-  const retries = pluginConfig.retries ?? DEFAULT_RETRIES
+  const retries = pluginConfig.jobs?.retries ?? DEFAULT_RETRIES
   // undefined → the safe default; an explicit null opts into unlimited.
   const maxConcurrentEncodes =
-    pluginConfig.maxConcurrentEncodes === undefined
+    pluginConfig.ffmpeg?.maxConcurrent === undefined
       ? DEFAULT_MAX_CONCURRENT_ENCODES
-      : pluginConfig.maxConcurrentEncodes
+      : pluginConfig.ffmpeg.maxConcurrent
 
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    fail(`timeoutMs must be a positive number of milliseconds, got ${timeoutMs}`)
+    fail(`ffmpeg.timeoutMs must be a positive number of milliseconds, got ${timeoutMs}`)
   }
   if (maxInputFileSize !== null) {
     assertPositiveInteger(maxInputFileSize, 'maxInputFileSize')
   }
   if (maxConcurrentEncodes !== null) {
-    assertPositiveInteger(maxConcurrentEncodes, 'maxConcurrentEncodes')
+    assertPositiveInteger(maxConcurrentEncodes, 'ffmpeg.maxConcurrent')
   }
   if (!Number.isInteger(retries) || retries < 0) {
-    fail(`retries must be a non-negative integer, got ${retries}`)
+    fail(`jobs.retries must be a non-negative integer, got ${retries}`)
   }
 
   const baseEncoding = pluginConfig.encoding ?? {}
-  const presetEntries = Object.entries(pluginConfig.presets ?? DEFAULT_PRESETS)
+  const crfOffset = resolveQualityOffset(pluginConfig)
+  const presetEntries = Object.entries(withPortrait(pluginConfig))
   if (presetEntries.length === 0) {
     fail(`presets must define at least one rendition`)
   }
@@ -290,6 +330,7 @@ export const resolveConfig = (pluginConfig: VideoWebmPluginConfig): ResolvedVide
       encoding: resolveEncoding(
         { ...baseEncoding, ...preset.encoding },
         `presets.${name}.encoding`,
+        crfOffset,
       ),
       label: preset.label ?? name,
     }
@@ -298,7 +339,7 @@ export const resolveConfig = (pluginConfig: VideoWebmPluginConfig): ResolvedVide
   return {
     encoding: resolveEncoding(baseEncoding, 'encoding'),
     fetchSource: pluginConfig.fetchSource ?? null,
-    ffmpegPath: pluginConfig.ffmpegPath ?? process.env.FFMPEG_PATH ?? 'ffmpeg',
+    ffmpegPath: pluginConfig.ffmpeg?.path ?? process.env.FFMPEG_PATH ?? 'ffmpeg',
     inputMimeTypes: pluginConfig.inputMimeTypes ?? DEFAULT_INPUT_MIME_TYPES,
     maxConcurrentEncodes,
     maxInputFileSize,

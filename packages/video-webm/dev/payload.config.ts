@@ -66,14 +66,13 @@ export default buildDevConfig({
         // Faster encodes for local fiddling; drop back to the defaults in real apps.
         speed: 4,
       },
-      presets: {
-        // A small width ladder — the sizes a layout actually asks for.
-        // Declaration order is preference order, so delivery sizes come first.
-        ...widthPresets([1280, 640]),
-        // A 9:16 crop for portrait slots, framed by the document's focal point.
-        // Upload a landscape clip and compare it against the rungs above.
-        ...widthPresets([720], { aspectRatio: '9:16', prefix: 'portrait' }),
-      },
+      // A 9:16 crop for portrait slots, framed by the document's focal point.
+      // Upload a landscape clip and compare it against the rungs above.
+      portrait: { widths: [720] },
+      // A small width ladder — the sizes a layout actually asks for. Declaration
+      // order is preference order, so delivery sizes come first. Drop this line to
+      // get the default six-rung ladder.
+      presets: widthPresets([1280, 640]),
     }),
   ],
 })

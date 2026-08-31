@@ -178,14 +178,7 @@ export interface ConversionOutcome {
  */
 export type VideoWebmCollectionOverrides = Omit<
   VideoWebmPluginConfig,
-  | 'collections'
-  | 'dispatch'
-  | 'enabled'
-  | 'ffmpegPath'
-  | 'maxConcurrentEncodes'
-  | 'queue'
-  | 'retries'
-  | 'taskSlug'
+  'collections' | 'dispatch' | 'enabled' | 'ffmpeg' | 'jobs'
 >
 
 export interface VideoWebmPluginConfig {
@@ -200,9 +193,10 @@ export interface VideoWebmPluginConfig {
   /**
    * How to background queued conversions — see {@link Dispatch}. When unset, the
    * job runs inline before the upload response returns (safe everywhere, but the
-   * upload waits for the encode) and the plugin warns at boot.
+   * upload waits for the encode) and the plugin warns at boot. Pass `'inline'` to
+   * choose that deliberately and silence the warning.
    */
-  dispatch?: Dispatch
+  dispatch?: 'inline' | Dispatch
   /** Set `false` to leave the Payload config completely untouched. Defaults to `true`. */
   enabled?: boolean
   /** WebM encoding parameters. */
@@ -216,13 +210,31 @@ export interface VideoWebmPluginConfig {
    */
   fetchSource?: (args: FetchSourceArgs) => Promise<FetchedSource>
   /**
-   * Path to the ffmpeg binary. Defaults to `process.env.FFMPEG_PATH` or `'ffmpeg'`
-   * from `PATH`. Point it at `ffmpeg-static`'s export if you'd rather ship a binary
-   * with your app than manage a system install. ffmpeg is only needed by the
-   * process that runs the jobs — a separate `payload jobs:run` container can carry
-   * it instead of the web app.
+   * The encoder process. Plugin-wide — one binary, one concurrency cap, one
+   * timeout per Node.js process, so these can't be set per collection.
    */
-  ffmpegPath?: string
+  ffmpeg?: {
+    /**
+     * Cap on simultaneous ffmpeg processes across this plugin instance (per Node.js
+     * process). Defaults to `2` — VP9 encoding saturates several cores per encode,
+     * so the default favours a responsive server over encode throughput. Pass
+     * `null` for unlimited.
+     */
+    maxConcurrent?: null | number
+    /**
+     * Path to the ffmpeg binary. Defaults to `process.env.FFMPEG_PATH` or `'ffmpeg'`
+     * from `PATH`. Point it at `ffmpeg-static`'s export if you'd rather ship a
+     * binary with your app than manage a system install. ffmpeg is only needed by
+     * the process that runs the jobs — a separate `payload jobs:run` container can
+     * carry it instead of the web app.
+     */
+    path?: string
+    /**
+     * Kill ffmpeg (SIGKILL) and fail the conversion after this many ms. Applies to
+     * each encode, not to the job as a whole. Defaults to 10 minutes.
+     */
+    timeoutMs?: number
+  }
   /**
    * Mime types eligible for conversion, matched against the client-declared
    * `req.file.mimetype` (no content sniffing). Supports `'video/*'` wildcards.
@@ -231,12 +243,25 @@ export interface VideoWebmPluginConfig {
    */
   inputMimeTypes?: string[]
   /**
-   * Cap on simultaneous ffmpeg processes across this plugin instance (per Node.js
-   * process). Defaults to `2` — VP9 encoding saturates several cores per encode, so
-   * the default favours a responsive server over encode throughput. Pass `null`
-   * for unlimited.
+   * Payload Jobs plumbing. One pipeline per plugin instance, so these can't be set
+   * per collection — and the defaults are right unless two instances collide.
    */
-  maxConcurrentEncodes?: null | number
+  jobs?: {
+    /** Queue conversions are queued to. Defaults to `'video-webm'`. */
+    queue?: string
+    /**
+     * Retry attempts for a failed conversion job. Defaults to `3` — Payload's own
+     * default is none, and cron only picks up jobs that are still runnable, so an
+     * unretried first failure would be terminal.
+     */
+    retries?: number
+    /**
+     * Slug the conversion task is registered under in `config.jobs.tasks`. Defaults
+     * to `'video-webm-convert'`; only needs changing when running two plugin
+     * instances side by side.
+     */
+    taskSlug?: string
+  }
   /**
    * Skip files larger than this many bytes (they stay unconverted, with the skip
    * recorded). This is a conversion guard only — it does not raise or bypass
@@ -259,6 +284,22 @@ export interface VideoWebmPluginConfig {
    */
   onConversionComplete?: (outcome: ConversionOutcome) => Promise<void> | void
   /**
+   * Also produce 9:16 renditions, cropped around the document's focal point, for
+   * portrait slots fed by landscape masters. `object-fit: cover` handles most shape
+   * mismatches for free, but a landscape master in a phone-hero slot downloads
+   * roughly 3× the pixels it shows — the one case that earns its own encode.
+   *
+   * ```ts
+   * portrait: true                    // 1080w and 720w, 9:16
+   * portrait: { widths: [1080] }      // just the one
+   * ```
+   *
+   * Added on top of `presets`, so it composes with the default ladder and with a
+   * custom set. Off by default: a crop is a framing decision, and a focal point
+   * can't save a subject sitting at the edge of the frame.
+   */
+  portrait?: boolean | { widths?: number[] }
+  /**
    * The renditions to generate — one hidden sidecar document per preset, linked
    * from the source via `webmVersions` rows (`{ preset, video }`). Declaration
    * order is preference order (first = best, served first by the frontend
@@ -268,14 +309,14 @@ export interface VideoWebmPluginConfig {
    * `skipRedundantPresets` trims the rungs a smaller source can't fill.
    */
   presets?: Record<string, VideoPreset>
-  /** Payload Jobs queue name conversions are queued to. Defaults to `'video-webm'`. */
-  queue?: string
   /**
-   * Retry attempts for a failed conversion job. Defaults to `3` — Payload's own
-   * default is none, and cron only picks up jobs that are still runnable, so an
-   * unretried first failure would be terminal.
+   * Shifts every rendition's quality without you having to think in CRF numbers.
+   * Applied as an offset to each preset's resolved CRF (`high` −4, `small` +4), so
+   * the ladder keeps its per-rung tuning instead of being flattened to one value.
+   * Defaults to `'balanced'`. Setting `encoding.crf` yourself is absolute and
+   * warns if combined with this.
    */
-  retries?: number
+  quality?: 'balanced' | 'high' | 'small'
   /**
    * Advanced escape hatch: veto individual conversions at upload time. Runs after
    * the built-in guards (already-WebM, `inputMimeTypes`, `maxInputFileSize`) have
@@ -301,17 +342,6 @@ export interface VideoWebmPluginConfig {
    * probe can't read the dimensions. Defaults to `true`.
    */
   skipRedundantPresets?: boolean
-  /**
-   * Slug the conversion task is registered under in `config.jobs.tasks`. Defaults
-   * to `'video-webm-convert'`; only needs changing when running two plugin
-   * instances side by side.
-   */
-  taskSlug?: string
-  /**
-   * Kill ffmpeg (SIGKILL) and fail the conversion after this many ms.
-   * Defaults to 10 minutes.
-   */
-  timeoutMs?: number
 }
 
 /** {@link VideoWebmPluginConfig} with every default applied and validated. */

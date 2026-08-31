@@ -133,10 +133,13 @@ export const videoWebmPlugin =
         ? null
         : new Semaphore(pluginResolved.maxConcurrentEncodes)
 
-    const taskSlug = pluginConfig.taskSlug ?? DEFAULT_TASK_SLUG
-    const queue = pluginConfig.queue ?? DEFAULT_QUEUE
-    const dispatch = pluginConfig.dispatch ?? null
-    const retries = pluginConfig.retries ?? DEFAULT_RETRIES
+    const taskSlug = pluginConfig.jobs?.taskSlug ?? DEFAULT_TASK_SLUG
+    const queue = pluginConfig.jobs?.queue ?? DEFAULT_QUEUE
+    const retries = pluginConfig.jobs?.retries ?? DEFAULT_RETRIES
+    // `'inline'` is the same behaviour as leaving it unset, but chosen on purpose —
+    // so it runs the job here too, and skips the boot warning below.
+    const dispatch = typeof pluginConfig.dispatch === 'function' ? pluginConfig.dispatch : null
+    const dispatchIsDeliberate = pluginConfig.dispatch !== undefined
 
     /** Per-collection resolved configs the job handler looks up at run time. */
     const registry = new Map<string, ConvertTaskRegistryEntry>()
@@ -256,9 +259,9 @@ export const videoWebmPlugin =
             `[payload-video-webm] ffmpeg at "${ffmpegPath}" is missing required encoders: ${check.missingEncoders.join(', ')} — conversions will fail until a build with libvpx/libopus is installed`,
           )
         }
-        if (!dispatch) {
+        if (!dispatchIsDeliberate) {
           payload.logger.warn(
-            `[payload-video-webm] no dispatch configured — conversions run inline and the upload request waits for the encode (on a database with transactions they instead start detached, once the upload commits). Pass dispatch (e.g. Next's after(run), waitUntil(run()), or void run()) to background them properly.`,
+            `[payload-video-webm] no dispatch configured — conversions run inline and the upload request waits for the encode (on a database with transactions they instead start detached, once the upload commits). Pass dispatch (e.g. Next's after(run), waitUntil(run()), or void run()) to background them properly, or dispatch: 'inline' to accept this.`,
           )
         }
         await incomingOnInit?.(payload)

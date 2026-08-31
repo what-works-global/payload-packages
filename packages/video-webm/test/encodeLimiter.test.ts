@@ -37,7 +37,7 @@ const settle = (promise: Promise<unknown>) =>
 describe.skipIf(process.platform === 'win32')('semaphore permit lifecycle in encodeLimited', () => {
   it('releases the permit when the encode fails, letting the next encode proceed', async () => {
     const limiter = new Semaphore(1)
-    const config = resolveConfig({ ffmpegPath: failingBinary })
+    const config = resolveConfig({ ffmpeg: { path: failingBinary  }})
 
     // With a leaked permit the second call would wait forever and trip the test
     // timeout — both settling is the regression assertion.
@@ -50,8 +50,8 @@ describe.skipIf(process.platform === 'win32')('semaphore permit lifecycle in enc
 
   it('releases the permit when the encode times out', async () => {
     const limiter = new Semaphore(1)
-    const timingOut = resolveConfig({ ffmpegPath: sleepingBinary, timeoutMs: 200 })
-    const failing = resolveConfig({ ffmpegPath: failingBinary })
+    const timingOut = resolveConfig({ ffmpeg: { path: sleepingBinary, timeoutMs: 200 } })
+    const failing = resolveConfig({ ffmpeg: { path: failingBinary  }})
 
     const startedAt = Date.now()
     const results = await Promise.all([

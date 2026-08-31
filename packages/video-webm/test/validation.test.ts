@@ -31,14 +31,14 @@ describe('resolveConfig validation', () => {
   })
 
   it('rejects invalid timeout, size cap, concurrency and retry values', () => {
-    expect(() => resolveConfig({ timeoutMs: 0 })).toThrow(/timeoutMs/)
-    expect(() => resolveConfig({ timeoutMs: -1 })).toThrow(/timeoutMs/)
+    expect(() => resolveConfig({ ffmpeg: { timeoutMs: 0  }})).toThrow(/timeoutMs/)
+    expect(() => resolveConfig({ ffmpeg: { timeoutMs: -1  }})).toThrow(/timeoutMs/)
     expect(() => resolveConfig({ maxInputFileSize: 0 })).toThrow(/maxInputFileSize/)
-    expect(() => resolveConfig({ maxConcurrentEncodes: 0 })).toThrow(/maxConcurrentEncodes/)
-    expect(() => resolveConfig({ maxConcurrentEncodes: 1.5 })).toThrow(/maxConcurrentEncodes/)
-    expect(() => resolveConfig({ retries: -1 })).toThrow(/retries/)
-    expect(() => resolveConfig({ retries: 1.5 })).toThrow(/retries/)
-    expect(() => resolveConfig({ retries: 0 })).not.toThrow()
+    expect(() => resolveConfig({ ffmpeg: { maxConcurrent: 0 } })).toThrow(/ffmpeg\.maxConcurrent/)
+    expect(() => resolveConfig({ ffmpeg: { maxConcurrent: 1.5 } })).toThrow(/ffmpeg\.maxConcurrent/)
+    expect(() => resolveConfig({ jobs: { retries: -1  }})).toThrow(/retries/)
+    expect(() => resolveConfig({ jobs: { retries: 1.5  }})).toThrow(/retries/)
+    expect(() => resolveConfig({ jobs: { retries: 0  }})).not.toThrow()
   })
 
   it('rejects a codec outside the union at runtime', () => {
@@ -49,8 +49,8 @@ describe('resolveConfig validation', () => {
 
   it('defaults maxConcurrentEncodes to 2, with null opting into unlimited', () => {
     expect(resolveConfig({}).maxConcurrentEncodes).toBe(2)
-    expect(resolveConfig({ maxConcurrentEncodes: null }).maxConcurrentEncodes).toBeNull()
-    expect(resolveConfig({ maxConcurrentEncodes: 8 }).maxConcurrentEncodes).toBe(8)
+    expect(resolveConfig({ ffmpeg: { maxConcurrent: null  }}).maxConcurrentEncodes).toBeNull()
+    expect(resolveConfig({ ffmpeg: { maxConcurrent: 8  }}).maxConcurrentEncodes).toBe(8)
   })
 
   it('validates presets: names, per-preset encoding, and non-emptiness', () => {
@@ -128,6 +128,44 @@ describe('resolveConfig validation', () => {
     expect(Object.keys(widthPresets([1080], { aspectRatio: '9:16', prefix: 'portrait' }))).toEqual([
       'portrait-1080w',
     ])
+  })
+
+  it('portrait adds 9:16 rungs on top of whatever presets are in effect', () => {
+    const withDefaults = resolveConfig({ portrait: true })
+    expect(Object.keys(withDefaults.presets)).toEqual([
+      ...Object.keys(widthPresets()),
+      'portrait-1080w',
+      'portrait-720w',
+    ])
+    expect(withDefaults.presets['portrait-1080w']?.encoding.aspectRatio).toBe('9:16')
+
+    // Composes with a custom set, and takes explicit widths.
+    const custom = resolveConfig({ portrait: { widths: [1080] }, presets: widthPresets([640]) })
+    expect(Object.keys(custom.presets)).toEqual(['640w', 'portrait-1080w'])
+
+    expect(Object.keys(resolveConfig({}).presets)).not.toContain('portrait-1080w')
+  })
+
+  it('quality offsets every rung instead of flattening the ladder', () => {
+    const balanced = resolveConfig({})
+    const small = resolveConfig({ quality: 'small' })
+    const high = resolveConfig({ quality: 'high' })
+
+    for (const name of Object.keys(balanced.presets)) {
+      const base = balanced.presets[name]?.encoding.crf as number
+      expect(small.presets[name]?.encoding.crf).toBe(base + 4)
+      expect(high.presets[name]?.encoding.crf).toBe(base - 4)
+    }
+    // Still a ladder, not one flattened value.
+    expect(small.presets['2560w']?.encoding.crf).not.toBe(small.presets['426w']?.encoding.crf)
+  })
+
+  it('clamps a quality offset into the legal CRF range', () => {
+    // 2160p sits at crf 15 in Google's table; 'high' would take a 3840w rung to 11,
+    // and nothing may leave 0-63 whatever the offset.
+    const resolved = resolveConfig({ presets: widthPresets([3840]), quality: 'high' })
+    expect(resolved.presets['3840w']?.encoding.crf).toBe(11)
+    expect(() => resolveConfig({ encoding: { crf: 64 }, quality: 'high' })).toThrow(/encoding\.crf/)
   })
 
   it('rejects an unparseable aspect ratio at init', () => {

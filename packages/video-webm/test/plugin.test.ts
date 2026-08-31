@@ -93,7 +93,7 @@ describe('videoWebmPlugin config shaping', () => {
     expect(endpoint).toMatchObject({ method: 'post' })
 
     // Two instances get distinct endpoints, like distinct task slugs.
-    const two = videoWebmPlugin({ collections: ['files'], taskSlug: 'video-webm-second' })(
+    const two = videoWebmPlugin({ collections: ['files'], jobs: { taskSlug: 'video-webm-second'  }})(
       videoWebmPlugin({ collections: ['media'] })(baseConfig()),
     )
     expect(two.endpoints?.map((e) => e.path)).toEqual([
@@ -107,16 +107,16 @@ describe('videoWebmPlugin config shaping', () => {
     const tasks = config.jobs?.tasks ?? []
     expect(tasks).toHaveLength(1)
     expect(tasks[0]).toMatchObject({ slug: DEFAULT_TASK_SLUG, retries: 3 })
-    expect(videoWebmPlugin({ retries: 5 })(baseConfig()).jobs?.tasks?.[0]).toMatchObject({
-      retries: 5,
-    })
+    expect(
+      videoWebmPlugin({ jobs: { retries: 5 } })(baseConfig()).jobs?.tasks?.[0],
+    ).toMatchObject({ retries: 5 })
   })
 
   it('rejects two plugin instances sharing a task slug, and accepts distinct slugs', () => {
     const withOne = videoWebmPlugin({ collections: ['media'] })(baseConfig())
     expect(() => videoWebmPlugin({ collections: ['files'] })(withOne)).toThrow(/already registered/)
 
-    const distinct = videoWebmPlugin({ collections: ['files'], taskSlug: 'video-webm-second' })(
+    const distinct = videoWebmPlugin({ collections: ['files'], jobs: { taskSlug: 'video-webm-second'  }})(
       videoWebmPlugin({ collections: ['media'] })(baseConfig()),
     )
     expect(distinct.jobs?.tasks?.map((t) => t.slug)).toEqual([
