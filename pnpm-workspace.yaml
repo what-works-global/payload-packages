@@ -2,6 +2,12 @@ packages:
   - 'packages/*'
   - 'tools/*'
 
+# pnpm 10 blocks postinstall scripts unless a package is listed here. ffmpeg-static
+# downloads its binary in one, so without this it installs no ffmpeg at all and the
+# encode tests silently skip.
+onlyBuiltDependencies:
+  - ffmpeg-static
+
 catalog:
   '@types/node': 22.19.9
   '@types/react': 19.2.9

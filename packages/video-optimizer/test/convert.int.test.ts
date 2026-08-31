@@ -6,6 +6,7 @@ import type {
 } from 'payload'
 
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
+import ffmpegStatic from 'ffmpeg-static'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -22,7 +23,10 @@ import { resolutionPresets, videoOptimizerPlugin, widthPresets } from '../src/in
 
 const execFileAsync = promisify(execFile)
 
-const ffmpegPath = process.env.FFMPEG_PATH ?? 'ffmpeg'
+// ffmpeg-static is a devDependency so these tests run without a system install —
+// otherwise they skip silently and nobody notices the encoder is untested. An
+// explicit FFMPEG_PATH still wins, for testing against a real distribution build.
+const ffmpegPath = process.env.FFMPEG_PATH ?? ffmpegStatic ?? 'ffmpeg'
 const ffmpegAvailable = await isFfmpegAvailable(ffmpegPath)
 
 /** 1x1 transparent PNG — a real image so Payload's dimension probing succeeds. */
@@ -251,7 +255,7 @@ beforeAll(async () => {
         encoding: { crf: 50, speed: 5 },
         // Plumbing tests, not ladder tests — one rendition unless a collection
         // above asks for more. Also keeps the ffmpeg-backed suite quick.
-        ffmpeg: { maxConcurrent: 2 },
+        ffmpeg: { maxConcurrent: 2, path: ffmpegPath },
         onConversionComplete: (outcome) => {
           outcomes.push(outcome)
         },
@@ -265,6 +269,7 @@ beforeAll(async () => {
           deferred.push({ job, run })
         },
         encoding: { crf: 50, speed: 5 },
+        ffmpeg: { path: ffmpegPath },
         jobs: { taskSlug: 'video-convert-deferred' },
         presets: { webm: {} },
       }),

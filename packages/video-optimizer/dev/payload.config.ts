@@ -1,4 +1,5 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
+import ffmpegStatic from 'ffmpeg-static'
 import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
 import {
   EXCLUDE_VIDEO_DERIVATIVES,
@@ -66,6 +67,9 @@ export default buildDevConfig({
         // Faster encodes for local fiddling; drop back to the defaults in real apps.
         speed: 4,
       },
+      // The sandbox uses the bundled binary so `pnpm dev` works with no system
+      // install. Real apps should point at a system ffmpeg or set FFMPEG_PATH.
+      ffmpeg: { path: process.env.FFMPEG_PATH ?? ffmpegStatic ?? 'ffmpeg' },
       // A 9:16 crop for portrait slots, framed by the document's focal point.
       // Upload a landscape clip and compare it against the rungs above.
       portrait: { widths: [720] },
