@@ -6,6 +6,8 @@ import { createMemoryReplSet } from '@whatworks/dev-fixture/memory-db'
 import { buildConfig, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import type { RbacPluginConfig } from '../../src/index.js'
+
 import { rbacPlugin } from '../../src/index.js'
 
 /**
@@ -25,14 +27,18 @@ import { rbacPlugin } from '../../src/index.js'
 
 let replSet: MemoryReplSet
 
-const buildRbacConfig = (uri: string) =>
+const buildRbacConfig = (
+  uri: string,
+  { dbName, plugin = {} }: { dbName?: string; plugin?: Partial<RbacPluginConfig> } = {},
+) =>
   buildConfig({
     collections: [
       { slug: 'users', auth: true, fields: [] },
       { slug: 'posts', fields: [{ name: 'title', type: 'text' }] },
       { slug: 'tags', fields: [{ name: 'name', type: 'text' }] },
     ],
-    db: mongooseAdapter({ url: uri }),
+    // `dbName` isolates a test from the shared seed state on this replica set.
+    db: mongooseAdapter({ url: uri, ...(dbName ? { connectOptions: { dbName } } : {}) }),
     plugins: [
       rbacPlugin({
         adminRole: 'Super Admin',
@@ -41,6 +47,7 @@ const buildRbacConfig = (uri: string) =>
           { name: 'Viewer', permissions: ['*:read'] },
           { name: 'Post Editor', permissions: ['posts:*', '*:read'] },
         ],
+        ...plugin,
       }),
     ],
     secret: 'rbac-mongo-int-secret',
@@ -117,6 +124,26 @@ describe('rbac seeding on a replica set', () => {
     // The bootstrap hook assigned the admin role to the first user.
     const user = users.docs[0] as unknown as { roles?: unknown[] }
     expect(Array.isArray(user.roles) ? user.roles.length : 0).toBeGreaterThan(0)
+
+    await payload.db.destroy?.()
+  })
+
+  it('writes nothing on init when seedRoles is false', async () => {
+    // What a read-only credential needs: init must complete without a single
+    // write. Seeding is the only init-time writer, and its very first step is an
+    // index build — so on a read-only connection this path is the difference
+    // between booting and throwing. Runs against its own database so the roles
+    // seeded by the tests above cannot be mistaken for a write by this one.
+    const config = await buildRbacConfig(replSet.uri, {
+      dbName: 'rbac-seed-disabled',
+      plugin: { seedRoles: false },
+    })
+    const payload = await getPayload({ config, key: 'rbac-seed-disabled-int' })
+
+    // `warnIfAdminRoleUnheld` still reads the roles collection on init, so the
+    // driver may create the collection; what must not exist is a seeded document.
+    const roles = await payload.find({ collection: 'roles', depth: 0, limit: 1000 })
+    expect(roles.docs).toHaveLength(0)
 
     await payload.db.destroy?.()
   })
