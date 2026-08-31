@@ -18,6 +18,7 @@ import {
   resolveConfig,
   WEBM_MIME_TYPE,
 } from './core/defaults.js'
+import { detectRuntime } from './core/runtime.js'
 import { Semaphore } from './core/semaphore.js'
 import { mimeTypeMatches } from './core/shouldConvert.js'
 import { createContinueEndpoint } from './endpoints/continue.js'
@@ -345,6 +346,7 @@ export const videoOptimizerPlugin =
         for (const warning of configWarnings(pluginConfig, pluginResolved, {
           hasQueueDrainer,
           queue,
+          runtime: detectRuntime(),
         })) {
           payload.logger.warn(`[payload-video-optimizer] ${warning}`)
         }

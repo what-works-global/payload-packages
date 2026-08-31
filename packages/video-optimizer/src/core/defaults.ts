@@ -6,6 +6,7 @@ import type {
   VideoOptimizerConfig,
   VideoPreset,
 } from '../types.js'
+import type { RuntimeInfo } from './runtime.js'
 
 import { parseAspectRatio } from './args.js'
 
@@ -463,7 +464,7 @@ export const outputDimensions = (
 export const configWarnings = (
   pluginConfig: VideoOptimizerConfig,
   resolved: ResolvedVideoOptimizerConfig,
-  context: { hasQueueDrainer: boolean; queue: string },
+  context: { hasQueueDrainer: boolean; queue: string; runtime?: RuntimeInfo },
 ): string[] => {
   const warnings: string[] = []
   const presets = Object.entries(withPortrait(pluginConfig))
@@ -480,6 +481,24 @@ export const configWarnings = (
   if (pluginConfig.quality && pluginConfig.quality !== 'balanced' && pluginConfig.encoding?.crf) {
     warnings.push(
       `both quality: '${pluginConfig.quality}' and encoding.crf are set — the offset applies on top of whichever crf ends up in effect. Set one or the other.`,
+    )
+  }
+  const runtime = context.runtime ?? { name: null, kind: 'node' as const }
+  if (runtime.kind === 'cloudflare-workers') {
+    // Not a configuration problem, so it is stated as a fact rather than a fix:
+    // Workers is a V8 isolate with no child_process and no filesystem, so ffmpeg
+    // cannot be executed there at any budget.
+    warnings.push(
+      `running on ${runtime.name}, which cannot execute ffmpeg — there is no child_process and no writable filesystem, so every conversion will fail at spawn. Run the "${context.queue}" queue on a Node host instead (a payload jobs:run container), pointed at the same database.`,
+    )
+  } else if (runtime.kind === 'serverless' && resolved.maxRunMs === null) {
+    // The worst outcome the plugin has, reached by writing no config at all. Without
+    // a budget the ladder runs widest-first and nothing bounds an encode, so the
+    // platform kills the invocation mid-rung: no document write, orphaned sidecars,
+    // and retries that repeat it. With a budget the same source degrades a rung at a
+    // time and keeps what it finished.
+    warnings.push(
+      `running on ${runtime.name} but jobs.maxRunMs is not set, so a conversion that outlives the function is killed mid-encode — nothing is linked, the finished renditions are orphaned, and each retry starts over. Set jobs.maxRunMs below your function's maxDuration to encode smallest-first and keep what fits.`,
     )
   }
   if (

@@ -574,6 +574,21 @@ Three things worth knowing:
 - **A preset too big for any budget is skipped, not retried.** Cost is projected from a completed rung's measured throughput (chunked runs encode cheapest-first so there's a measurement to work from). A rung that can't fit is recorded as `exceeds-budget` and named in the sidebar, rather than failing three times to discover the same thing. The other rungs still encode, and the frontend falls back.
 - **The continue request needs a deferring `dispatch`.** Without one there is no fresh context to chain into, so the plugin queues the next chunk and leaves it to the queue runner — which is also what happens when there is no request origin to continue against, as on a CLI worker.
 
+**Set `maxRunMs` on any serverless host, even if a video never gets near the ceiling.** It is what sorts the ladder cheapest-first and what bounds each encode. Without it the run encodes widest-first with nothing to stop it, so the platform kills the invocation mid-rung: the document is never written, the renditions that did finish are orphaned, and every retry repeats it. With it, the same source degrades one rung at a time and keeps what it finished. The plugin warns at boot if it detects a serverless host and no budget.
+
+**Cloudflare Workers cannot run this plugin's encoding at all.** It is a V8 isolate, not Node — no `child_process` to spawn ffmpeg, no writable filesystem to encode into. No budget helps. Run the queue on a Node host pointed at the same database.
+
+The ceiling is per rung, not per video, because a run banks each rendition as it decides it. On a 2 vCPU function with a 30-minute `maxDuration`, roughly:
+
+| Source length | Renditions produced |
+| ------------- | ------------------- |
+| 1 min         | the full ladder     |
+| 5 min         | `1280w` and below   |
+| 10 min        | `854w` and below    |
+| 30 min        | `426w` only         |
+
+Trimming the top rung is the cheapest way to move this: with `1280w` as the widest, every row roughly doubles. Beyond it, only a worker container (no timeout, so no ceiling) or splitting the encode itself will do.
+
 ### Presets
 
 Each preset is a named encoding override, merged over `encoding`, and each becomes its own sidecar document with a suffixed filename (`clip-720p.webm`). Declaration order is preference order.

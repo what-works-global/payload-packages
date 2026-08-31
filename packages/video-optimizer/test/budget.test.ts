@@ -147,3 +147,39 @@ describe('budgetDecision', () => {
     expect(decide({ projectedMs: null })).toBe('encode')
   })
 })
+
+describe('host runtime warnings', () => {
+  const runtimeWarnings = (
+    config: Parameters<typeof resolveConfig>[0],
+    runtime: Parameters<typeof configWarnings>[2]['runtime'],
+  ) =>
+    configWarnings(config, resolveConfig(config), {
+      hasQueueDrainer: true,
+      queue: 'video-conversion',
+      runtime,
+    }).join()
+
+  it('warns when a serverless host has no budget, which is the silent total loss', () => {
+    // Widest rung first, killed mid-encode, no document write, orphaned sidecars,
+    // and three retries into the same wall — all reached by writing no config.
+    expect(runtimeWarnings({}, { name: 'Vercel', kind: 'serverless' })).toMatch(
+      /Vercel but jobs\.maxRunMs is not set/,
+    )
+  })
+
+  it('says nothing once the budget is set, or when nothing imposes a limit', () => {
+    expect(
+      runtimeWarnings({ jobs: { maxRunMs: 240_000 } }, { name: 'Vercel', kind: 'serverless' }),
+    ).toBe('')
+    expect(runtimeWarnings({}, { name: null, kind: 'node' })).toBe('')
+  })
+
+  it('tells Cloudflare Workers users the encode cannot run there at all', () => {
+    // Not a budget problem: a V8 isolate has no child_process and no filesystem, so
+    // no configuration makes ffmpeg spawn.
+    const warning = runtimeWarnings({}, { name: 'Cloudflare Workers', kind: 'cloudflare-workers' })
+    expect(warning).toMatch(/cannot execute ffmpeg/)
+    // And it must not also be told to set a budget, which would not help.
+    expect(warning).not.toMatch(/maxRunMs is not set/)
+  })
+})
