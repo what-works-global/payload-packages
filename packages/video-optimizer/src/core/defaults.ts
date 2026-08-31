@@ -294,6 +294,7 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
   const timeoutMs = pluginConfig.ffmpeg?.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const maxInputFileSize = pluginConfig.maxInputFileSize ?? null
   const retries = pluginConfig.jobs?.retries ?? DEFAULT_RETRIES
+  const maxRunMs = pluginConfig.jobs?.maxRunMs ?? null
   // undefined → the safe default; an explicit null opts into unlimited.
   const maxConcurrentEncodes =
     pluginConfig.ffmpeg?.maxConcurrent === undefined
@@ -311,6 +312,17 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
   }
   if (!Number.isInteger(retries) || retries < 0) {
     fail(`jobs.retries must be a non-negative integer, got ${retries}`)
+  }
+  if (maxRunMs !== null) {
+    assertPositiveInteger(maxRunMs, 'jobs.maxRunMs')
+    if (timeoutMs > maxRunMs) {
+      // Not fatal — the per-encode timeout is clamped to the budget anyway — but the
+      // combination says one encode may outlast a whole run, which is never intended.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[payload-video-optimizer] ffmpeg.timeoutMs (${timeoutMs}) is longer than jobs.maxRunMs (${maxRunMs}), so no encode could ever use it. Each encode is capped at whatever remains of the budget.`,
+      )
+    }
   }
 
   const baseEncoding = pluginConfig.encoding ?? {}
@@ -343,6 +355,7 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
     inputMimeTypes: pluginConfig.inputMimeTypes ?? DEFAULT_INPUT_MIME_TYPES,
     maxConcurrentEncodes,
     maxInputFileSize,
+    maxRunMs,
     metadataFields: pluginConfig.metadataFields !== false,
     onConversionComplete: pluginConfig.onConversionComplete ?? null,
     presets,
@@ -351,6 +364,69 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
     skipRedundantPresets: pluginConfig.skipRedundantPresets !== false,
     timeoutMs,
   }
+}
+
+/**
+ * What a run should do with the next preset, given its time budget.
+ *
+ * `skip` and `defer` look similar and are not: a preset projected past a *whole*
+ * budget can never finish in any chunk, so recording the decision beats burning
+ * retries rediscovering it. One that merely doesn't fit what's *left* is fine — a
+ * later chunk gets it with a full budget.
+ *
+ * `forced` guarantees forward progress. Without it a budget smaller than a single
+ * encode defers everything, every chunk, forever.
+ */
+export const budgetDecision = ({
+  budgetLeftMs,
+  budgetMs,
+  forced,
+  projectedMs,
+}: {
+  budgetLeftMs: number
+  budgetMs: null | number
+  forced: boolean
+  projectedMs: null | number
+}): 'defer' | 'encode' | 'skip' => {
+  if (budgetMs === null || forced) {
+    return 'encode'
+  }
+  if (projectedMs !== null && projectedMs > budgetMs) {
+    return 'skip'
+  }
+  if (budgetLeftMs <= 0 || (projectedMs !== null && projectedMs > budgetLeftMs)) {
+    return 'defer'
+  }
+  return 'encode'
+}
+
+/**
+ * The frame size a preset will actually produce from a given source: cropped to its
+ * aspect ratio if it has one, then scaled down to fit its caps, never upscaled.
+ *
+ * Used to project encode cost, which tracks pixel count — so a rung's cost can be
+ * estimated from a completed rung's measured throughput without encoding it first.
+ */
+export const outputDimensions = (
+  preset: ResolvedPreset,
+  source: { height: number; width: number },
+): { height: number; width: number } => {
+  const { aspectRatio, maxHeight, maxWidth } = preset.encoding
+  const ratio = aspectRatio ? parseAspectRatio(aspectRatio) : null
+  const cropped =
+    ratio === null
+      ? source
+      : {
+          height: Math.min(source.height, source.width / ratio),
+          width: Math.min(source.width, source.height * ratio),
+        }
+
+  const scale = Math.min(
+    1,
+    maxWidth === undefined ? 1 : maxWidth / cropped.width,
+    maxHeight === undefined ? 1 : maxHeight / cropped.height,
+  )
+  return { height: cropped.height * scale, width: cropped.width * scale }
 }
 
 /**

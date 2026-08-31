@@ -13,8 +13,11 @@ import type { ConversionStatus, ResolvedVideoOptimizerConfig, SkipReason } from 
 import { CENTRE_FOCAL_POINT } from '../core/args.js'
 import { asCollectionSlug, asTaskSlug } from '../core/collectionSlug.js'
 import { probeVideoDimensions, tempInputName } from '../core/convert.js'
-import { redundantPresets } from '../core/defaults.js'
+import { budgetDecision, outputDimensions, redundantPresets } from '../core/defaults.js'
 import { KeyedMutex } from '../core/keyedMutex.js'
+
+/** Encode cost tracks pixel count, which is what makes projection possible at all. */
+const pixelsOf = ({ height, width }: { height: number; width: number }): number => width * height
 import { toWebmFilename } from '../core/shouldConvert.js'
 import { METADATA_GROUP_NAME } from '../fields/conversionMetadataField.js'
 import { RENDITION_GENERATION_FIELD_NAME, RENDITIONS_FIELD_NAME } from '../fields/sidecarFields.js'
@@ -281,6 +284,15 @@ const runConversion = async ({
   const createdSidecars: (number | string)[] = []
   let totalEncodeMs = 0
 
+  // Chunked runs: stop starting presets once the budget is spent and leave the rest
+  // for a later job. `null` means no budget — one run does the whole ladder.
+  const budgetMs = config.maxRunMs
+  const runStartedAt = Date.now()
+  const budgetLeft = (): number =>
+    budgetMs === null ? Infinity : budgetMs - (Date.now() - runStartedAt)
+  /** Measured cost per output pixel, from whichever presets this run has finished. */
+  let msPerPixel: null | number = null
+
   const outcomeBase = {
     collection,
     docId,
@@ -310,6 +322,8 @@ const runConversion = async ({
   const finalize = async (outcome: {
     encodeDurationMs: null | number
     error: null | string
+    /** Presets this run left undecided — a later chunk will encode them. */
+    pendingRemain?: boolean
   }): Promise<void> => {
     const fresh = await readDoc()
     if (!fresh || superseded(fresh)) {
@@ -342,6 +356,10 @@ const runConversion = async ({
     let skippedReason: null | SkipReason = null
     if (outcome.error) {
       status = 'failed'
+    } else if (outcome.pendingRemain) {
+      // A chunked run that stopped on its budget is not finished, however much it
+      // stored — saying `complete` here would stop the panel polling mid-ladder.
+      status = 'queued'
     } else if (stored) {
       status = 'complete'
     } else {
@@ -400,7 +418,16 @@ const runConversion = async ({
           y: typeof doc.focalY === 'number' ? doc.focalY : CENTRE_FOCAL_POINT.y,
         }
 
-        for (const [preset, resolved] of pending) {
+        const order =
+          budgetMs !== null && dimensions
+            ? [...pending].sort(
+                ([, a], [, b]) =>
+                  pixelsOf(outputDimensions(a, dimensions)) -
+                  pixelsOf(outputDimensions(b, dimensions)),
+              )
+            : pending
+
+        for (const [preset, resolved] of order) {
           if (redundant.has(preset)) {
             payload.logger.info(
               `[payload-video-optimizer] not encoding "${preset}" for "${doc.filename}": the source is only ${dimensions?.height}px tall`,
@@ -425,13 +452,64 @@ const runConversion = async ({
             continue
           }
 
+          const outputPixels = dimensions ? pixelsOf(outputDimensions(resolved, dimensions)) : null
+          const projectedMs =
+            msPerPixel !== null && outputPixels !== null ? msPerPixel * outputPixels : null
+
+          const forced = producedRows.length === 0
+          const decision = budgetDecision({
+            budgetLeftMs: budgetLeft(),
+            budgetMs,
+            forced,
+            projectedMs,
+          })
+
+          if (decision === 'skip') {
+            payload.logger.warn(
+              `[payload-video-optimizer] not encoding "${preset}" for "${doc.filename}": it needs about ${Math.round((projectedMs ?? 0) / 1000)}s but jobs.maxRunMs is ${budgetMs}ms. Raise the budget, drop the rung, or run the queue on a worker.`,
+            )
+            producedRows.push({
+              height: null,
+              preset,
+              skippedReason: 'exceeds-budget',
+              video: null,
+              width: null,
+            })
+            await report(config, payload.logger, {
+              ...outcomeBase,
+              converted: false,
+              convertedFilename: null,
+              convertedFilesize: null,
+              encodeDurationMs: null,
+              error: null,
+              preset,
+              skippedReason: 'exceeds-budget',
+            })
+            continue
+          }
+          if (decision === 'defer') {
+            break // a later chunk picks this up with a full budget
+          }
+
           const outputPath = path.join(tmpDir, `${preset}.webm`)
           const { encodeDurationMs } = await encodeLimited(
-            { ...config, encoding: resolved.encoding },
+            // Cap the encode at what's left: being killed by us fails cleanly and
+            // retries, being killed by the platform leaves the job row claimed.
+            {
+              ...config,
+              encoding: resolved.encoding,
+              // The budget governs scheduling; a forced first encode falls back to the
+              // plain encode timeout, since clamping to a spent budget would kill it
+              // on the spot.
+              timeoutMs: forced ? config.timeoutMs : Math.min(config.timeoutMs, budgetLeft()),
+            },
             limiter,
             { focal, inputPath: sourcePath, outputPath },
           )
           totalEncodeMs += encodeDurationMs
+          if (outputPixels) {
+            msPerPixel = encodeDurationMs / outputPixels
+          }
           const outputSize = (await fs.stat(outputPath)).size
 
           if (config.skipIfLarger && outputSize >= sourceSize) {
@@ -496,7 +574,9 @@ const runConversion = async ({
 
     // Runs with nothing pending still fall through to the write: it settles a
     // document left stamped `queued` by a run that was killed mid-flight.
-    await finalize({ encodeDurationMs: totalEncodeMs, error: null })
+    const decidedNow = new Set(producedRows.map((row) => row.preset))
+    const pendingRemain = pending.some(([name]) => !decidedNow.has(name))
+    await finalize({ encodeDurationMs: totalEncodeMs, error: null, pendingRemain })
     return { output: {} }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

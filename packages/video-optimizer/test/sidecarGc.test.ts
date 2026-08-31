@@ -10,12 +10,12 @@
  * Exercised against the hooks directly rather than through a Payload boot, so each
  * branch is named and the whole contract runs in milliseconds.
  */
-import type { CollectionAfterChangeHook, CollectionAfterDeleteHook, JsonObject } from 'payload'
+import type { JsonObject } from 'payload'
 
 import { describe, expect, it } from 'vitest'
 
-import { createSidecarCleanupHook, createSidecarDeleteHook } from '../src/hooks/sidecar.js'
 import { GC_CONTEXT_KEY, SKIP_CONTEXT_KEY } from '../src/hooks/shared.js'
+import { createSidecarCleanupHook, createSidecarDeleteHook } from '../src/hooks/sidecar.js'
 
 const rows = (...ids: number[]): JsonObject => ({
   renditions: ids.map((id) => ({ preset: `${id}w`, video: id })),
@@ -47,7 +47,7 @@ const runCleanup = async (
   file?: unknown,
 ): Promise<unknown[]> => {
   const { deleted, req } = fakeReq(context, file)
-  const hook = createSidecarCleanupHook() as CollectionAfterChangeHook
+  const hook = createSidecarCleanupHook()
   await hook({ collection: { slug: 'media' }, doc, previousDoc, req } as never)
   return deleted
 }
@@ -86,14 +86,14 @@ describe('rendition garbage collection', () => {
 
   it('deleting the original deletes every rendition', async () => {
     const { deleted, req } = fakeReq()
-    const hook = createSidecarDeleteHook() as CollectionAfterDeleteHook
+    const hook = createSidecarDeleteHook()
     await hook({ collection: { slug: 'media' }, doc: rows(1, 2, 3), req } as never)
     expect(deleted).toEqual([1, 2, 3])
   })
 
   it('a sidecar deleting itself does not recurse', async () => {
     const { deleted, req } = fakeReq({ [SKIP_CONTEXT_KEY]: true })
-    const hook = createSidecarDeleteHook() as CollectionAfterDeleteHook
+    const hook = createSidecarDeleteHook()
     await hook({ collection: { slug: 'media' }, doc: rows(1), req } as never)
     expect(deleted).toEqual([])
   })

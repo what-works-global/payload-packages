@@ -1,11 +1,11 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
-import ffmpegStatic from 'ffmpeg-static'
 import { buildDevConfig } from '@whatworks/dev-fixture/dev-config'
 import {
   EXCLUDE_VIDEO_DERIVATIVES,
   videoOptimizerPlugin,
   widthPresets,
 } from '@whatworks/payload-video-optimizer'
+import ffmpegStatic from 'ffmpeg-static'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

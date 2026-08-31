@@ -219,6 +219,7 @@ beforeAll(async () => {
       uploadCollection('vp8-media'),
       uploadCollection('filtered'),
       uploadCollection('deferred'),
+      uploadCollection('chunked'),
       uploadCollection('guarded'),
       uploadCollection('failing'),
     ],
@@ -284,6 +285,16 @@ beforeAll(async () => {
           outcomes.push(outcome)
         },
         presets: { webm: {} },
+      }),
+      // A budget small enough that one run can't finish the ladder, so the job has
+      // to stop early and leave the rest for a later chunk.
+      videoOptimizerPlugin({
+        collections: ['chunked'],
+        dispatch: captureRun,
+        encoding: { crf: 50, speed: 5 },
+        ffmpeg: { path: ffmpegPath },
+        jobs: { maxRunMs: 1, taskSlug: 'video-convert-chunked' },
+        presets: widthPresets([160, 120]),
       }),
       // Broken ffmpeg — the job must fail, record the error, and leave the original.
       videoOptimizerPlugin({
@@ -562,6 +573,30 @@ describe.skipIf(!ffmpegAvailable)('async conversion (requires ffmpeg)', () => {
       expect(stderr).toContain(`${row.width}x${row.height}`)
       expect(stderr).not.toContain('Audio:')
     }
+  })
+
+  it('makes progress on a budget too small for any encode, and records why', async () => {
+    // A 1ms budget can fit nothing. The run must still encode one preset — without
+    // the forced-progress rule every chunk would defer everything and the chain
+    // would spin forever — and the rest are projected past a whole budget, so they
+    // are recorded as decided rather than retried three times to rediscover that.
+    const created = await upload('chunked', {
+      name: 'chunked.mp4',
+      data: sampleMp4,
+      mimetype: 'video/mp4',
+    })
+
+    const doc = await fetchDoc('chunked', created.id as number)
+    expect(storedRows(doc)).toHaveLength(1)
+    expect(versionRows(doc).find((row) => row.skippedReason)).toMatchObject({
+      skippedReason: 'exceeds-budget',
+    })
+    // Chunking encodes cheapest-first, so a cheap rung supplies the throughput
+    // measurement the projection needs — but rows keep declaration order.
+    expect(versionRows(doc).map((row) => row.preset)).toEqual(['160w', '120w'])
+    expect(storedRows(doc)[0]?.preset).toBe('120w')
+    // Everything is decided, so the document is settled rather than left queued.
+    expect(doc.videoConversion).toMatchObject({ status: 'complete' })
   })
 
   it('gives a duplicated document its own conversion state', async () => {

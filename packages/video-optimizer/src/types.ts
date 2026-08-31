@@ -247,6 +247,25 @@ export interface VideoOptimizerConfig {
    * per collection — and the defaults are right unless two instances collide.
    */
   jobs?: {
+    /**
+     * Stop starting new presets once a run has worked this long, and queue the rest
+     * as a fresh job — so no single run outlives a platform's function timeout.
+     * Unset by default, meaning one run encodes the whole ladder.
+     *
+     * The run overshoots by however long the preset in flight takes to finish, so
+     * leave headroom: 240s under a 300s limit, not 300. Each encode's own timeout is
+     * clamped to what remains of the budget, which turns a platform kill (job row
+     * left claimed, unrecoverable without a manual retry) into a clean failure that
+     * retries resume.
+     *
+     * Each chunk starts the next itself, by calling the plugin's own continue
+     * endpoint — a fresh HTTP request, so a fresh function with a fresh budget.
+     * Cron is the recovery path rather than the driver: it picks the chain back up
+     * if that call is lost, or if a chunk fails and its retry is due. Without a
+     * runner a stalled chain never resumes, so the plugin warns at boot when it
+     * can't find one.
+     */
+    maxRunMs?: number
     /** Queue conversions are queued to. Defaults to `'video-conversion'`. */
     queue?: string
     /**
@@ -354,6 +373,8 @@ export interface ResolvedVideoOptimizerConfig {
   /** `null` = unlimited (explicit opt-out). */
   maxConcurrentEncodes: null | number
   maxInputFileSize: null | number
+  /** `null` = no budget; one run encodes every preset. */
+  maxRunMs: null | number
   metadataFields: boolean
   onConversionComplete: ((outcome: ConversionOutcome) => Promise<void> | void) | null
   /** Preset name → fully resolved encoding, in declaration (= preference) order. */
@@ -381,6 +402,8 @@ export interface UploadedFile {
 
 export type SkipReason =
   | 'already-webm'
+  /** Projected to need longer than a whole `jobs.maxRunMs` budget, so it can never finish. */
+  | 'exceeds-budget'
   | 'filtered'
   | 'input-too-large'
   | 'mime-not-matched'
