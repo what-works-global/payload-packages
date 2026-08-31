@@ -378,6 +378,9 @@ videoOptimizerPlugin({
     queue: 'video-conversion',
     retries: 3,
     taskSlug: 'video-convert', // only matters with two plugin instances
+    // Split long conversions across runs so none outlives a function timeout.
+    // See "Long videos: splitting a run". Unset = one run does the whole ladder.
+    maxRunMs: 240_000,
   },
 
   // Inject the read-only sidebar panel and metadata group. Default true.
@@ -452,7 +455,48 @@ jobs: {
 }
 ```
 
-or an external cron hitting `GET /api/payload-jobs/run?queue=video-conversion`, or `payload jobs:run --queue video-conversion` in a worker container. That last shape is also the answer to ffmpeg's ~80 MB weight on serverless: keep the web app ffmpeg-free (it only writes queue rows and serves uploads) and run the jobs in a container that carries ffmpeg, pointed at the same database.
+**`autoRun` is an in-process timer** — it only fires while a process stays alive, so it's right for a worker or a VM and useless on serverless, where each function instance would start its own and die with it. On Vercel use Vercel Cron instead, which is an external HTTP trigger:
+
+```json
+// vercel.json
+{
+  "crons": [
+    { "path": "/api/payload-jobs/run?queue=video-conversion&limit=1", "schedule": "0 * * * *" }
+  ]
+}
+```
+
+`&limit=1` matters here: the default is 10, so with a backlog one tick would run ten conversions sequentially in a single invocation and time out.
+
+The endpoint's access defaults to **open** — anyone can drain your queue. Set `CRON_SECRET` in your environment (Vercel sends it as a bearer token automatically) and check it:
+
+```ts
+jobs: {
+  access: { run: ({ req }) => req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}` },
+}
+```
+
+Or run `payload jobs:run --queue video-conversion` in a worker container. That shape is also the answer to ffmpeg's ~80 MB weight on serverless: keep the web app ffmpeg-free (it only writes queue rows and serves uploads) and run the jobs in a container that carries ffmpeg, pointed at the same database.
+
+### Long videos: splitting a run
+
+One run encodes the whole ladder, so the ceiling on a serverless host is a single function timeout for all of it — roughly 90 seconds of source video inside Vercel's 300s default. `jobs.maxRunMs` lifts that:
+
+```ts
+jobs: {
+  maxRunMs: 240_000
+} // stop starting presets after 4 minutes, queue the rest
+```
+
+A run stops once the budget is spent, and the next chunk continues in a **fresh invocation** — the plugin posts to its own `/<taskSlug>/continue` endpoint, which answers immediately and hands the work to your `dispatch` inside that new function. Your `dispatch` config doesn't change.
+
+Set the budget below your function's limit, not equal to it: a run overshoots by however long the preset in flight takes to finish. Each encode's timeout is also clamped to what's left of the budget, which turns a platform kill (job row left claimed, only recoverable by hand) into a clean failure that retries resume.
+
+Three things worth knowing:
+
+- **Something must drain the queue.** The continue request is best-effort — the durable row is the real continuation. If the request is lost, or a chunk fails and needs its retry, cron is what picks it up. The plugin warns at boot if it can't see a runner.
+- **A preset too big for any budget is skipped, not retried.** Cost is projected from a completed rung's measured throughput (chunked runs encode cheapest-first so there's a measurement to work from). A rung that can't fit is recorded as `exceeds-budget` and named in the sidebar, rather than failing three times to discover the same thing. The other rungs still encode, and the frontend falls back.
+- **It's inert off the web.** A worker has no function timeout to work around, and no request origin to continue against, so the queue simply drains normally.
 
 ### Presets
 
