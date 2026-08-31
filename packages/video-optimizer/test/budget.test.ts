@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   budgetDecision,
+  configWarnings,
   outputDimensions,
   resolveConfig,
   widthPresets,
@@ -56,23 +57,42 @@ describe('jobs.maxRunMs', () => {
     expect(() => resolveConfig({ jobs: { maxRunMs: 1.5 } })).toThrow(/jobs\.maxRunMs/)
   })
 
-  /* eslint-disable no-console -- asserting on the boot warning means capturing it. */
-  it('warns when a single encode could outlast a whole run', () => {
-    const warnings: string[] = []
-    const original = console.warn
-    console.warn = (message: string) => warnings.push(message)
-    try {
-      resolveConfig({ ffmpeg: { timeoutMs: 600_000 }, jobs: { maxRunMs: 240_000 } })
-      expect(warnings.join()).toMatch(/longer than jobs\.maxRunMs/)
-
-      warnings.length = 0
-      resolveConfig({ ffmpeg: { timeoutMs: 120_000 }, jobs: { maxRunMs: 240_000 } })
-      expect(warnings).toEqual([])
-    } finally {
-      console.warn = original
-    }
+  it('derives the encode timeout from the budget rather than fighting it', () => {
+    // The documented chunking budget is shorter than the default timeout, so a fixed
+    // default made every chunking setup warn at every boot about a conflict it had
+    // not chosen.
+    expect(resolveConfig({ jobs: { maxRunMs: 240_000 } }).timeoutMs).toBe(240_000)
+    expect(resolveConfig({}).timeoutMs).toBe(600_000)
+    // An explicit timeout is still honoured, and still reported when it conflicts.
+    const resolved = resolveConfig({ ffmpeg: { timeoutMs: 600_000 }, jobs: { maxRunMs: 240_000 } })
+    expect(resolved.timeoutMs).toBe(600_000)
+    expect(
+      warningsFor({ ffmpeg: { timeoutMs: 600_000 }, jobs: { maxRunMs: 240_000 } }).join(),
+    ).toMatch(/longer than jobs\.maxRunMs/)
   })
-  /* eslint-enable no-console */
+})
+
+const warningsFor = (config: Parameters<typeof resolveConfig>[0], hasQueueDrainer = true) =>
+  configWarnings(config, resolveConfig(config), { hasQueueDrainer, queue: 'video-conversion' })
+
+describe('configWarnings', () => {
+  it('says nothing about a plain, drained config', () => {
+    expect(warningsFor({})).toEqual([])
+  })
+
+  it('reports a crf every preset overrides', () => {
+    // The regression that made the default ladder silently ignore encoding.crf.
+    expect(warningsFor({ encoding: { crf: 40 } }).join()).toMatch(/encoding\.crf is set/)
+    // Presets without their own crf do use it, so there is nothing to report.
+    expect(warningsFor({ encoding: { crf: 40 }, presets: { only: {} } })).toEqual([])
+  })
+
+  it('reports a queue with nothing to drain it, whether or not runs are chunked', () => {
+    // `runByID` runs a job once, so without a drainer the default retries: 3 is
+    // silently inert in every config, not just chunked ones.
+    expect(warningsFor({}, false).join()).toMatch(/never be retried/)
+    expect(warningsFor({ jobs: { maxRunMs: 240_000 } }, false).join()).toMatch(/never resume/)
+  })
 })
 
 describe('budgetDecision', () => {

@@ -10,6 +10,7 @@ import type {
 import { signJobId } from './core/chain.js'
 import { checkFfmpeg, requiredEncodersFor } from './core/convert.js'
 import {
+  configWarnings,
   DEFAULT_QUEUE,
   DEFAULT_RETRIES,
   DEFAULT_TASK_SLUG,
@@ -226,7 +227,22 @@ export const videoOptimizerPlugin =
       })
     })
 
-    if (registry.size > 0) {
+    if (registry.size === 0) {
+      // Everything below — the task, the endpoints, the ffmpeg check, every boot
+      // warning — hangs off this branch, so an empty registry means a plugin that
+      // does nothing and says nothing. Reachable via `collections: []`, a config with
+      // no upload collections, or another plugin adding one after this in the array.
+      const incomingOnInit = config.onInit
+      config.onInit = async (payload) => {
+        payload.logger.warn(
+          `[payload-video-optimizer] no upload collections are targeted, so nothing will be converted. Check the \`collections\` option, and that this plugin runs after any plugin that adds the collection.`,
+        )
+        await incomingOnInit?.(payload)
+      }
+      return config
+    }
+
+    {
       const existingTasks = config.jobs?.tasks ?? []
       if (existingTasks.some((task) => task.slug === taskSlug)) {
         throw new Error(
@@ -317,14 +333,20 @@ export const videoOptimizerPlugin =
             `[payload-video-optimizer] ffmpeg at "${ffmpegPath}" is missing required encoders: ${check.missingEncoders.join(', ')} — conversions will fail until a build with libvpx/libopus is installed`,
           )
         }
-        // A chunked ladder is only as reliable as whatever drains the queue: the
-        // continue request is best-effort, and a chunk that fails needs its retry
-        // picked up by something. autoRun is the only drainer visible from here —
-        // an external cron is not, hence the softer wording.
-        if (pluginResolved.maxRunMs !== null && !config.jobs?.autoRun) {
-          payload.logger.warn(
-            `[payload-video-optimizer] jobs.maxRunMs is set, which splits a conversion across several runs. Make sure something drains the "${queue}" queue — jobs.autoRun, an external cron hitting /api/payload-jobs/run, or a payload jobs:run worker — or a chunked conversion that loses its continue request, or fails a chunk, will never resume.`,
-          )
+        // autoRun is the only drainer visible from here — an external cron or a
+        // worker is not — so this can only ever be a hint, and an entry pointed at
+        // another queue does not count.
+        const autoRun = config.jobs?.autoRun
+        const hasQueueDrainer =
+          typeof autoRun === 'function' ||
+          (Array.isArray(autoRun) &&
+            autoRun.some((entry) => entry.queue === queue || entry.allQueues === true))
+
+        for (const warning of configWarnings(pluginConfig, pluginResolved, {
+          hasQueueDrainer,
+          queue,
+        })) {
+          payload.logger.warn(`[payload-video-optimizer] ${warning}`)
         }
         if (!dispatchIsDeliberate) {
           payload.logger.warn(

@@ -228,16 +228,8 @@ const QUALITY_CRF_OFFSET = { balanced: 0, high: -4, small: 4 } as const
  * the per-resolution tuning survives. Warns rather than throws when combined with an
  * explicit `encoding.crf`, since the combination is coherent — just rarely intended.
  */
-const resolveQualityOffset = (pluginConfig: VideoOptimizerConfig): number => {
-  const offset = QUALITY_CRF_OFFSET[pluginConfig.quality ?? 'balanced']
-  if (offset !== 0 && pluginConfig.encoding?.crf !== undefined) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[payload-video-optimizer] both quality: '${pluginConfig.quality}' and encoding.crf are set — the offset applies on top, giving crf ${pluginConfig.encoding.crf + offset}. Set one or the other.`,
-    )
-  }
-  return offset
-}
+const resolveQualityOffset = (pluginConfig: VideoOptimizerConfig): number =>
+  QUALITY_CRF_OFFSET[pluginConfig.quality ?? 'balanced']
 
 /** `presets` with the 9:16 rungs appended when `portrait` asks for them. */
 const withPortrait = (pluginConfig: VideoOptimizerConfig): Record<string, VideoPreset> => {
@@ -315,10 +307,19 @@ const PRESET_NAME_PATTERN = /^[\w-]{1,32}$/
  * included. Throws at plugin init, not upload time.
  */
 export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideoOptimizerConfig => {
-  const timeoutMs = pluginConfig.ffmpeg?.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  // Derived rather than fixed: the documented chunking budget is shorter than the
+  // default timeout, so a fixed default made every chunking setup warn at every boot
+  // about a conflict it had not chosen.
+  const maxRunMs = pluginConfig.jobs?.maxRunMs ?? null
+  if (maxRunMs !== null) {
+    // Before the timeout is derived from it, or an invalid budget is reported as an
+    // invalid timeout.
+    assertPositiveInteger(maxRunMs, 'jobs.maxRunMs')
+  }
+  const timeoutMs =
+    pluginConfig.ffmpeg?.timeoutMs ?? Math.min(DEFAULT_TIMEOUT_MS, maxRunMs ?? DEFAULT_TIMEOUT_MS)
   const maxInputFileSize = pluginConfig.maxInputFileSize ?? null
   const retries = pluginConfig.jobs?.retries ?? DEFAULT_RETRIES
-  const maxRunMs = pluginConfig.jobs?.maxRunMs ?? null
   // undefined → the safe default; an explicit null opts into unlimited.
   const maxConcurrentEncodes =
     pluginConfig.ffmpeg?.maxConcurrent === undefined
@@ -337,31 +338,10 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
   if (!Number.isInteger(retries) || retries < 0) {
     fail(`jobs.retries must be a non-negative integer, got ${retries}`)
   }
-  if (maxRunMs !== null) {
-    assertPositiveInteger(maxRunMs, 'jobs.maxRunMs')
-    if (timeoutMs > maxRunMs) {
-      // Not fatal — the per-encode timeout is clamped to the budget anyway — but the
-      // combination says one encode may outlast a whole run, which is never intended.
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[payload-video-optimizer] ffmpeg.timeoutMs (${timeoutMs}) is longer than jobs.maxRunMs (${maxRunMs}), so no encode could ever use it. Each encode is capped at whatever remains of the budget.`,
-      )
-    }
-  }
 
   const baseEncoding = pluginConfig.encoding ?? {}
   const crfOffset = resolveQualityOffset(pluginConfig)
   const presetEntries = Object.entries(withPortrait(pluginConfig))
-  if (
-    baseEncoding.crf !== undefined &&
-    presetEntries.length > 0 &&
-    presetEntries.every(([, preset]) => preset.encoding?.crf !== undefined)
-  ) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[payload-video-optimizer] encoding.crf is set but every preset declares its own, so it has no effect. Use quality: 'high' | 'small' to shift the whole ladder, or set crf per preset.`,
-    )
-  }
   if (presetEntries.length === 0) {
     fail(`presets must define at least one rendition`)
   }
@@ -470,6 +450,49 @@ export const outputDimensions = (
     maxHeight === undefined ? 1 : maxHeight / cropped.height,
   )
   return { height: cropped.height * scale, width: cropped.width * scale }
+}
+
+/**
+ * Configuration that is valid but almost certainly not what was meant. Returned
+ * rather than logged so the plugin can put them through the app's own logger, once,
+ * instead of `console.warn` per targeted collection.
+ */
+export const configWarnings = (
+  pluginConfig: VideoOptimizerConfig,
+  resolved: ResolvedVideoOptimizerConfig,
+  context: { hasQueueDrainer: boolean; queue: string },
+): string[] => {
+  const warnings: string[] = []
+  const presets = Object.entries(withPortrait(pluginConfig))
+
+  if (
+    pluginConfig.encoding?.crf !== undefined &&
+    presets.length > 0 &&
+    presets.every(([, preset]) => preset.encoding?.crf !== undefined)
+  ) {
+    warnings.push(
+      `encoding.crf is set but every preset declares its own, so it has no effect. Use quality: 'high' | 'small' to shift the whole ladder, or set crf on the presets themselves.`,
+    )
+  }
+  if (pluginConfig.quality && pluginConfig.quality !== 'balanced' && pluginConfig.encoding?.crf) {
+    warnings.push(
+      `both quality: '${pluginConfig.quality}' and encoding.crf are set — the offset applies on top of whichever crf ends up in effect. Set one or the other.`,
+    )
+  }
+  if (resolved.maxRunMs !== null && resolved.timeoutMs > resolved.maxRunMs) {
+    warnings.push(
+      `ffmpeg.timeoutMs (${resolved.timeoutMs}) is longer than jobs.maxRunMs (${resolved.maxRunMs}), so no encode could ever use it — each one is capped at what remains of the budget.`,
+    )
+  }
+  // Not gated on maxRunMs: `runByID` runs a job once, so without something polling
+  // for runnable rows a failed conversion is never retried whatever the config, and
+  // the default `retries: 3` quietly means nothing.
+  if (!context.hasQueueDrainer) {
+    warnings.push(
+      `nothing appears to drain the "${context.queue}" queue, so a failed conversion will never be retried${resolved.maxRunMs !== null ? ', and a chunked conversion that loses its continue request will never resume' : ''}. Add jobs.autoRun for that queue, an external cron hitting /api/payload-jobs/run, or a payload jobs:run worker.`,
+    )
+  }
+  return warnings
 }
 
 /**
