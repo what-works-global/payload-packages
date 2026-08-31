@@ -391,8 +391,12 @@ const runConversion = async ({
         : 'output-larger'
     }
 
-    await payload.update({
-      id: docId,
+    // Conditional, not by id: `superseded` was checked against a read that happened
+    // before the encode's final I/O, and a re-upload landing in that window would
+    // otherwise let this run attach an old file's rendition to the new one — the
+    // next job would then see a matching generation and a live sidecar, call the
+    // preset decided, and never re-encode it.
+    const written = await payload.update({
       collection: asCollectionSlug(collection),
       context: { [SKIP_CONTEXT_KEY]: true },
       // Apps with generated types narrow update data per collection — unknowable here.
@@ -414,7 +418,24 @@ const runConversion = async ({
       } as never,
       depth: 0,
       overrideAccess: true,
+      where: {
+        and: [
+          { id: { equals: docId } },
+          { filename: { equals: sourceFilename } },
+          // Rows queued before this field existed carry no generation to compare.
+          ...(generation === undefined
+            ? []
+            : [{ [RENDITION_GENERATION_FIELD_NAME]: { equals: generation } }]),
+        ],
+      },
     })
+
+    if (written.docs.length === 0) {
+      payload.logger.info(
+        `[payload-video-optimizer] discarding conversion of "${sourceFilename}" (${collection}/${String(docId)}): the document changed while the result was being written`,
+      )
+      await discardCreated()
+    }
   }
 
   try {
