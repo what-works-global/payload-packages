@@ -251,6 +251,28 @@ describe('getVideoSourceSet', () => {
     expect(sources.at(-2)).toMatchObject({ preset: 'portrait-1080w' })
   })
 
+  it('keeps an explicit media rule even when a later rule resolves to the same file', () => {
+    // Dropping an adjacent duplicate is only sound for a pure min-width chain. Here
+    // the portrait rule and the sidebar rule both want 426w — trimming the first
+    // leaves a 390px phone matching neither, so it takes the unconditional rule and
+    // downloads 1280w into a 400px slot: 9x the pixels, on the exact device the
+    // rule existed to protect.
+    const sources = getVideoSourceSet(ladder, {
+      dpr: 1,
+      sizes: [
+        { media: '(orientation: portrait)', width: 400 },
+        { minWidth: 900, width: 400 },
+        { width: 1200 },
+      ],
+    })
+    expect(sources.map((source) => source.media)).toEqual([
+      '(orientation: portrait)',
+      '(min-width: 900px)',
+      undefined,
+      undefined,
+    ])
+  })
+
   it('falls back to just the original while nothing is stored', () => {
     expect(getVideoSourceSet({ url: '/media/hero.mp4' }, { sizes: [{ width: 400 }] })).toEqual([
       { type: 'video/mp4', preset: null, src: '/media/hero.mp4' },

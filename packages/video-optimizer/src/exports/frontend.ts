@@ -305,9 +305,15 @@ const fromSizesString = (
     segments = layoutSegments(parseSizes(sizes), aspect ? parseAspect(aspect) : [])
   } catch (error) {
     // A bad string must not blank the video in production; the original still plays.
+    // But silently serving the master to everyone is the opposite of the point, so
+    // say so rather than letting it look like it worked.
     if (isDevelopment()) {
       throw error
     }
+    // eslint-disable-next-line no-console
+    console.error(
+      `[payload-video-optimizer] could not parse sizes ${JSON.stringify(sizes)}, so only the original file will be served: ${error instanceof Error ? error.message : String(error)}`,
+    )
     return []
   }
   if (variants.length === 0) {
@@ -358,7 +364,7 @@ const fromRuleArray = (
     return sources
   })
 
-  return flatten(buckets)
+  return flatten(buckets, !rules.some((rule) => rule.media))
 }
 
 const push = (sources: VideoSource[], variant: VideoVariant, media: string | undefined): void => {
@@ -375,15 +381,20 @@ const push = (sources: VideoSource[], variant: VideoVariant, media: string | und
  *
  * Within a bucket, entries descend by `min-width` under one resolution query, so
  * anything matching an entry also matches the next — a duplicate `src` there can only
- * ever serve what the following rule serves anyway. Across buckets that reasoning
+ * ever serve what the following rule serves anyway. That reasoning holds only for a
+ * pure `min-width` chain, so `trimAdjacent` is off for rule arrays carrying their own
+ * `media`: dropping an `(orientation: portrait)` rule because a later `min-width`
+ * rule resolves to the same file strands exactly the device the rule existed for. Across buckets that reasoning
  * fails (a high-DPR device matching the last entry of its bucket need not match the
  * first, narrower entry of the next), so the only safe cross-bucket collapse is
  * dropping a bucket that is identical to the one after it.
  */
-const flatten = (buckets: VideoSource[][]): VideoSource[] => {
-  const trimmed = buckets.map((bucket) =>
-    bucket.filter((source, index) => source.src !== bucket[index + 1]?.src),
-  )
+const flatten = (buckets: VideoSource[][], trimAdjacent = true): VideoSource[] => {
+  const trimmed = trimAdjacent
+    ? buckets.map((bucket) =>
+        bucket.filter((source, index) => source.src !== bucket[index + 1]?.src),
+      )
+    : buckets
   const RESOLUTION = /\s*(?:and\s*)?\(min-resolution[^)]*\)/g
   const key = (bucket: VideoSource[]): string =>
     bucket
@@ -408,13 +419,15 @@ let warnedAboutLadder = false
  * to the same file, which looks like it works and quietly does nothing.
  */
 const warnIfUnladdered = (variants: VideoVariant[], sources: VideoSource[]): void => {
-  if (warnedAboutLadder || variants.length === 0 || sources.length > 1 || !isDevelopment()) {
+  // On the renditions, not the emitted sources: a full ladder legitimately collapses
+  // to one source whenever the sizes string saturates it, which is not a problem.
+  if (warnedAboutLadder || variants.length > 1 || !isDevelopment()) {
     return
   }
   warnedAboutLadder = true
   // eslint-disable-next-line no-console
   console.warn(
-    `[payload-video-optimizer] this document has ${variants.length === 1 ? 'only one rendition' : 'no usable renditions'}, so every viewport gets the same file and sizes has nothing to choose between. Configure a ladder (the default \`widthPresets()\`) and regenerate.`,
+    `[payload-video-optimizer] this document has only one rendition, so every viewport gets the same file and sizes has nothing to choose between. Configure a ladder (the default \`widthPresets()\`) and regenerate.`,
   )
 }
 

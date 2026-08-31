@@ -14,7 +14,7 @@
 
 import type { SizesClause, SlotWidth } from './sizes.js'
 
-import { formatSizes, layoutSegments, solveSegment } from './sizes.js'
+import { formatSizes, layoutSegments, parseSizes, solveSegment } from './sizes.js'
 
 /** One measurement: the element's rendered width at a given viewport width. */
 export interface SizeSample {
@@ -172,9 +172,20 @@ export const fitSizes = (
     const first = run[0]
     const last = run[run.length - 1]
     // A run that never meaningfully changes width is a fixed-px slot, not a slope.
-    return Math.abs(line.a) * (last.viewport - first.viewport) <= tolerance
-      ? { a: 0, b: Math.round(Math.max(...run.map((sample) => sample.width))) }
-      : { a: snapCoefficient(line.a), b: line.b }
+    // A *negative* slope is one too: `sizes` has no syntax for a slot that shrinks as
+    // the viewport grows, so emitting `calc(-25vw + 2000px)` produces a string this
+    // module's own parser rejects — which at render time means production quietly
+    // serving the master to everyone. Two samples straddling a discontinuous join
+    // fit exactly that.
+    if (line.a <= 0 || Math.abs(line.a) * (last.viewport - first.viewport) <= tolerance) {
+      return { a: 0, b: Math.ceil(Math.max(...run.map((sample) => sample.width))) }
+    }
+    // Snap `a`, then put the line back through the run's centroid — otherwise the
+    // snap shifts every prediction by `(a_snapped - a_fitted) x viewport`.
+    const a = snapCoefficient(line.a)
+    const meanV = run.reduce((sum, sample) => sum + sample.viewport, 0) / run.length
+    const meanW = run.reduce((sum, sample) => sum + sample.width, 0) / run.length
+    return { a, b: meanW - a * meanV }
   })
 
   // Widest-first, which is the order `sizes` clauses are evaluated in. The lowest
@@ -190,16 +201,24 @@ export const fitSizes = (
               (runs[index - 1].at(-1) as SizeSample).viewport,
               runs[index][0].viewport,
             ),
-      slot: { a: slot.a, b: Math.round(slot.b) },
+      // Round up, since under-predicting a width costs a rung and over-predicting
+      // costs nothing — but absorb float noise first, or an exact -32 fitted as
+      // -31.99999 becomes -31.
+      slot: { a: slot.a, b: Math.ceil(Math.round(slot.b * 1e6) / 1e6) },
     }))
     .reverse()
+
+  const sizes = formatSizes(clauses)
+  // Emitting a string this module cannot read back is the one failure that would be
+  // invisible until render time, where production degrades to the original file.
+  parseSizes(sizes)
 
   return {
     clauses,
     plateaus: clauses.flatMap((clause) =>
       clause.slot.a === 0 && clause.minWidth > 0 ? [clause.minWidth] : [],
     ),
-    sizes: formatSizes(clauses),
+    sizes,
   }
 }
 

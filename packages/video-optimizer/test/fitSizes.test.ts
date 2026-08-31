@@ -74,6 +74,34 @@ describe('fitSizes', () => {
     expect(fitSizes(sampleEvery(() => 800)).sizes).toBe('800px')
   })
 
+  it('never emits a string its own parser rejects', () => {
+    // A slot that shrinks as the viewport grows has no `sizes` syntax, and two
+    // samples straddling a discontinuity fit exactly that. Emitting
+    // `calc(-25vw + 2000px)` would parse-fail at render time, where production
+    // degrades to serving the master to everyone — invisibly.
+    const shrinking = sampleEvery((viewport) => 2000 - 0.25 * viewport)
+    expect(() => parseSizes(fitSizes(shrinking).sizes)).not.toThrow()
+    expect(fitSizes(shrinking).sizes).not.toContain('-')
+
+    for (const layout of [
+      (v: number) => Math.max(100, 1500 - 0.4 * v),
+      (v: number) => (v < 800 ? v : 3000 - 2 * v),
+      gridCard,
+    ]) {
+      expect(() => parseSizes(fitSizes(sampleEvery(layout)).sizes)).not.toThrow()
+    }
+  })
+
+  it('is a fixed point: its own output passes its own drift check', () => {
+    // `expectSizesAccurate(page, sel, { sizes: generateSizes(...) })` must not fail
+    // on the string it was just handed.
+    for (const layout of [gridCard, (v: number) => (2 / 3) * v + 160, (v: number) => v / 2]) {
+      const samples = sampleEvery(layout, 3)
+      const fitted = parseSizes(fitSizes(samples).sizes)
+      expect(checkSizes(fitted, samples, { ladder: DEFAULT_WIDTH_LADDER })).toEqual([])
+    }
+  })
+
   it('describes the layout only, never a particular ladder', () => {
     // No rendition widths are involved in fitting, so the string stays correct when
     // the presets change — the reason to paste a sizes string over a resolved plan.
