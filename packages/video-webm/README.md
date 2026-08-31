@@ -238,17 +238,30 @@ The optimised versions are separate documents, so reaching them costs one more r
 
 At too shallow a depth everything still _works_ — the helpers fall back to the original file and the optimisation quietly does nothing. In development they log a warning saying exactly that.
 
-Since renditions only need a few fields, `populate` is worth using here:
+`populate` is worth using here — renditions only need a few fields — but it has two traps, and both fail silently. These four keys are the minimum:
 
 ```ts
 await payload.find({
   collection: 'pages',
   depth: 2,
   populate: {
-    media: { alt: true, filesize: true, height: true, mimeType: true, url: true, width: true },
+    media: {
+      webmVersions: true, // the renditions themselves
+      filename: true, // `url` is virtual and computed from this
+      url: true,
+      mimeType: true, // the <source> type attribute
+      // …plus whatever your own components read, e.g. `alt`.
+    },
   },
 })
 ```
+
+`populate` is keyed by **collection slug** and is a strict **allowlist**: any field you don't name is absent from the result.
+
+- **Omit `webmVersions`** and the video comes back with no renditions attached. The helpers fall back to the original file and the optimisation quietly does nothing — the same failure as querying too shallow, from a query that looks deliberate.
+- **Omit `filename`** and it's worse. `url` is a virtual field Payload computes from `filename`, so naming `url` without it returns `url: null` on the source *and* on every rendition — and you get no `<source>` elements at all, not even the original.
+
+The same list also governs the renditions, because a rendition *is* a `media` document — which is why `filename`, `url` and `mimeType` have to be in it. Each row's `width`/`height` live on `webmVersions` itself, so you don't need to name those for selection to work.
 
 ### Other ways to choose
 
