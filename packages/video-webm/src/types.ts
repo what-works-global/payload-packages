@@ -298,7 +298,7 @@ export interface VideoWebmPluginConfig {
    * custom set. Off by default: a crop is a framing decision, and a focal point
    * can't save a subject sitting at the edge of the frame.
    */
-  portrait?: boolean | { widths?: number[] }
+  portrait?: { widths?: number[] } | boolean
   /**
    * The renditions to generate — one hidden sidecar document per preset, linked
    * from the source via `webmVersions` rows (`{ preset, video }`). Declaration

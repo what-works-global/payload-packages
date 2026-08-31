@@ -251,11 +251,11 @@ beforeAll(async () => {
         encoding: { crf: 50, speed: 5 },
         // Plumbing tests, not ladder tests — one rendition unless a collection
         // above asks for more. Also keeps the ffmpeg-backed suite quick.
-        presets: { webm: {} },
         ffmpeg: { maxConcurrent: 2 },
         onConversionComplete: (outcome) => {
           outcomes.push(outcome)
         },
+        presets: { webm: {} },
       }),
       // Captures the dispatch instead of running it — proves the upload response
       // does not wait for the encode.
@@ -265,8 +265,8 @@ beforeAll(async () => {
           deferred.push({ job, run })
         },
         encoding: { crf: 50, speed: 5 },
-        presets: { webm: {} },
         jobs: { taskSlug: 'video-webm-convert-deferred' },
+        presets: { webm: {} },
       }),
       // The inflating stand-in makes every "conversion" larger than its input,
       // deterministically exercising the skipIfLarger guard.
@@ -274,19 +274,19 @@ beforeAll(async () => {
         collections: ['guarded'],
         dispatch: captureRun,
         ffmpeg: { path: inflatingBinary },
+        jobs: { taskSlug: 'video-webm-convert-guarded' },
         onConversionComplete: (outcome) => {
           outcomes.push(outcome)
         },
         presets: { webm: {} },
-        jobs: { taskSlug: 'video-webm-convert-guarded' },
       }),
       // Broken ffmpeg — the job must fail, record the error, and leave the original.
       videoWebmPlugin({
         collections: ['failing'],
         dispatch: captureRun,
         ffmpeg: { path: path.join(tmpDir, 'missing-ffmpeg') },
-        presets: { webm: {} },
         jobs: { taskSlug: 'video-webm-convert-failing' },
+        presets: { webm: {} },
       }),
     ],
     secret: 'test-secret',

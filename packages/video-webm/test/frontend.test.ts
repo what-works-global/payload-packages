@@ -225,7 +225,7 @@ describe('getVideoSourceSet', () => {
       mimeType: 'video/mp4',
       url: '/media/hero.mp4',
       webmVersions: [
-        { preset: '640w', height: 360, width: 640, video: { mimeType: 'video/webm', url: '/media/hero-640w.webm' } },
+        { height: 360, preset: '640w', video: { mimeType: 'video/webm', url: '/media/hero-640w.webm' }, width: 640 },
       ],
     }
     expect(getVideoSourceSet(single, { sizes: '100vw' })).toEqual([

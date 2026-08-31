@@ -136,12 +136,12 @@ export const parseSizes = (sizes: string): SizesClause[] => {
     }
     const vw = LENGTH_VW.exec(value)
     if (vw) {
-      return { minWidth, slot: { a: vwCoefficient(vw[1] as string), b: 0 } }
+      return { minWidth, slot: { a: vwCoefficient(vw[1]), b: 0 } }
     }
     const calc = LENGTH_CALC.exec(value)
     if (calc) {
       const offset = Number(calc[3]) * (calc[2] === '-' ? -1 : 1)
-      return { minWidth, slot: { a: vwCoefficient(calc[1] as string), b: offset } }
+      return { minWidth, slot: { a: vwCoefficient(calc[1]), b: offset } }
     }
     return fail(
       `sizes value ${JSON.stringify(value)} is not one of \`Npx\`, \`Nvw\` or \`calc(Avw ± Bpx)\`. Generate the string with the sizes CLI (it converts em/rem and normalises calc), or use the array form.`,
@@ -191,7 +191,7 @@ export const layoutSegments = (
     from,
     ratio: clauseAt(aspects, from)?.ratio ?? null,
     slot: clauseAt(sizes, from)?.slot ?? { a: 1, b: 0 },
-    to: index === 0 ? Infinity : (thresholds[index - 1] as number),
+    to: index === 0 ? Infinity : (thresholds[index - 1]),
   }))
 }
 

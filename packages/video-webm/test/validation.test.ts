@@ -152,7 +152,7 @@ describe('resolveConfig validation', () => {
     const high = resolveConfig({ quality: 'high' })
 
     for (const name of Object.keys(balanced.presets)) {
-      const base = balanced.presets[name]?.encoding.crf as number
+      const base = balanced.presets[name]?.encoding.crf
       expect(small.presets[name]?.encoding.crf).toBe(base + 4)
       expect(high.presets[name]?.encoding.crf).toBe(base - 4)
     }

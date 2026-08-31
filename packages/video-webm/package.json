@@ -50,13 +50,19 @@
       "types": "./src/exports/client.ts",
       "import": "./src/exports/client.ts",
       "default": "./src/exports/client.ts"
+    },
+    "./sizes-devtools": {
+      "types": "./src/exports/sizesDevtools.ts",
+      "import": "./src/exports/sizesDevtools.ts",
+      "default": "./src/exports/sizesDevtools.ts"
     }
   },
   "peerDependencies": {
     "@payloadcms/ui": ">=3.54.0 <4",
     "payload": ">=3.54.0 <4",
     "react": ">=19.0.0 <20",
-    "react-dom": ">=19.0.0 <20"
+    "react-dom": ">=19.0.0 <20",
+    "playwright": "*"
   },
   "whatworks": {
     "peerMatrix": {
@@ -108,6 +114,11 @@
         "types": "./dist/exports/client.d.ts",
         "import": "./dist/exports/client.js",
         "default": "./dist/exports/client.js"
+      },
+      "./sizes-devtools": {
+        "types": "./dist/exports/sizesDevtools.d.ts",
+        "import": "./dist/exports/sizesDevtools.js",
+        "default": "./dist/exports/sizesDevtools.js"
       }
     }
   },
@@ -120,6 +131,12 @@
     },
     "react-dom": {
       "optional": true
+    },
+    "playwright": {
+      "optional": true
     }
+  },
+  "bin": {
+    "video-webm-sizes": "./dist/bin/sizes.js"
   }
 }

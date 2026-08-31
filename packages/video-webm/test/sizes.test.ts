@@ -97,7 +97,7 @@ describe('solveSegment', () => {
   it('solves the exact crossover for a fluid slot', () => {
     // calc(50vw - 24px) at 2x needs `vw - 48` pixels, so rung r covers vw <= r + 48.
     const [segment] = layoutSegments(parseSizes('calc(50vw - 24px)'))
-    expect(solveSegment(segment!, 2, ladder)).toEqual([
+    expect(solveSegment(segment, 2, ladder)).toEqual([
       { minWidth: 1969, want: 2560 },
       { minWidth: 1329, want: 1920 },
       { minWidth: 903, want: 1280 },
@@ -114,8 +114,8 @@ describe('solveSegment', () => {
   it('gives a fixed-width slot one rung for the whole segment', () => {
     const [segment] = layoutSegments(parseSizes('(min-width: 1280px) 800px, 100vw'))
     // 800 x 2 = 1600 physical pixels: the smallest rung that covers it, everywhere.
-    expect(solveSegment(segment!, 2, ladder)).toEqual([{ minWidth: 1280, want: 1920 }])
-    expect(solveSegment(segment!, 1, ladder)).toEqual([{ minWidth: 1280, want: 854 }])
+    expect(solveSegment(segment, 2, ladder)).toEqual([{ minWidth: 1280, want: 1920 }])
+    expect(solveSegment(segment, 1, ladder)).toEqual([{ minWidth: 1280, want: 854 }])
   })
 
   it('falls back to the largest rung once the ladder is exhausted', () => {
@@ -123,7 +123,7 @@ describe('solveSegment', () => {
     // At 2x, 426 covers viewports up to 213 and 640 up to 320. Past 320 nothing
     // covers, so 640 keeps going rather than the band being dropped — and it merges
     // with the band below it instead of appearing twice.
-    expect(solveSegment(segment!, 2, [640, 426])).toEqual([
+    expect(solveSegment(segment, 2, [640, 426])).toEqual([
       { minWidth: 214, want: 640 },
       { minWidth: 0, want: 426 },
     ])
@@ -132,7 +132,7 @@ describe('solveSegment', () => {
   it('a missing rung merges into the band above rather than shifting boundaries', () => {
     const [segment] = layoutSegments(parseSizes('100vw'))
     const chosen = (rungs: number[], viewport: number): number | undefined =>
-      solveSegment(segment!, 1, rungs).find((band) => viewport >= band.minWidth)?.want
+      solveSegment(segment, 1, rungs).find((band) => viewport >= band.minWidth)?.want
 
     const full = [426, 640, 854, 1280]
     const gapped = [426, 640, 1280]
