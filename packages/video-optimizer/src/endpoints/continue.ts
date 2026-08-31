@@ -11,10 +11,11 @@ const json = (status: number, body: JsonObject): Response => Response.json(body,
  * conversion split by `jobs.maxRunMs`.
  *
  * The whole point is the invocation, not the endpoint: arriving as a fresh HTTP
- * request is what buys a fresh function with a fresh timeout. So this answers `202`
- * *before* doing any work and hands the run to `dispatch`, which is why the caller
- * can safely await it — a blocking endpoint would re-serialise the chain it exists
- * to spread out, and fire-and-forget would race the platform freezing the caller.
+ * request is what buys a fresh function with a fresh timeout. So this never blocks —
+ * it hands the run to `dispatch` and answers `202` immediately, which is why the
+ * caller can safely await it. A blocking endpoint would re-serialise the chain it
+ * exists to spread out, and fire-and-forget would race the platform freezing the
+ * caller mid-connection.
  *
  * Guarded by an HMAC of the job id rather than by `jobs.access.run`, which never
  * sees this route and defaults to open in any case.
@@ -62,25 +63,26 @@ export const createContinueEndpoint = ({ dispatch, taskSlug }: QueueHookOptions)
       }
     }
 
-    if (dispatch) {
-      await dispatch(
-        {
-          collection: String(input.collection ?? ''),
-          docId: (input.docId ?? '') as number | string,
-          generation: Number(input.generation ?? 0),
-          jobId,
-          origin: typeof input.origin === 'string' ? input.origin : null,
-          sourceFilename: String(input.sourceFilename ?? ''),
-        },
-        { req, run },
-      )
-    } else {
-      // No dispatch: this request *is* the fresh context, so running inline is
-      // correct — it just makes the caller's await last as long as the chunk.
-      await run()
+    if (!dispatch) {
+      // Running here would block the response, and the caller awaits it — which on a
+      // single process deadlocks against the per-document mutex it still holds. The
+      // row is runnable, so leave it to whatever drains the queue. (Nothing should
+      // reach this: the chain is only fired when a dispatch exists.)
+      return json(202, { queued: true, ran: false })
     }
 
-    return json(202, { queued: true })
+    await dispatch(
+      {
+        collection: String(input.collection ?? ''),
+        docId: (input.docId ?? '') as number | string,
+        generation: Number(input.generation ?? 0),
+        jobId,
+        origin: typeof input.origin === 'string' ? input.origin : null,
+        sourceFilename: String(input.sourceFilename ?? ''),
+      },
+      { req, run },
+    )
+    return json(202, { queued: true, ran: true })
   },
   method: 'post',
   path: `/${taskSlug}/continue`,

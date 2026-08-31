@@ -394,11 +394,20 @@ export const budgetDecision = ({
   if (projectedMs !== null && projectedMs > budgetMs) {
     return 'skip'
   }
-  if (budgetLeftMs <= 0 || (projectedMs !== null && projectedMs > budgetLeftMs)) {
+  // Starting an encode on a sliver of budget just buys a clamped timeout and a
+  // certain failure, which spends a retry to learn nothing. Defer instead — the
+  // next chunk gets the whole budget.
+  if (budgetLeftMs < budgetMs * MIN_BUDGET_FRACTION) {
+    return 'defer'
+  }
+  if (projectedMs !== null && projectedMs > budgetLeftMs) {
     return 'defer'
   }
   return 'encode'
 }
+
+/** Below this share of the budget, don't start another preset. */
+const MIN_BUDGET_FRACTION = 0.15
 
 /**
  * The frame size a preset will actually produce from a given source: cropped to its

@@ -426,12 +426,17 @@ const runConversion = async ({
 
         // Rungs the source is too small to fill would just re-encode the same frame
         // size again; the probe is advisory, so an unreadable one encodes everything.
-        const dimensions = config.skipRedundantPresets
-          ? await probeVideoDimensions(config.ffmpegPath, sourcePath)
-          : null
-        const redundant = dimensions
-          ? redundantPresets(config.presets, dimensions)
-          : new Set<string>()
+        // Needed by two things now: the redundancy check, and the chunked-run cost
+        // projection. Without it a budgeted run can't tell a rung that won't fit from
+        // one that will, and starts encodes it has no time for.
+        const dimensions =
+          config.skipRedundantPresets || budgetMs !== null
+            ? await probeVideoDimensions(config.ffmpegPath, sourcePath)
+            : null
+        const redundant =
+          dimensions && config.skipRedundantPresets
+            ? redundantPresets(config.presets, dimensions)
+            : new Set<string>()
 
         // Payload stores focal points as percentages; an upload collection with
         // focalPoint disabled simply has none, which centres every crop.
@@ -520,10 +525,11 @@ const runConversion = async ({
             {
               ...config,
               encoding: resolved.encoding,
-              // The budget governs scheduling; a forced first encode falls back to the
-              // plain encode timeout, since clamping to a spent budget would kill it
-              // on the spot.
-              timeoutMs: forced ? config.timeoutMs : Math.min(config.timeoutMs, budgetLeft()),
+              // A forced encode gets the *whole* budget rather than what's left,
+              // since the budget may already be spent — but it is still clamped, or
+              // the split fails to prevent the platform kill it exists to prevent
+              // (msPerPixel is per-run, so every chunk has a forced first encode).
+              timeoutMs: Math.min(config.timeoutMs, forced ? (budgetMs ?? Infinity) : budgetLeft()),
             },
             limiter,
             { focal, inputPath: sourcePath, outputPath },

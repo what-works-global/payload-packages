@@ -154,6 +154,32 @@ beforeAll(async () => {
   // argument) — a deterministic always-larger result for the skipIfLarger tests,
   // with no encoder variance and no ffmpeg requirement. Writes only for encode
   // invocations (*.webm output) so the boot-time `-encoders` probe stays inert.
+  // Stand-in "ffmpeg" with a *fixed* encode cost, so budget behaviour can be
+  // asserted without racing the real encoder. Real timings vary by machine, and
+  // tuning a budget against them produced a test that passed two runs in three.
+  // Emits a parseable stream line for the dimension probe, and EBML magic so the
+  // output uploads as video/webm.
+  const slowBinary = path.join(tmpDir, 'slow-ffmpeg')
+  fs.writeFileSync(
+    slowBinary,
+    [
+      '#!/bin/sh',
+      'for arg do out="$arg"; done',
+      'case "$out" in',
+      '  *.webm)',
+      '    sleep 1',
+      `    printf '\\032E\\337\\243' > "$out"`,
+      '    head -c 65536 /dev/zero >> "$out"',
+      '    ;;',
+      '  *)',
+      '    echo "  Stream #0:0: Video: vp9, yuv420p, 320x240 [SAR 1:1 DAR 4:3], 30 fps" >&2',
+      '    ;;',
+      'esac',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  )
+
   const inflatingBinary = path.join(tmpDir, 'inflating-ffmpeg')
   fs.writeFileSync(
     inflatingBinary,
@@ -292,9 +318,15 @@ beforeAll(async () => {
         collections: ['chunked'],
         dispatch: captureRun,
         encoding: { crf: 50, speed: 5 },
-        ffmpeg: { path: ffmpegPath },
-        jobs: { maxRunMs: 1, taskSlug: 'video-convert-chunked' },
-        presets: widthPresets([160, 120]),
+        // Each encode costs exactly 1s, so a 1.5s budget fits the first and defers
+        // the second deterministically. Same output size both times, so the second
+        // is never misclassified as `exceeds-budget`.
+        ffmpeg: { path: slowBinary },
+        jobs: { maxRunMs: 1500, taskSlug: 'video-convert-chunked' },
+        presets: {
+          first: { encoding: { maxWidth: 80 } },
+          second: { encoding: { crf: 40, maxWidth: 80 } },
+        },
       }),
       // Broken ffmpeg — the job must fail, record the error, and leave the original.
       videoOptimizerPlugin({
@@ -575,27 +607,32 @@ describe.skipIf(!ffmpegAvailable)('async conversion (requires ffmpeg)', () => {
     }
   })
 
-  it('makes progress on a budget too small for any encode, and records why', async () => {
-    // A 1ms budget can fit nothing. The run must still encode one preset — without
-    // the forced-progress rule every chunk would defer everything and the chain
-    // would spin forever — and the rest are projected past a whole budget, so they
-    // are recorded as decided rather than retried three times to rediscover that.
+  it('stops on the run budget, stays queued, and a later run finishes the ladder', async () => {
     const created = await upload('chunked', {
       name: 'chunked.mp4',
       data: sampleMp4,
       mimetype: 'video/mp4',
     })
 
-    const doc = await fetchDoc('chunked', created.id as number)
+    // One preset encoded — every run makes progress, or a budget smaller than a
+    // single encode would defer everything forever — and the second deferred.
+    let doc = await fetchDoc('chunked', created.id as number)
     expect(storedRows(doc)).toHaveLength(1)
-    expect(versionRows(doc).find((row) => row.skippedReason)).toMatchObject({
-      skippedReason: 'exceeds-budget',
-    })
-    // Chunking encodes cheapest-first, so a cheap rung supplies the throughput
-    // measurement the projection needs — but rows keep declaration order.
-    expect(versionRows(doc).map((row) => row.preset)).toEqual(['160w', '120w'])
-    expect(storedRows(doc)[0]?.preset).toBe('120w')
-    // Everything is decided, so the document is settled rather than left queued.
+    expect(versionRows(doc).some((row) => row.skippedReason)).toBe(false)
+    // Not `complete`: saying so would stop the panel polling mid-ladder.
+    expect(doc.videoConversion).toMatchObject({ status: 'queued' })
+
+    // The deferred work is a durable row, which is what makes the continue request
+    // an optimisation rather than the mechanism. Draining the queue finishes it.
+    const queued = await payload.count({
+      collection: 'payload-jobs' as never,
+      where: { completedAt: { exists: false }, taskSlug: { equals: 'video-convert-chunked' } },
+    } as never)
+    expect(queued.totalDocs).toBeGreaterThan(0)
+
+    await payload.jobs.run({ queue: 'video-conversion' } as never)
+    doc = await fetchDoc('chunked', created.id as number)
+    expect(storedRows(doc)).toHaveLength(2)
     expect(doc.videoConversion).toMatchObject({ status: 'complete' })
   })
 

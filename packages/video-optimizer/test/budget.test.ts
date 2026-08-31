@@ -108,6 +108,16 @@ describe('budgetDecision', () => {
     expect(decide({ budgetLeftMs: 0, projectedMs: null })).toBe('defer')
   })
 
+  it('defers on a sliver of budget rather than starting a doomed encode', () => {
+    // Without a projection the only other guard is budgetLeftMs <= 0, which would
+    // let a preset start with 200ms left, get a 200ms clamped ffmpeg timeout, and
+    // fail — spending a retry to learn nothing. 10% of 240s is 24s.
+    expect(decide({ budgetLeftMs: 24_000, projectedMs: null })).toBe('defer')
+    expect(decide({ budgetLeftMs: 200, projectedMs: null })).toBe('defer')
+    // Comfortably above the floor with nothing to project from: go ahead.
+    expect(decide({ budgetLeftMs: 200_000, projectedMs: null })).toBe('encode')
+  })
+
   it('encodes while there is room, and without a projection assumes there is', () => {
     expect(decide({})).toBe('encode')
     expect(decide({ projectedMs: null })).toBe('encode')

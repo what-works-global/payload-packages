@@ -258,8 +258,13 @@ export const videoOptimizerPlugin =
           task: taskSlug,
         } as never)) as { id: number | string }
 
-        if (!origin) {
-          return // no web context (a CLI worker) — nothing to call, cron drains it
+        // Without a *deferring* dispatch there is no fresh context to chain into:
+        // the continue endpoint would run the chunk inline, and that re-enters the
+        // per-document mutex this run is still holding — a deadlock, not a slowdown.
+        // No origin means no web context at all (a CLI worker). Either way the row is
+        // queued and whatever drains the queue picks it up.
+        if (!dispatch || !origin) {
+          return
         }
         const apiRoute = req.payload.config.routes?.api ?? '/api'
         try {
