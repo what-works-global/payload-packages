@@ -70,6 +70,9 @@ export default buildDevConfig({
       // The sandbox uses the bundled binary so `pnpm dev` works with no system
       // install. Real apps should point at a system ffmpeg or set FFMPEG_PATH.
       ffmpeg: { path: process.env.FFMPEG_PATH ?? ffmpegStatic ?? 'ffmpeg' },
+      jobs: {
+        maxRunMs: 240_000,
+      },
       // A 9:16 crop for portrait slots, framed by the document's focal point.
       // Upload a landscape clip and compare it against the rungs above.
       portrait: { widths: [720] },

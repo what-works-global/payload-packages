@@ -1,5 +1,7 @@
 /** Human wording for the reasons the job records when it doesn't store a preset. */
 export const SKIP_LABEL: Record<string, string> = {
+  'duplicate-size': 'same size as another rendition',
+  'exceeds-budget': 'too long for one run',
   'output-larger': 'larger than source',
   'source-smaller': 'source too small',
 }

@@ -318,14 +318,16 @@ beforeAll(async () => {
         collections: ['chunked'],
         dispatch: captureRun,
         encoding: { crf: 50, speed: 5 },
-        // Each encode costs exactly 1s, so a 1.5s budget fits the first and defers
-        // the second deterministically. Same output size both times, so the second
-        // is never misclassified as `exceeds-budget`.
+        // Each encode costs exactly 1s whatever the frame size, so a 1.5s budget
+        // fits the first and defers the second deterministically. The sizes differ
+        // slightly — identical output would be collapsed as a duplicate — but by
+        // little enough that the second's projected cost stays inside the budget,
+        // so the decision is always `defer`, never `exceeds-budget`.
         ffmpeg: { path: slowBinary },
         jobs: { maxRunMs: 1500, taskSlug: 'video-convert-chunked' },
         presets: {
           first: { encoding: { maxWidth: 80 } },
-          second: { encoding: { crf: 40, maxWidth: 80 } },
+          second: { encoding: { maxWidth: 88 } },
         },
       }),
       // Broken ffmpeg — the job must fail, record the error, and leave the original.

@@ -168,6 +168,20 @@ describe('resolveConfig validation', () => {
     expect(() => resolveConfig({ encoding: { crf: 64 }, quality: 'high' })).toThrow(/encoding\.crf/)
   })
 
+  it('collapses rungs a collection-wide cap has squashed onto the same frame', () => {
+    // `encoding.maxWidth` intersects each rung's own cap, so a 4K master under a
+    // 1920 cap would otherwise store 2560w and 1920w as byte-identical files. The
+    // rung kept is the one whose name describes the frame actually stored.
+    const { presets } = resolveConfig({
+      encoding: { maxWidth: 1920 },
+      presets: widthPresets([2560, 1920, 1280]),
+    })
+    expect(presets['2560w']?.encoding.maxWidth).toBe(1920)
+
+    const redundant = redundantPresets(presets, { height: 2160, width: 3840 })
+    expect([...redundant]).toEqual([['2560w', 'duplicate-size']])
+  })
+
   it('rejects an unparseable aspect ratio at init', () => {
     expect(() => resolveConfig({ encoding: { aspectRatio: '9x16' } })).toThrow(/aspectRatio/)
     expect(() => resolveConfig({ encoding: { aspectRatio: '0:16' } })).toThrow(/aspectRatio/)
@@ -185,7 +199,7 @@ describe('resolveConfig validation', () => {
     // A 1280x720 master: 1920w and 1280w would encode the same pixels, so the
     // tighter-fitting 1280w is kept. The 9:16 window out of it is only 405px wide,
     // so both portrait rungs are full size and the tighter 720 one wins.
-    expect([...redundantPresets(presets, { height: 720, width: 1280 })].sort()).toEqual(
+    expect([...redundantPresets(presets, { height: 720, width: 1280 }).keys()].sort()).toEqual(
       ['1920w', 'portrait-1080w'].sort(),
     )
 

@@ -408,6 +408,9 @@ export interface UploadedFile {
 
 export type SkipReason =
   | 'already-webm'
+  /** Another preset produces the same frame size — usually a collection-wide cap
+   * squashing several rungs onto one. */
+  | 'duplicate-size'
   /** Projected to need longer than a whole `jobs.maxRunMs` budget, so it can never finish. */
   | 'exceeds-budget'
   | 'filtered'

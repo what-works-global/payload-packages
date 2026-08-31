@@ -196,6 +196,30 @@ const assertPositiveInteger = (value: number, name: string): void => {
   }
 }
 
+/**
+ * Preset encoding over collection encoding — except the dimension caps, which
+ * *intersect*.
+ *
+ * A plain spread makes a house cap meaningless the moment a preset sets its own,
+ * and every rung of every ladder builder sets `maxWidth`. So `encoding: { maxWidth:
+ * 1920 }` alongside the default presets used to be a silent no-op, with `2560w`
+ * still emitting 2560. A cap that only sometimes caps is worse than no cap.
+ */
+const mergeEncoding = (
+  base: VideoEncodingOptions,
+  preset: undefined | VideoEncodingOptions,
+): VideoEncodingOptions => {
+  const tightest = (a: number | undefined, b: number | undefined): number | undefined =>
+    a === undefined ? b : b === undefined ? a : Math.min(a, b)
+
+  return {
+    ...base,
+    ...preset,
+    maxHeight: tightest(base.maxHeight, preset?.maxHeight),
+    maxWidth: tightest(base.maxWidth, preset?.maxWidth),
+  }
+}
+
 /** `quality` as a CRF delta. Lower CRF is better quality and a larger file. */
 const QUALITY_CRF_OFFSET = { balanced: 0, high: -4, small: 4 } as const
 
@@ -328,6 +352,16 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
   const baseEncoding = pluginConfig.encoding ?? {}
   const crfOffset = resolveQualityOffset(pluginConfig)
   const presetEntries = Object.entries(withPortrait(pluginConfig))
+  if (
+    baseEncoding.crf !== undefined &&
+    presetEntries.length > 0 &&
+    presetEntries.every(([, preset]) => preset.encoding?.crf !== undefined)
+  ) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[payload-video-optimizer] encoding.crf is set but every preset declares its own, so it has no effect. Use quality: 'high' | 'small' to shift the whole ladder, or set crf per preset.`,
+    )
+  }
   if (presetEntries.length === 0) {
     fail(`presets must define at least one rendition`)
   }
@@ -340,7 +374,7 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
     }
     presets[name] = {
       encoding: resolveEncoding(
-        { ...baseEncoding, ...preset.encoding },
+        mergeEncoding(baseEncoding, preset.encoding),
         `presets.${name}.encoding`,
         crfOffset,
       ),
@@ -457,8 +491,8 @@ export const outputDimensions = (
 export const redundantPresets = (
   presets: Record<string, ResolvedPreset>,
   source: { height: number; width: number },
-): Set<string> => {
-  const redundant = new Set<string>()
+): Map<string, 'duplicate-size' | 'source-smaller'> => {
+  const redundant = new Map<string, 'duplicate-size' | 'source-smaller'>()
   const keptPerFamily = new Map<string, { cap: number; name: string }>()
 
   for (const [name, preset] of Object.entries(presets)) {
@@ -491,12 +525,40 @@ export const redundantPresets = (
     if (!kept) {
       keptPerFamily.set(family, { name, cap })
     } else if (cap < kept.cap) {
-      redundant.add(kept.name)
+      redundant.set(kept.name, 'source-smaller')
       keptPerFamily.set(family, { name, cap })
     } else {
-      redundant.add(name)
+      redundant.set(name, 'source-smaller')
     }
   }
+
+  // Two presets can also converge below full size — a collection-wide `maxWidth`
+  // intersecting the ladder squashes every rung above it onto the same frame. Keep
+  // the tightest-capped of each identical output size, for the same reason as above:
+  // the stored file's name should describe what it actually is.
+  const keptPerSize = new Map<string, { cap: number; name: string }>()
+  for (const [name, preset] of Object.entries(presets)) {
+    const { aspectRatio, maxHeight, maxWidth } = preset.encoding
+    if (redundant.has(name) || (maxWidth === undefined && maxHeight === undefined)) {
+      continue
+    }
+    const out = outputDimensions(preset, source)
+    const key = `${aspectRatio ?? 'source'}:${Math.round(out.width)}x${Math.round(out.height)}`
+    const cap = maxWidth ?? (maxHeight as number)
+    const kept = keptPerSize.get(key)
+    if (!kept) {
+      keptPerSize.set(key, { name, cap })
+      // `<=` rather than `<`: once a collection-wide cap has squashed several rungs
+      // their caps are equal, and the later one is the smaller-named rung — which is
+      // the one whose name describes the frame that actually gets stored.
+    } else if (cap <= kept.cap) {
+      redundant.set(kept.name, 'duplicate-size')
+      keptPerSize.set(key, { name, cap })
+    } else {
+      redundant.set(name, 'duplicate-size')
+    }
+  }
+
   return redundant
 }
 

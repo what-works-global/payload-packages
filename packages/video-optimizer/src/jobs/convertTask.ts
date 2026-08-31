@@ -457,7 +457,7 @@ const runConversion = async ({
         const redundant =
           dimensions && config.skipRedundantPresets
             ? redundantPresets(config.presets, dimensions)
-            : new Set<string>()
+            : new Map<string, SkipReason>()
 
         // Payload stores focal points as percentages; an upload collection with
         // focalPoint disabled simply has none, which centres every crop.
@@ -476,14 +476,17 @@ const runConversion = async ({
             : pending
 
         for (const [preset, resolved] of order) {
-          if (redundant.has(preset)) {
+          const redundantReason = redundant.get(preset)
+          if (redundantReason) {
             payload.logger.info(
-              `[payload-video-optimizer] not encoding "${preset}" for "${doc.filename}": the source is only ${dimensions?.height}px tall`,
+              redundantReason === 'duplicate-size'
+                ? `[payload-video-optimizer] not encoding "${preset}" for "${doc.filename}": another preset produces the same frame size`
+                : `[payload-video-optimizer] not encoding "${preset}" for "${doc.filename}": the source is only ${dimensions?.height}px tall`,
             )
             producedRows.push({
               height: null,
               preset,
-              skippedReason: 'source-smaller',
+              skippedReason: redundantReason,
               video: null,
               width: null,
             })
@@ -495,7 +498,7 @@ const runConversion = async ({
               encodeDurationMs: null,
               error: null,
               preset,
-              skippedReason: 'source-smaller',
+              skippedReason: redundantReason,
             })
             continue
           }
