@@ -9,6 +9,14 @@ import { summariseSkipped } from './skipSummary.js'
 /** Poll cadence while a conversion is queued; the panel stops once it settles. */
 const POLL_MS = 2500
 
+/**
+ * Stop polling after this long. A conversion can legitimately stay `queued` for a
+ * while — a chunked ladder waits on later runs, and a run killed mid-encode leaves
+ * the row claimed until someone retries — and polling a stalled document forever
+ * costs a request every 2.5s for as long as the tab is open.
+ */
+const POLL_CEILING_MS = 5 * 60 * 1000
+
 interface Rendition {
   filesize: number
   preset: string
@@ -86,6 +94,7 @@ export const VideoConversionPanel: React.FC<{
     }
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
+    const startedAt = Date.now()
 
     const load = async (): Promise<void> => {
       try {
@@ -139,8 +148,9 @@ export const VideoConversionPanel: React.FC<{
           status,
         })
 
-        // Keep watching until the background job settles.
-        if (status === 'queued') {
+        // Keep watching until the background job settles, or until it's clear it
+        // isn't going to on its own — the header's regenerate action is the way out.
+        if (status === 'queued' && Date.now() - startedAt < POLL_CEILING_MS) {
           timer = setTimeout(() => void load(), POLL_MS)
         }
       } catch {
