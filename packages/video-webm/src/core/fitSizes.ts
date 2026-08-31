@@ -187,8 +187,8 @@ export const fitSizes = (
           : joinAt(
               lines[index - 1] as SlotWidth,
               slot,
-              ((runs[index - 1]).at(-1) as SizeSample).viewport,
-              ((runs[index])[0]).viewport,
+              (runs[index - 1].at(-1) as SizeSample).viewport,
+              runs[index][0].viewport,
             ),
       slot: { a: slot.a, b: Math.round(slot.b) },
     }))
@@ -239,7 +239,7 @@ export const checkSizes = (
         (band) => sample.viewport >= band.minWidth,
       )?.want
       const needed = Math.ceil(sample.width) * multiplier
-      const wanted = rungs.find((width) => width >= needed) ?? (rungs[rungs.length - 1])
+      const wanted = rungs.find((width) => width >= needed) ?? rungs[rungs.length - 1]
       if (would !== undefined && would !== wanted) {
         mismatches.push({
           dpr: multiplier,

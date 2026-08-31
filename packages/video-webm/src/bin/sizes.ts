@@ -75,7 +75,9 @@ interface PlaywrightLike {
     launch: () => Promise<{
       close: () => Promise<void>
       newPage: () => Promise<
-        { goto: (url: string, options?: { waitUntil?: string }) => Promise<unknown> } & SweepablePage
+        {
+          goto: (url: string, options?: { waitUntil?: string }) => Promise<unknown>
+        } & SweepablePage
       >
     }>
   }

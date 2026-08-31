@@ -72,7 +72,10 @@ const vwCoefficient = (percent: string): number => Math.round(Number(percent) * 
  * contains no commas inside a value (`calc()` here only ever holds one operation),
  * so a plain split is enough and stays honest about what is supported.
  */
-const splitClauses = (input: string, option: string): { condition: null | string; value: string }[] =>
+const splitClauses = (
+  input: string,
+  option: string,
+): { condition: null | string; value: string }[] =>
   input
     .split(',')
     .map((part) => part.trim())
@@ -191,7 +194,7 @@ export const layoutSegments = (
     from,
     ratio: clauseAt(aspects, from)?.ratio ?? null,
     slot: clauseAt(sizes, from)?.slot ?? { a: 1, b: 0 },
-    to: index === 0 ? Infinity : (thresholds[index - 1]),
+    to: index === 0 ? Infinity : thresholds[index - 1],
   }))
 }
 

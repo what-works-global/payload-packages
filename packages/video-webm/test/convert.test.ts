@@ -42,9 +42,9 @@ describe.skipIf(process.platform === 'win32')('convertToWebm process handling', 
     const before = countTempDirs()
     const startedAt = Date.now()
 
-    await expect(convertWith({ ffmpeg: { path: sleepingBinary, timeoutMs: 300 } })).rejects.toMatchObject(
-      { message: expect.stringMatching(/timed out after 300ms/) as string },
-    )
+    await expect(
+      convertWith({ ffmpeg: { path: sleepingBinary, timeoutMs: 300 } }),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/timed out after 300ms/) as string })
 
     // Rejection must come from the kill, not the 60s sleep finishing.
     expect(Date.now() - startedAt).toBeLessThan(5_000)
@@ -71,7 +71,7 @@ describe.skipIf(process.platform === 'win32')('convertToWebm process handling', 
     fs.writeFileSync(failingBinary, '#!/bin/sh\necho "boom" >&2\nexit 1\n', { mode: 0o755 })
     const before = countTempDirs()
 
-    await expect(convertWith({ ffmpeg: { path: failingBinary  }})).rejects.toMatchObject({
+    await expect(convertWith({ ffmpeg: { path: failingBinary } })).rejects.toMatchObject({
       message: expect.stringMatching(/exited with code 1[\s\S]*boom/) as string,
     })
     expect(countTempDirs()).toBe(before)

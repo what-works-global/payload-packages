@@ -64,7 +64,6 @@ You now have your original file plus up to six WebM versions of it at different 
 
 ```tsx
 import { getVideoSourceSet } from '@whatworks/payload-video-webm/frontend'
-
 ;<video controls playsInline>
   {getVideoSourceSet(media, { sizes: '100vw' }).map(({ media: query, src, type }) => (
     <source key={src + query} media={query} src={src} type={type} />
@@ -72,7 +71,7 @@ import { getVideoSourceSet } from '@whatworks/payload-video-webm/frontend'
 </video>
 ```
 
-`sizes: '100vw'` means *"this video is displayed as wide as the browser window"*. If that's true for your layout, you're done. If it isn't, the next section explains what to put there instead — and how to have it written for you.
+`sizes: '100vw'` means _"this video is displayed as wide as the browser window"_. If that's true for your layout, you're done. If it isn't, the next section explains what to put there instead — and how to have it written for you.
 
 > **One gotcha that bites silently:** query one level deeper than you think. See [Query deep enough](#query-deep-enough).
 
@@ -88,14 +87,14 @@ A video file has a fixed pixel width baked into it. A 2560px-wide file shown in 
 
 So the plugin makes the same video at several widths:
 
-| Rendition | Pixel width | Roughly good for |
-| --- | --- | --- |
-| `2560w` | 2560 | full-screen on a retina laptop |
-| `1920w` | 1920 | full-screen on a normal desktop |
-| `1280w` | 1280 | a large column, or full-screen on a phone at 2× |
-| `854w` | 854 | a half-width block |
-| `640w` | 640 | a card in a grid |
-| `426w` | 426 | a thumbnail |
+| Rendition | Pixel width | Roughly good for                                |
+| --------- | ----------- | ----------------------------------------------- |
+| `2560w`   | 2560        | full-screen on a retina laptop                  |
+| `1920w`   | 1920        | full-screen on a normal desktop                 |
+| `1280w`   | 1280        | a large column, or full-screen on a phone at 2× |
+| `854w`    | 854         | a half-width block                              |
+| `640w`    | 640         | a card in a grid                                |
+| `426w`    | 426         | a thumbnail                                     |
 
 Each rung is about half the file size of the one above it. Now something has to pick.
 
@@ -104,7 +103,7 @@ Each rung is about half the file size of the one above it. Now something has to 
 For images, you may have seen this:
 
 ```html
-<img srcset="hero-640.jpg 640w, hero-1280.jpg 1280w" sizes="100vw">
+<img srcset="hero-640.jpg 640w, hero-1280.jpg 1280w" sizes="100vw" />
 ```
 
 That `sizes` attribute is you telling the browser **how wide the image will be on the page**. It feels redundant — surely the browser can see its own layout? — but it can't, not at the moment it has to choose. Images start downloading from a quick scan of the raw HTML, before the CSS has even arrived, let alone been applied. By the time layout exists, the download should already be in flight. So the author states the answer up front.
@@ -121,14 +120,14 @@ So this plugin does that same arithmetic for you, at render time. You supply one
 (min-width: 1024px) 800px, 100vw
 ```
 
-Read it as: *"once the window is at least 1024px wide, the video is 800px wide. Otherwise it's the full window width."*
+Read it as: _"once the window is at least 1024px wide, the video is 800px wide. Otherwise it's the full window width."_
 
 Three kinds of value are allowed:
 
-| You write | It means |
-| --- | --- |
-| `400px` | the video is always 400px wide here |
-| `50vw` | the video is half the window width |
+| You write           | It means                               |
+| ------------------- | -------------------------------------- |
+| `400px`             | the video is always 400px wide here    |
+| `50vw`              | the video is half the window width     |
 | `calc(50vw - 24px)` | half the window, minus 24px of padding |
 
 Two rules, and they're the only ways to get this wrong:
@@ -223,7 +222,7 @@ getVideoSourceSet(media, {
 })
 ```
 
-Only reach for `aspect` when your slot genuinely changes shape *and* you've enabled `portrait`. Without it every size stays on the video's original framing, which is usually what you want — a crop is an editorial decision, not a smaller file.
+Only reach for `aspect` when your slot genuinely changes shape _and_ you've enabled `portrait`. Without it every size stays on the video's original framing, which is usually what you want — a crop is an editorial decision, not a smaller file.
 
 > A focal point can't rescue a subject sitting right at the edge of the frame. Check your masters before relying on portrait crops for faces.
 
@@ -231,13 +230,13 @@ Only reach for `aspect` when your slot genuinely changes shape *and* you've enab
 
 The optimised versions are separate documents, so reaching them costs one more relationship hop than you'd expect:
 
-| Your query | Gets the video | Gets its renditions |
-| --- | --- | --- |
-| `find({ collection: 'media', depth: 1 })` | — | ✅ |
-| `find({ collection: 'pages', depth: 1 })` | ✅ | ❌ — **the original is served** |
-| `find({ collection: 'pages', depth: 2 })` | ✅ | ✅ |
+| Your query                                | Gets the video | Gets its renditions             |
+| ----------------------------------------- | -------------- | ------------------------------- |
+| `find({ collection: 'media', depth: 1 })` | —              | ✅                              |
+| `find({ collection: 'pages', depth: 1 })` | ✅             | ❌ — **the original is served** |
+| `find({ collection: 'pages', depth: 2 })` | ✅             | ✅                              |
 
-At too shallow a depth everything still *works* — the helpers fall back to the original file and the optimisation quietly does nothing. In development they log a warning saying exactly that.
+At too shallow a depth everything still _works_ — the helpers fall back to the original file and the optimisation quietly does nothing. In development they log a warning saying exactly that.
 
 Since renditions only need a few fields, `populate` is worth using here:
 
@@ -282,9 +281,9 @@ Every rendition in order, with the original appended last, so **something always
 
 Each document gets a **WebM conversion** panel in the sidebar:
 
-- **Live status** — polls every 2.5s while the job runs and flips in place from *Optimising…* to the result. Failures and skips are explained inline.
+- **Live status** — polls every 2.5s while the job runs and flips in place from _Optimising…_ to the result. Failures and skips are explained inline.
 - **A row per stored rendition** — its label, file size and % saved, an **Open ↗** action, and a **↺** to regenerate just that one. Renditions the job decided not to store collapse into one muted footnote saying why, so a missing size reads as a decision rather than a failure.
-- **↺ all** — drops every rendition and re-queues the job, so files are re-encoded against your *current* config. Change `presets` or `quality`, hit ↺, and the new settings apply.
+- **↺ all** — drops every rendition and re-queues the job, so files are re-encoded against your _current_ config. Change `presets` or `quality`, hit ↺, and the new settings apply.
 
 Regeneration is gated by the collection's own `update` access control, via `POST /api/<taskSlug>/regenerate` with `{ collection, id, preset? }` — callable from your own tooling too.
 
@@ -292,12 +291,12 @@ Regeneration is gated by the collection's own `update` access control, via `POST
 
 ## Compatibility
 
-| Requirement | Supported |
-| --- | --- |
-| Payload | `>=3.54.0 <4` (peer dependency; uses the built-in Jobs Queue) |
-| Node.js | `>=20.9.0` |
-| ffmpeg | Any build with `libvpx`/`libvpx-vp9` and `libopus` — every standard distribution build (apt, brew, static builds, [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static)) has them |
-| OS | Linux and macOS (anywhere `ffmpeg` can be spawned); Windows should work but is untested |
+| Requirement | Supported                                                                                                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Payload     | `>=3.54.0 <4` (peer dependency; uses the built-in Jobs Queue)                                                                                                                              |
+| Node.js     | `>=20.9.0`                                                                                                                                                                                 |
+| ffmpeg      | Any build with `libvpx`/`libvpx-vp9` and `libopus` — every standard distribution build (apt, brew, static builds, [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static)) has them |
+| OS          | Linux and macOS (anywhere `ffmpeg` can be spawned); Windows should work but is untested                                                                                                    |
 
 ffmpeg is only needed by the **process that runs the jobs**. It looks for `ffmpeg` on `PATH`, or wherever `FFMPEG_PATH` / the `ffmpeg.path` option points. At boot the plugin checks the binary is executable **and** that the required encoders are compiled in, warning otherwise.
 
@@ -407,20 +406,20 @@ Unknown or non-upload slugs throw at init, so typos surface immediately. `dispat
 The plugin can't know what platform it's on, so you say how to defer the work:
 
 ```ts
-dispatch: (_job, { run }) => after(run)          // Next.js on Vercel
-dispatch: (_job, { run }) => waitUntil(run())    // Cloudflare Workers
-dispatch: (_job, { run }) => void run()          // long-running Node server
-dispatch: (job) => qstash.publishJSON({ body: job })  // external queue
-dispatch: 'inline'                               // deliberately block the upload
+dispatch: (_job, { run }) => after(run) // Next.js on Vercel
+dispatch: (_job, { run }) => waitUntil(run()) // Cloudflare Workers
+dispatch: (_job, { run }) => void run() // long-running Node server
+dispatch: (job) => qstash.publishJSON({ body: job }) // external queue
+dispatch: 'inline' // deliberately block the upload
 ```
 
 `job` is serialisable (`{ collection, docId, generation, jobId, sourceFilename }`) for hosts with real queue infrastructure. `run` executes the queued row in-process via `payload.jobs.runByID`, waiting first for the upload's transaction to commit so the job can actually see the document.
 
 **When `dispatch` is unset** the plugin runs the job itself and warns at boot. What that means depends on your database:
 
-| Database | Without `dispatch` |
-| --- | --- |
-| No transactions (Mongo standalone, SQLite) | The job runs **inline** — `payload.create()` resolves only once the encode is done. |
+| Database                                    | Without `dispatch`                                                                                                            |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| No transactions (Mongo standalone, SQLite)  | The job runs **inline** — `payload.create()` resolves only once the encode is done.                                           |
 | Transactions (Postgres, Mongo replica sets) | The job starts **detached** after the upload commits, because awaiting it inside the hook would deadlock against that commit. |
 
 The detached case is exactly where a platform that freezes after the response can lose the run, so **configure `dispatch` (or a jobs runner) in production**. The durable row survives either way. Pass `dispatch: 'inline'` if you genuinely want the upload to block and would rather not see the warning.
@@ -430,7 +429,7 @@ The detached case is exactly where a platform that freezes after the response ca
 A durable row means an interrupted conversion isn't lost — with one limit. Payload marks a job `processing` the moment it starts and has no lease or stall recovery, so:
 
 - **Never-started and cleanly-failed rows** (an external-queue `dispatch`, an encode that threw, retries still pending) are picked up by cron. This is the guarantee.
-- **A run killed mid-encode** (SIGKILL, a frozen serverless instance) leaves its row claimed. Cron won't re-run it and the document stays `queued`. The fix is one click of **↺ all** — it queues a *fresh* job, and per-preset idempotency means only what's missing gets encoded.
+- **A run killed mid-encode** (SIGKILL, a frozen serverless instance) leaves its row claimed. Cron won't re-run it and the document stays `queued`. The fix is one click of **↺ all** — it queues a _fresh_ job, and per-preset idempotency means only what's missing gets encoded.
 
 Run the queue on a schedule, either through Payload's autorun:
 
@@ -478,18 +477,18 @@ presets: resolutionPresets([360, 720, 1080])
 
 Both take their per-rung CRF from Google's published VP9 recommendations, by pixel count — so a 9:16 crop 1080px wide (1080×1920) gets the same quality as a 1920×1080 landscape rung, which has exactly the same number of pixels.
 
-**Six encodes sounds like a lot, and isn't.** Cost tracks pixel count, so on a 4K master the whole ladder is 7.4 megapixels against 8.3 for a single uncapped encode of the source — the ladder is *cheaper* than converting the file once at its own resolution. The bottom four rungs together are about 10% of the job. And smaller sources encode fewer rungs automatically: a 1080p master does five, a 720p master four.
+**Six encodes sounds like a lot, and isn't.** Cost tracks pixel count, so on a 4K master the whole ladder is 7.4 megapixels against 8.3 for a single uncapped encode of the source — the ladder is _cheaper_ than converting the file once at its own resolution. The bottom four rungs together are about 10% of the job. And smaller sources encode fewer rungs automatically: a 1080p master does five, a 720p master four.
 
 ### Aspect-ratio crops beyond portrait
 
 `portrait: true` covers the case that matters. For anything else, `widthPresets` takes a ratio directly:
 
-| Slot shape | Overdraw with `cover` | Worth an encode? |
-| --- | --- | --- |
-| 21:9 ultrawide | 1.3× | no |
-| 4:3 | 1.3× | no |
-| 1:1 square | 1.8× | no |
-| 9:16 portrait | **3.2×** | yes |
+| Slot shape     | Overdraw with `cover` | Worth an encode? |
+| -------------- | --------------------- | ---------------- |
+| 21:9 ultrawide | 1.3×                  | no               |
+| 4:3            | 1.3×                  | no               |
+| 1:1 square     | 1.8×                  | no               |
+| 9:16 portrait  | **3.2×**              | yes              |
 
 ```ts
 presets: {
@@ -517,15 +516,15 @@ Either way the rendition is simply absent, the frontend helpers fall back, and t
 
 Every targeted collection gets a read-only sidebar group (opt out with `metadataFields: false`), hidden until the plugin records something:
 
-| Field | Meaning |
-| --- | --- |
-| `status` | `queued` → `complete` \| `skipped` \| `failed`. Stamped `queued` at upload time. |
-| `originalFilename` | The source filename, e.g. `clip.mp4`. |
-| `originalMimeType` | The source mime type. |
-| `originalFilesize` | Source size in bytes — compare with a rendition's `filesize` for the savings. |
-| `encodeDurationMs` | Wall-clock ffmpeg time for the successful encode. |
-| `skippedReason` | `input-too-large` (upload time), or `output-larger` / `source-smaller` (job). |
-| `error` | Last job error, truncated — retries may still flip the status to `complete`. |
+| Field              | Meaning                                                                          |
+| ------------------ | -------------------------------------------------------------------------------- |
+| `status`           | `queued` → `complete` \| `skipped` \| `failed`. Stamped `queued` at upload time. |
+| `originalFilename` | The source filename, e.g. `clip.mp4`.                                            |
+| `originalMimeType` | The source mime type.                                                            |
+| `originalFilesize` | Source size in bytes — compare with a rendition's `filesize` for the savings.    |
+| `encodeDurationMs` | Wall-clock ffmpeg time for the successful encode.                                |
+| `skippedReason`    | `input-too-large` (upload time), or `output-larger` / `source-smaller` (job).    |
+| `error`            | Last job error, truncated — retries may still flip the status to `complete`.     |
 
 The group is stamped only on requests that actually carry a file, so re-saving a document never clobbers it, while replacing the file resets it and queues a fresh conversion.
 
@@ -584,7 +583,7 @@ The same applies to REST/GraphQL list endpoints and to `count`. Access control i
 1. **Upload time** (`beforeChange`): cheap guards run against the client-declared `req.file.mimetype` (no content sniffing), `maxInputFileSize`, and your `shouldConvert` predicate. Candidates are stamped `status: 'queued'`; `req.file` is never touched, so the source stores byte-for-byte as uploaded.
 2. **After the write** (`afterChange`): a durable job row is queued — deliberately without `req`, so the row isn't trapped inside the request's transaction — and handed to `dispatch`, along with the document's `webmGeneration` counter. The response returns.
 3. **In the job**: the handler re-reads the document and bails unless it's still the one that was queued — same file, same generation. It puts the source on disk (local storage is read in place; remote storage is streamed to a temp file, never buffered), probes its dimensions, and encodes each undecided preset under the concurrency limiter. Every rendition becomes a hidden sidecar document linked as a `{ preset, video }` row.
-4. **On the way out**: the document is read *again* and this run's rows merged onto it, so a slow run can't overwrite renditions created or retired while it worked; if the generation moved on, the run discards its own output. Failures link whatever finished, record `status: 'failed'`, and rethrow so Payload's retries resume the missing presets.
+4. **On the way out**: the document is read _again_ and this run's rows merged onto it, so a slow run can't overwrite renditions created or retired while it worked; if the generation moved on, the run discards its own output. Failures link whatever finished, record `status: 'failed'`, and rethrow so Payload's retries resume the missing presets.
 
 **Lifecycle guarantees**: replacing the file queues a re-encode of every preset and garbage-collects the stale renditions; replacing a video with a non-video clears everything; deleting the original deletes all its renditions in the same transaction. Renditions are only collected by writes that genuinely retire them, so an ordinary save or a restored version can't take live files down. A rendition deleted behind the plugin's back is noticed and re-encoded on the next run. Other document fields are copied onto the sidecar so required fields validate; collections with `unique` non-upload fields will conflict on sidecar creation, so avoid targeting those.
 
@@ -597,7 +596,7 @@ The same applies to REST/GraphQL list endpoints and to `count`. Access control i
 - Storage is source + one WebM per preset. The source is never sacrificed, so optimised versions can be regenerated at any time.
 - VP9 is CPU-intensive. `ffmpeg.maxConcurrent` (default 2, per process) stops simultaneous uploads stampeding the encoder; for real volume, move the queue to a dedicated `payload jobs:run` container.
 - `maxInputFileSize` keeps oversized masters out of the encoder entirely; `skipIfLarger` and `skipRedundantPresets` (both on) refuse work that wouldn't pay for itself.
-- **Memory**: source videos are never held in memory — ffmpeg reads them from disk, and remote storage is streamed to a temp file. Each *stored* rendition is read into a buffer once to hand to Payload's upload pipeline, so peak usage tracks output size, not input size. Temp directories are removed in `finally`, timeouts included.
+- **Memory**: source videos are never held in memory — ffmpeg reads them from disk, and remote storage is streamed to a temp file. Each _stored_ rendition is read into a buffer once to hand to Payload's upload pipeline, so peak usage tracks output size, not input size. Temp directories are removed in `finally`, timeouts included.
 - Encodes are only queued by writes that pass access control, and the regenerate endpoint refuses to stack a second conversion onto a document whose conversion is still in flight.
 - Client-side uploads that bypass the Payload server (`upload.clientUploads`, presigned flows) never trigger the `afterChange` hook and are not converted.
 

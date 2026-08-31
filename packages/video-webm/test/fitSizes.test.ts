@@ -107,15 +107,16 @@ describe('sweepSizes', () => {
     // 320 + 16n never lands on 640-1? it does, 640 = 320 + 16*20). Use the plateau at
     // 1200, which is 320 + 16*55 = 1200 — so check the fit instead of the raw grid.
     expect(samples.some((sample) => sample.viewport === 1200)).toBe(true)
-    expect(fitSizes(samples).clauses.map((clause) => clause.minWidth)).toEqual([
-      1200, 1024, 640, 0,
-    ])
+    expect(fitSizes(samples).clauses.map((clause) => clause.minWidth)).toEqual([1200, 1024, 640, 0])
   })
 
   it('explains an unmatched selector rather than fitting nothing', async () => {
-    await expect(sweepSizes(fakePage(() => null), '[data-missing]')).rejects.toThrow(
-      /no element matched/,
-    )
+    await expect(
+      sweepSizes(
+        fakePage(() => null),
+        '[data-missing]',
+      ),
+    ).rejects.toThrow(/no element matched/)
   })
 
   it('generateSizes sweeps and fits in one call', async () => {

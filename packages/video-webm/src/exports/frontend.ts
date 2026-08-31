@@ -400,7 +400,6 @@ const isDevelopment = (): boolean =>
 
 let warnedAboutOrder = false
 
-
 /** First match wins, so ascending `minWidth` rules would serve the smallest file everywhere. */
 let warnedAboutLadder = false
 

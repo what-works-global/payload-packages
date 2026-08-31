@@ -31,14 +31,14 @@ describe('resolveConfig validation', () => {
   })
 
   it('rejects invalid timeout, size cap, concurrency and retry values', () => {
-    expect(() => resolveConfig({ ffmpeg: { timeoutMs: 0  }})).toThrow(/timeoutMs/)
-    expect(() => resolveConfig({ ffmpeg: { timeoutMs: -1  }})).toThrow(/timeoutMs/)
+    expect(() => resolveConfig({ ffmpeg: { timeoutMs: 0 } })).toThrow(/timeoutMs/)
+    expect(() => resolveConfig({ ffmpeg: { timeoutMs: -1 } })).toThrow(/timeoutMs/)
     expect(() => resolveConfig({ maxInputFileSize: 0 })).toThrow(/maxInputFileSize/)
     expect(() => resolveConfig({ ffmpeg: { maxConcurrent: 0 } })).toThrow(/ffmpeg\.maxConcurrent/)
     expect(() => resolveConfig({ ffmpeg: { maxConcurrent: 1.5 } })).toThrow(/ffmpeg\.maxConcurrent/)
-    expect(() => resolveConfig({ jobs: { retries: -1  }})).toThrow(/retries/)
-    expect(() => resolveConfig({ jobs: { retries: 1.5  }})).toThrow(/retries/)
-    expect(() => resolveConfig({ jobs: { retries: 0  }})).not.toThrow()
+    expect(() => resolveConfig({ jobs: { retries: -1 } })).toThrow(/retries/)
+    expect(() => resolveConfig({ jobs: { retries: 1.5 } })).toThrow(/retries/)
+    expect(() => resolveConfig({ jobs: { retries: 0 } })).not.toThrow()
   })
 
   it('rejects a codec outside the union at runtime', () => {
@@ -49,8 +49,8 @@ describe('resolveConfig validation', () => {
 
   it('defaults maxConcurrentEncodes to 2, with null opting into unlimited', () => {
     expect(resolveConfig({}).maxConcurrentEncodes).toBe(2)
-    expect(resolveConfig({ ffmpeg: { maxConcurrent: null  }}).maxConcurrentEncodes).toBeNull()
-    expect(resolveConfig({ ffmpeg: { maxConcurrent: 8  }}).maxConcurrentEncodes).toBe(8)
+    expect(resolveConfig({ ffmpeg: { maxConcurrent: null } }).maxConcurrentEncodes).toBeNull()
+    expect(resolveConfig({ ffmpeg: { maxConcurrent: 8 } }).maxConcurrentEncodes).toBe(8)
   })
 
   it('validates presets: names, per-preset encoding, and non-emptiness', () => {

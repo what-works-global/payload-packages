@@ -11,12 +11,13 @@ import {
 
 describe('parseSizes', () => {
   it('reads the three canonical length forms', () => {
-    expect(parseSizes('(min-width: 1280px) 800px, (min-width: 640px) 50vw, calc(33.333vw - 32px)'))
-      .toEqual([
-        { minWidth: 1280, slot: { a: 0, b: 800 } },
-        { minWidth: 640, slot: { a: 0.5, b: 0 } },
-        { minWidth: 0, slot: { a: 0.33333, b: -32 } },
-      ])
+    expect(
+      parseSizes('(min-width: 1280px) 800px, (min-width: 640px) 50vw, calc(33.333vw - 32px)'),
+    ).toEqual([
+      { minWidth: 1280, slot: { a: 0, b: 800 } },
+      { minWidth: 640, slot: { a: 0.5, b: 0 } },
+      { minWidth: 0, slot: { a: 0.33333, b: -32 } },
+    ])
     expect(parseSizes('calc(50vw + 24px)')[0]?.slot).toEqual({ a: 0.5, b: 24 })
   })
 

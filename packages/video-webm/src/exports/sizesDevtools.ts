@@ -18,7 +18,12 @@ import { DEFAULT_WIDTH_LADDER } from '../core/defaults.js'
 import { checkSizes, fitSizes } from '../core/fitSizes.js'
 import { parseSizes } from '../core/sizes.js'
 
-export type { FitSizesOptions, FitSizesResult, SizeSample, SizesMismatch } from '../core/fitSizes.js'
+export type {
+  FitSizesOptions,
+  FitSizesResult,
+  SizeSample,
+  SizesMismatch,
+} from '../core/fitSizes.js'
 export { checkSizes, fitSizes } from '../core/fitSizes.js'
 
 /**
@@ -104,7 +109,7 @@ export const sweepSizes = async (
       continue
     }
     let low = to.viewport
-    let high = (samples[index]).viewport
+    let high = samples[index].viewport
     while (high - low > 1) {
       const middle = Math.floor((low + high) / 2)
       const sample = await sampleAt(middle)

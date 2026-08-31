@@ -190,7 +190,9 @@ describe('getVideoSourceSet', () => {
   })
 
   it('solves exact crossovers from a sizes string, per dpr bucket', () => {
-    const sources = getVideoSourceSet(ladder, { sizes: '(min-width: 1024px) 900px, calc(50vw - 24px)' })
+    const sources = getVideoSourceSet(ladder, {
+      sizes: '(min-width: 1024px) 900px, calc(50vw - 24px)',
+    })
 
     // Widest band first within each bucket, buckets highest-dpr first, and the
     // lowest bucket carries no resolution query because it is the fallback.
@@ -225,7 +227,12 @@ describe('getVideoSourceSet', () => {
       mimeType: 'video/mp4',
       url: '/media/hero.mp4',
       webmVersions: [
-        { height: 360, preset: '640w', video: { mimeType: 'video/webm', url: '/media/hero-640w.webm' }, width: 640 },
+        {
+          height: 360,
+          preset: '640w',
+          video: { mimeType: 'video/webm', url: '/media/hero-640w.webm' },
+          width: 640,
+        },
       ],
     }
     expect(getVideoSourceSet(single, { sizes: '100vw' })).toEqual([
