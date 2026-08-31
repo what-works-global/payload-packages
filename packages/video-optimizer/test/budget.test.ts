@@ -62,7 +62,11 @@ describe('jobs.maxRunMs', () => {
     // default made every chunking setup warn at every boot about a conflict it had
     // not chosen.
     expect(resolveConfig({ jobs: { maxRunMs: 240_000 } }).timeoutMs).toBe(240_000)
-    expect(resolveConfig({}).timeoutMs).toBe(600_000)
+    // No budget means no host limit to proxy, so no cap of ours. The old fixed
+    // 10-minute default capped the worker deployment that exists to escape limits:
+    // a 30-minute source's 1920w rung wants over an hour on 8 cores.
+    expect(resolveConfig({}).timeoutMs).toBeNull()
+    expect(resolveConfig({ ffmpeg: { timeoutMs: null } }).timeoutMs).toBeNull()
     // An explicit timeout is still honoured, and still reported when it conflicts.
     const resolved = resolveConfig({ ffmpeg: { timeoutMs: 600_000 }, jobs: { maxRunMs: 240_000 } })
     expect(resolved.timeoutMs).toBe(600_000)

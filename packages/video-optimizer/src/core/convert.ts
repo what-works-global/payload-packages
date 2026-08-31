@@ -88,7 +88,7 @@ export const checkFfmpeg = (
     })
   })
 
-const runFfmpeg = (ffmpegPath: string, args: string[], timeoutMs: number): Promise<void> =>
+const runFfmpeg = (ffmpegPath: string, args: string[], timeoutMs: null | number): Promise<void> =>
   new Promise((resolve, reject) => {
     const child = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] })
 
@@ -101,14 +101,27 @@ const runFfmpeg = (ffmpegPath: string, args: string[], timeoutMs: number): Promi
     // so a wedged encode (corrupt input, stuck filter) terminates deterministically.
     // The rejection happens here rather than in 'close' — 'close' also waits for
     // stdio to drain, which a leaked descendant holding the stderr pipe can stall.
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      child.stderr.destroy()
-      reject(new FfmpegError(`ffmpeg timed out after ${timeoutMs}ms and was killed`))
-    }, timeoutMs)
+    //
+    // `null` means the host imposes no limit, so neither do we: a long encode on a
+    // worker is the job working, not a wedge. Detecting an actually-stuck ffmpeg
+    // wants an idle watchdog on this stderr stream (it reports `frame=`/`time=`
+    // continuously), which is a different guard from a wall-clock cap.
+    const timer =
+      timeoutMs === null
+        ? null
+        : setTimeout(() => {
+            child.kill('SIGKILL')
+            child.stderr.destroy()
+            reject(new FfmpegError(`ffmpeg timed out after ${timeoutMs}ms and was killed`))
+          }, timeoutMs)
+    const clear = (): void => {
+      if (timer) {
+        clearTimeout(timer)
+      }
+    }
 
     child.on('error', (error) => {
-      clearTimeout(timer)
+      clear()
       reject(
         new FfmpegError(
           `could not spawn ffmpeg at "${ffmpegPath}" — is it installed and on PATH, or set via the ffmpeg.path option / FFMPEG_PATH? (${error.message})`,
@@ -119,7 +132,7 @@ const runFfmpeg = (ffmpegPath: string, args: string[], timeoutMs: number): Promi
     // A settled promise ignores later resolve/reject calls, so firing after a
     // timeout rejection is harmless.
     child.on('close', (code) => {
-      clearTimeout(timer)
+      clear()
       if (code !== 0) {
         reject(new FfmpegError(`ffmpeg exited with code ${code}:\n${stderrTail.trim()}`))
         return

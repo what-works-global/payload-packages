@@ -447,7 +447,8 @@ videoOptimizerPlugin({
   ffmpeg: {
     path: '/usr/bin/ffmpeg', // defaults to FFMPEG_PATH or `ffmpeg` on PATH
     maxConcurrent: 2, // simultaneous encodes per Node process; null = unlimited
-    timeoutMs: 10 * 60 * 1000, // per encode, not per job
+    timeoutMs: 10 * 60 * 1000, // per encode, not per job; defaults to jobs.maxRunMs,
+    //                            and to no limit when that is unset
   },
   jobs: {
     queue: 'video-conversion',

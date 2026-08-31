@@ -39,8 +39,6 @@ export const DEFAULT_QUEUE = 'video-conversion'
  */
 export const DEFAULT_RETRIES = 3
 
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
-
 /**
  * Safe-by-default cap on simultaneous ffmpeg processes. VP9 encoding saturates
  * several cores per encode, so unlimited concurrency can starve a small deployment;
@@ -316,8 +314,13 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
     // invalid timeout.
     assertPositiveInteger(maxRunMs, 'jobs.maxRunMs')
   }
+  // A per-encode timeout is only ever a proxy for the host's own execution limit, so
+  // it defaults to that limit and to nothing when there isn't one. The old fixed
+  // 10-minute default capped the very deployment meant to escape those limits — a
+  // 30-minute source's `1920w` rung wants over an hour on an 8-core worker — while
+  // also binding *before* a 30-minute serverless function did.
   const timeoutMs =
-    pluginConfig.ffmpeg?.timeoutMs ?? Math.min(DEFAULT_TIMEOUT_MS, maxRunMs ?? DEFAULT_TIMEOUT_MS)
+    pluginConfig.ffmpeg?.timeoutMs === undefined ? maxRunMs : pluginConfig.ffmpeg.timeoutMs
   const maxInputFileSize = pluginConfig.maxInputFileSize ?? null
   const retries = pluginConfig.jobs?.retries ?? DEFAULT_RETRIES
   // undefined → the safe default; an explicit null opts into unlimited.
@@ -326,8 +329,8 @@ export const resolveConfig = (pluginConfig: VideoOptimizerConfig): ResolvedVideo
       ? DEFAULT_MAX_CONCURRENT_ENCODES
       : pluginConfig.ffmpeg.maxConcurrent
 
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    fail(`ffmpeg.timeoutMs must be a positive number of milliseconds, got ${timeoutMs}`)
+  if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+    fail(`ffmpeg.timeoutMs must be a positive number of milliseconds or null, got ${timeoutMs}`)
   }
   if (maxInputFileSize !== null) {
     assertPositiveInteger(maxInputFileSize, 'maxInputFileSize')
@@ -479,7 +482,11 @@ export const configWarnings = (
       `both quality: '${pluginConfig.quality}' and encoding.crf are set — the offset applies on top of whichever crf ends up in effect. Set one or the other.`,
     )
   }
-  if (resolved.maxRunMs !== null && resolved.timeoutMs > resolved.maxRunMs) {
+  if (
+    resolved.maxRunMs !== null &&
+    resolved.timeoutMs !== null &&
+    resolved.timeoutMs > resolved.maxRunMs
+  ) {
     warnings.push(
       `ffmpeg.timeoutMs (${resolved.timeoutMs}) is longer than jobs.maxRunMs (${resolved.maxRunMs}), so no encode could ever use it — each one is capped at what remains of the budget.`,
     )

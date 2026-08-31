@@ -312,6 +312,14 @@ const runConversion = async ({
   const runStartedAt = Date.now()
   const budgetLeft = (): number =>
     budgetMs === null ? Infinity : budgetMs - (Date.now() - runStartedAt)
+  /**
+   * Tightest of the configured per-encode cap and what the run may still spend.
+   * `null` on either side means unbounded, so it never wins.
+   */
+  const capTimeout = (configured: null | number, budget: number): null | number => {
+    const tightest = Math.min(configured ?? Infinity, budget)
+    return Number.isFinite(tightest) ? tightest : null
+  }
   /** Measured cost per output pixel, from whichever presets this run has finished. */
   let msPerPixel: null | number = null
 
@@ -468,6 +476,20 @@ const runConversion = async ({
           y: typeof doc.focalY === 'number' ? doc.focalY : CENTRE_FOCAL_POINT.y,
         }
 
+        // Two orders, for two different failures.
+        //
+        // Budgeted: cheapest rung first, so a run that cannot afford the whole ladder
+        // still banks the small rungs before it hits one it must skip or defer. Since
+        // everything after a skip is larger, the skip cascades correctly and the
+        // document degrades a rung at a time rather than all at once.
+        //
+        // Unbudgeted: declaration order, which is widest first. Nothing here can
+        // predict a kill, and partial progress only survives a *clean* failure (the
+        // catch below links whatever finished), so the run should hold the rendition
+        // that matters most if it gets that far.
+        //
+        // Both need `dimensions`: an unreadable probe means no cost projection, so
+        // there is nothing to sort by.
         const order =
           budgetMs !== null && dimensions
             ? [...pending].sort(
@@ -555,7 +577,14 @@ const runConversion = async ({
               // since the budget may already be spent — but it is still clamped, or
               // the split fails to prevent the platform kill it exists to prevent
               // (msPerPixel is per-run, so every chunk has a forced first encode).
-              timeoutMs: Math.min(config.timeoutMs, forced ? (budgetMs ?? Infinity) : budgetLeft()),
+              //
+              // Both terms can be Infinity — an unbudgeted run on a host with no
+              // execution limit — and Math.min keeps that, which is the point: the
+              // encode is bounded by whichever real limit exists, or by none.
+              timeoutMs: capTimeout(
+                config.timeoutMs,
+                forced ? (budgetMs ?? Infinity) : budgetLeft(),
+              ),
             },
             limiter,
             { focal, inputPath: sourcePath, outputPath },

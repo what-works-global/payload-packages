@@ -237,9 +237,17 @@ export interface VideoOptimizerConfig {
     path?: string
     /**
      * Kill ffmpeg (SIGKILL) and fail the conversion after this many ms. Applies to
-     * each encode, not to the job as a whole. Defaults to 10 minutes.
+     * each encode, not to the job as a whole.
+     *
+     * Defaults to {@link VideoOptimizerJobsConfig.maxRunMs}, and to no limit when
+     * that is unset — the timeout exists to stop an encode overrunning the *host's*
+     * limit, so an environment without one needs no limit of ours. A fixed default
+     * capped the very deployment meant to escape those limits: a 30-minute source's
+     * `1920w` rung needs over an hour on an 8-core worker.
+     *
+     * Set a number to impose your own ceiling; `null` is explicit unlimited.
      */
-    timeoutMs?: number
+    timeoutMs?: null | number
   }
   /**
    * Mime types eligible for conversion, matched against the client-declared
@@ -388,7 +396,8 @@ export interface ResolvedVideoOptimizerConfig {
   shouldConvert: ((args: ShouldConvertArgs) => boolean | Promise<boolean>) | null
   skipIfLarger: boolean
   skipRedundantPresets: boolean
-  timeoutMs: number
+  /** Per-encode wall-clock cap; `null` leaves ffmpeg unbounded. */
+  timeoutMs: null | number
 }
 
 /** {@link VideoPreset} with the collection's encoding merged in and validated. */
