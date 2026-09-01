@@ -1,5 +1,6 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { pushDevSchema } from '@payloadcms/drizzle'
+import { s3Storage } from '@payloadcms/storage-s3'
 import { buildDevConfig, ensureDevUser } from '@whatworks/dev-fixture/dev-config'
 import type { ConversionOutcome } from '@whatworks/payload-video-optimizer'
 import { videoOptimizerPlugin, widthPresets } from '@whatworks/payload-video-optimizer'
@@ -24,6 +25,9 @@ const runtimeDir = process.env.VERCEL
   : path.resolve(dirname, '.local')
 const mediaDir = path.join(runtimeDir, 'media')
 fs.mkdirSync(mediaDir, { recursive: true })
+
+const bucket = process.env.S3_BUCKET
+const hasS3 = Boolean(bucket && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY)
 
 /**
  * Per-preset encode outcomes, keyed by document id, filled by `onConversionComplete`.
@@ -88,6 +92,32 @@ export default buildDevConfig({
           : undefined,
       ),
     }),
+    // Only when configured, so `pnpm dev` still works off local disk with no
+    // credentials. The video plugin needs nothing S3-aware: renditions are ordinary
+    // upload documents in the same collection, so they inherit whatever adapter it
+    // has — which is the whole point of the sidecar design.
+    //
+    // `clientUploads` is what makes a real video testable at all. Vercel caps request
+    // bodies at a few megabytes, so a 21 MB source cannot reach the function; with
+    // this the browser PUTs straight to the bucket and only the metadata comes here.
+    ...(hasS3
+      ? [
+          s3Storage({
+            bucket: bucket as string,
+            clientUploads: true,
+            // The bucket grants public read on public/* only, matching the other
+            // buckets in this account.
+            collections: { media: { prefix: 'public/media' } },
+            config: {
+              credentials: {
+                accessKeyId: process.env.S3_ACCESS_KEY_ID as string,
+                secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
+              },
+              region: process.env.S3_REGION ?? 'ap-southeast-2',
+            },
+          }),
+        ]
+      : []),
   ],
   // Payload only auto-generates outside production, but an explicit false keeps a
   // preview deployment from spawning the detached generate:types worker.

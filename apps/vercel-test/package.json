@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@payloadcms/db-sqlite": "catalog:",
+    "@payloadcms/drizzle": "catalog:",
     "@payloadcms/next": "catalog:",
+    "@payloadcms/storage-s3": "catalog:",
     "@payloadcms/ui": "catalog:",
     "@whatworks/dev-fixture": "workspace:*",
     "@whatworks/payload-video-optimizer": "workspace:*",
@@ -18,8 +20,7 @@
     "next": "catalog:",
     "payload": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:",
-    "@payloadcms/drizzle": "catalog:"
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
