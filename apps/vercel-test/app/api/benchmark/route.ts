@@ -74,9 +74,17 @@ export const POST = async (request: Request): Promise<Response> => {
   encodeOutcomes.delete(key)
 
   // `create` resolves with the document as it was written, which is before the
-  // conversion's own final write — reading status off it always says "queued".
-  const settled = (await payload.findByID({ id: doc.id, collection: 'media', depth: 0 })) as {
+  // conversion's own final write — reading status off it always says "queued". And
+  // on a database with transactions the run starts *after* the upload commits, so
+  // even a re-read can land before the job finishes. Poll until it settles.
+  type Settled = {
     videoConversion?: { encodeDurationMs?: number; skippedReason?: string; status?: string }
+  }
+  let settled = (await payload.findByID({ id: doc.id, collection: 'media', depth: 0 })) as Settled
+  const deadline = Date.now() + 60_000
+  while (settled.videoConversion?.status === 'queued' && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    settled = (await payload.findByID({ id: doc.id, collection: 'media', depth: 0 })) as Settled
   }
 
   return Response.json({

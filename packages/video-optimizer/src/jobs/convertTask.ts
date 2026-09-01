@@ -99,6 +99,9 @@ const adapterSourceResponse = async (
   const upload = payload.collections[asCollectionSlug(collectionSlug)]?.config.upload
   const handlers = upload && typeof upload === 'object' ? upload.handlers : undefined
   if (!Array.isArray(handlers) || handlers.length === 0) {
+    payload.logger.debug(
+      `[payload-video-optimizer] no storage handlers on "${collectionSlug}"; falling back to fetching the file over HTTP`,
+    )
     return null
   }
   const filename = String(doc.filename)
@@ -115,8 +118,15 @@ const adapterSourceResponse = async (
         headers: new Headers(),
         params: { collection: collectionSlug, filename },
       })
-    } catch {
-      continue // a handler that cannot serve this file shouldn't mask the others
+    } catch (error) {
+      // A handler that cannot serve this file shouldn't mask the others — but
+      // swallowing it silently turns "the adapter path did not work" into an
+      // indistinguishable fallback to HTTP, which is exactly the debugging dead end
+      // this replaced.
+      payload.logger.warn(
+        `[payload-video-optimizer] storage handler failed for "${filename}": ${error instanceof Error ? error.message : String(error)}`,
+      )
+      continue
     }
     if (!(response instanceof Response)) {
       continue
