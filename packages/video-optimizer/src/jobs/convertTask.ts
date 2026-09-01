@@ -111,7 +111,18 @@ const materializeSource = async (
 
   const base = payload.config.serverURL || 'http://localhost:3000'
   const url = new URL(String(doc.url), base)
-  const response = await fetch(url)
+  // A refused connection rejects rather than returning a response, and undici's
+  // message for that is the bare "fetch failed" — which names neither the URL nor
+  // the cause. That is the likeliest failure here, not a 404: an unset serverURL
+  // silently points at localhost, so a job on a remote host fetches nothing at all.
+  let response: Response
+  try {
+    response = await fetch(url)
+  } catch (error) {
+    throw new Error(
+      `[payload-video-optimizer] could not reach source "${url.href}" (${error instanceof Error ? error.message : String(error)})${payload.config.serverURL ? '' : ' — serverURL is not set, so this defaulted to localhost'}. Set serverURL, make files readable, or provide fetchSource.`,
+    )
+  }
   if (!response.ok || !response.body) {
     throw new Error(
       `[payload-video-optimizer] could not fetch source "${url.href}" (HTTP ${response.status}) — set serverURL, make files readable, or provide fetchSource`,
