@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import { bundledPathHint } from '../src/core/convert.js'
@@ -16,6 +17,21 @@ describe('bundledPathHint', () => {
     expect(bundledPathHint('/srv/app/.next/server/node_modules/ffmpeg-static/ffmpeg')).toMatch(
       /inlined ffmpeg-static/,
     )
+  })
+
+  it('separates an un-downloaded binary from a rewritten path', () => {
+    // Both are ENOENT on a node_modules path and the fixes are unrelated, so the
+    // package directory existing is what tells them apart. This one really happened:
+    // a stale onlyBuiltDependencies list meant Vercel installed ffmpeg-static with
+    // no binary in it, and the bundler advice would have sent someone the wrong way.
+    const installed = new URL('../node_modules/ffmpeg-static/ffmpeg', import.meta.url).pathname
+    const hint = bundledPathHint(installed)
+    if (existsSync(installed)) {
+      expect(hint).toBeNull()
+    } else {
+      expect(hint).toMatch(/never downloaded/)
+      expect(hint).toMatch(/onlyBuiltDependencies/)
+    }
   })
 
   it('says nothing about paths it cannot explain', () => {

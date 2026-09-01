@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { dirname } from 'node:path'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -56,8 +57,14 @@ export const bundledPathHint = (ffmpegPath: string): null | string => {
   if (!ffmpegPath.includes('node_modules') || existsSync(ffmpegPath)) {
     return null
   }
+  // The package directory is the tell. Present means ffmpeg-static installed and
+  // simply never fetched its binary — pnpm 10 blocks install scripts by default, and
+  // it downloads in one, so this is a silent no-binary install rather than a bad path.
+  if (existsSync(dirname(ffmpegPath))) {
+    return `ffmpeg-static is installed here but its binary was never downloaded — it fetches in a postinstall script, and pnpm 10 blocks those unless the package is listed in onlyBuiltDependencies (in package.json#pnpm, which overrides pnpm-workspace.yaml when both exist). Run pnpm approve-builds, or add it to that list and reinstall.`
+  }
   const virtualRoot = ffmpegPath.startsWith('/ROOT/')
-  return `this path points into node_modules but nothing is there${virtualRoot ? `, and "/ROOT/" is a bundler's virtual root, not a real directory` : ''} — a bundler has almost certainly inlined ffmpeg-static, whose binary path is relative to its own __dirname. Keep it external instead: serverExternalPackages: ['ffmpeg-static'] in next.config, or the equivalent externals setting for your bundler.`
+  return `nothing exists at this path${virtualRoot ? `, and "/ROOT/" is a bundler's virtual root rather than a real directory` : ''} — a bundler has almost certainly inlined ffmpeg-static, whose binary path is relative to its own __dirname. Keep it external instead: serverExternalPackages: ['ffmpeg-static'] in next.config, or the equivalent externals setting for your bundler.`
 }
 
 /** Bound on the boot-time probe so a pathological binary can never hang onInit. */

@@ -2,3 +2,4 @@
 /node_modules
 /payload-types.ts
 *.tsbuildinfo
+.vercel

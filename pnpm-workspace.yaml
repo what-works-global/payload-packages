@@ -3,11 +3,10 @@ packages:
   - 'packages/*'
   - 'tools/*'
 
-# pnpm 10 blocks postinstall scripts unless a package is listed here. ffmpeg-static
-# downloads its binary in one, so without this it installs no ffmpeg at all and the
-# encode tests silently skip.
-onlyBuiltDependencies:
-  - ffmpeg-static
+# NOTE: onlyBuiltDependencies lives in package.json#pnpm, not here. Both locations
+# are read, but package.json wins outright — a list here was silently ignored, so
+# ffmpeg-static never ran its postinstall on a clean install and shipped no binary.
+# Keep one list, in package.json.
 
 catalog:
   '@types/node': 22.19.9
