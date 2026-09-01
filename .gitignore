@@ -52,3 +52,4 @@ yarn-error.log*
 
 # switch-env dev sqlite databases
 .dbs/
+.env*

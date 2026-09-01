@@ -49,8 +49,19 @@ export default buildDevConfig({
       },
     },
   ],
+  // Turso when configured, a local file otherwise. Same adapter either way — Turso is
+  // libsql over the network, which is what @payloadcms/db-sqlite already speaks.
+  //
+  // This is the difference between a demo and a test rig: /tmp is per-instance, so the
+  // upload, the admin's next read and a worker draining the queue each saw a *different*
+  // database. Nothing that spans invocations could be tested at all.
   db: sqliteAdapter({
-    client: { url: `file:${path.join(runtimeDir, 'test.db')}` },
+    client: process.env.TURSO_DATABASE_URL
+      ? {
+          authToken: process.env.TURSO_AUTH_TOKEN,
+          url: process.env.TURSO_DATABASE_URL,
+        }
+      : { url: `file:${path.join(runtimeDir, 'test.db')}` },
     push: true,
   }),
   dirname,
