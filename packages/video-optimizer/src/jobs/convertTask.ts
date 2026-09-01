@@ -77,9 +77,76 @@ const localSourcePath = (
 }
 
 /**
+ * Reads the source through the collection's own storage adapter, in process.
+ *
+ * Every cloud-storage adapter (S3, Vercel Blob, Azure, GCS) registers a
+ * `staticHandler` on `upload.handlers`, and it answers with the file using the
+ * client the adapter already holds. That makes it strictly better than fetching the
+ * document's URL: no `serverURL` to configure, no round trip out to the CDN and
+ * back, and no failure when the deployment sits behind access protection — which a
+ * preview deployment always does, and which no amount of correct configuration
+ * would have fixed.
+ *
+ * Returns `null` whenever this isn't available or doesn't produce a body, so the
+ * HTTP path stays as the fallback for adapters that predate the convention.
+ */
+const adapterSourceResponse = async (
+  payload: Payload,
+  collectionSlug: string,
+  doc: JsonObject,
+  req: PayloadRequest,
+): Promise<null | Response> => {
+  const upload = payload.collections[asCollectionSlug(collectionSlug)]?.config.upload
+  const handlers = upload && typeof upload === 'object' ? upload.handlers : undefined
+  if (!Array.isArray(handlers) || handlers.length === 0) {
+    return null
+  }
+  const filename = String(doc.filename)
+  for (const handler of handlers) {
+    let response: unknown
+    try {
+      // The adapters read `req.headers` for range and etag negotiation; a job's req
+      // may carry the headers of whatever request queued it, so pass fresh ones and
+      // ask for the whole object.
+      response = await handler({ ...req, headers: new Headers() } as PayloadRequest, {
+        // The document itself, which adapters use to resolve a per-document prefix
+        // without going back to the database.
+        doc: doc as Parameters<typeof handler>[1]['doc'],
+        headers: new Headers(),
+        params: { collection: collectionSlug, filename },
+      })
+    } catch {
+      continue // a handler that cannot serve this file shouldn't mask the others
+    }
+    if (!(response instanceof Response)) {
+      continue
+    }
+    // `signedDownloads` makes the adapter answer with a redirect to a presigned URL
+    // rather than the bytes. That URL carries its own credentials, so following it
+    // needs no serverURL either.
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location')
+      if (!location) {
+        continue
+      }
+      const redirected = await fetch(location)
+      if (redirected.ok && redirected.body) {
+        return redirected
+      }
+      continue
+    }
+    if (response.ok && response.body) {
+      return response
+    }
+  }
+  return null
+}
+
+/**
  * Puts the source video on disk for ffmpeg without ever holding it in memory: local
- * storage is read in place, remote storage is streamed to the job's temp directory,
- * and `fetchSource` may hand back either bytes or a path of its own.
+ * storage is read in place, remote storage is read through the collection's storage
+ * adapter (falling back to HTTP), and `fetchSource` may hand back either bytes or a
+ * path of its own.
  */
 const materializeSource = async (
   payload: Payload,
@@ -87,6 +154,7 @@ const materializeSource = async (
   doc: JsonObject,
   config: ResolvedVideoOptimizerConfig,
   tmpDir: string,
+  req: PayloadRequest,
 ): Promise<string> => {
   const tempPath = path.join(tmpDir, tempInputName(String(doc.filename)))
 
@@ -107,6 +175,15 @@ const materializeSource = async (
   const local = localSourcePath(payload, collectionSlug, doc)
   if (local) {
     return local
+  }
+
+  const viaAdapter = await adapterSourceResponse(payload, collectionSlug, doc, req)
+  if (viaAdapter?.body) {
+    await pipeline(
+      viaAdapter.body as unknown as AsyncIterable<Uint8Array>,
+      createWriteStream(tempPath),
+    )
+    return tempPath
   }
 
   const base = payload.config.serverURL || 'http://localhost:3000'
@@ -463,7 +540,7 @@ const runConversion = async ({
     if (pending.length > 0) {
       const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'payload-video-optimizer-job-'))
       try {
-        const sourcePath = await materializeSource(payload, collection, doc, config, tmpDir)
+        const sourcePath = await materializeSource(payload, collection, doc, config, tmpDir, req)
         const sourceSize = (await fs.stat(sourcePath)).size
 
         // Rungs the source is too small to fill would just re-encode the same frame

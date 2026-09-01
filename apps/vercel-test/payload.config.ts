@@ -119,13 +119,9 @@ export default buildDevConfig({
         ]
       : []),
   ],
-  // The conversion job fetches the source over HTTP once files live in S3 rather than
-  // on disk, and it resolves the document's relative url against serverURL — which,
-  // unset, defaults to localhost and fails inside the function. VERCEL_URL is the
-  // deployment's own hostname, so each preview fetches from itself.
-  serverURL: process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : (process.env.SERVER_URL ?? 'http://localhost:3000'),
+  // Deliberately no serverURL: the job reads the source through the collection's
+  // storage adapter, in process. Needing one here would mean the function fetching
+  // its own protected URL, which a preview deployment refuses.
   // Payload only auto-generates outside production, but an explicit false keeps a
   // preview deployment from spawning the detached generate:types worker.
   typescript: { autoGenerate: false },

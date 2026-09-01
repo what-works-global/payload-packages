@@ -1,9 +1,8 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { dirname } from 'node:path'
 import fs from 'node:fs/promises'
 import os from 'node:os'
-import path from 'node:path'
+import path, { dirname } from 'node:path'
 
 import type { ResolvedVideoOptimizerConfig, VideoCodec } from '../types.js'
 import type { FocalPoint } from './args.js'
