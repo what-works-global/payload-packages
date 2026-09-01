@@ -1,0 +1,22 @@
+{
+  "extends": "../../tools/dev-fixture/tsconfig.dev.json",
+  "compilerOptions": {
+    "paths": {
+      "@payload-config": ["./payload.config.ts"],
+      "@whatworks/payload-video-optimizer": ["../../packages/video-optimizer/src/index.ts"],
+      "@whatworks/payload-video-optimizer/*": ["../../packages/video-optimizer/src/*"]
+    }
+  },
+  // The shared base assumes a dev app at packages/<name>/dev, so its "../src" glob
+  // resolves to apps/src here. Point it at the package this app exercises instead.
+  "include": [
+    "${configDir}/**/*.ts",
+    "${configDir}/**/*.tsx",
+    "${configDir}/**/*.js",
+    "${configDir}/**/*.mjs",
+    "${configDir}/../../packages/video-optimizer/src/**/*.ts",
+    "${configDir}/../../packages/video-optimizer/src/**/*.tsx",
+    "${configDir}/.next/types/**/*.ts",
+    "${configDir}/.next/dev/types/**/*.ts"
+  ]
+}

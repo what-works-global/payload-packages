@@ -1,0 +1,31 @@
+{
+  "name": "@whatworks/video-optimizer-vercel-test",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@payloadcms/db-sqlite": "catalog:",
+    "@payloadcms/next": "catalog:",
+    "@payloadcms/ui": "catalog:",
+    "@whatworks/dev-fixture": "workspace:*",
+    "@whatworks/payload-video-optimizer": "workspace:*",
+    "ffmpeg-static": "^5.3.0",
+    "next": "catalog:",
+    "payload": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "@payloadcms/drizzle": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:"
+  }
+}
