@@ -15,7 +15,9 @@ const base = defineDevNextConfig({
 export default {
   ...base,
   // Nothing statically imports the binary, so file tracing has no reason to find it.
-  // Naming it explicitly is what puts the 45 MB executable inside the function.
+  // Naming it explicitly is what puts the 45 MB executable inside the function — and
+  // the build script fetches it first, because tracing a path that does not exist
+  // yet silently includes nothing (see the `build` script's install.js call).
   outputFileTracingIncludes: {
     '/api/**': ['./node_modules/ffmpeg-static/ffmpeg'],
   },
