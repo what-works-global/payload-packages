@@ -1,0 +1,8 @@
+/.next
+/node_modules
+/payload-types.ts
+*.tsbuildinfo
+.vercel
+# Local runtime state: the sqlite database and uploaded media. Never commit these —
+# uploads are whatever video you last tested with, which is not ours to publish.
+/.local

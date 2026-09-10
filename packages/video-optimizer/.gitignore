@@ -1,0 +1,17 @@
+# next.js
+.next/
+
+# production
+/dist
+
+# typescript
+*.tsbuildinfo
+
+# dev sandbox data
+/dev/.dbs
+/dev/media
+/dev/raw-media
+
+.DS_Store
+.env
+.env*.local
