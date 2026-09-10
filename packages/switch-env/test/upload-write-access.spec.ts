@@ -32,8 +32,9 @@ const makeCollection = ({
     () => Promise.resolve(env),
   )
 
-  const makeRequest = (search: string) =>
+  const makeRequest = (search: string, method?: string) =>
     ({
+      method,
       payload: {
         find: ({ where }: { where: { id: { in: string[] } } }) => {
           queries.push(where)
@@ -46,12 +47,12 @@ const makeCollection = ({
 
   const call = (
     operation: 'delete' | 'update',
-    args: { data?: Record<string, unknown>; id?: number; search?: string },
+    args: { data?: Record<string, unknown>; id?: number; method?: string; search?: string },
   ) =>
     (collection.access![operation] as Access)({
       id: args.id,
       data: args.data,
-      req: makeRequest(args.search ?? ''),
+      req: makeRequest(args.search ?? '', args.method),
     } as Parameters<Access>[0])
 
   return { call, queries }
@@ -88,16 +89,54 @@ describe('addAccessSettingsToUploadCollection', () => {
       const { call } = makeCollection({ documents: productionCopied, env: 'development' })
 
       await expect(
-        call('update', { id: 12095, data: { deletedAt: '2026-08-10T00:00:00.000Z' } }),
+        call('update', {
+          id: 12095,
+          data: { deletedAt: '2026-08-10T00:00:00.000Z' },
+          method: 'PATCH',
+        }),
       ).rejects.toThrow(/not created during development/)
-      await expect(call('delete', { id: 12095 })).rejects.toThrow(/not created during development/)
+      await expect(call('delete', { id: 12095, method: 'DELETE' })).rejects.toThrow(
+        /not created during development/,
+      )
+    })
+
+    // The 1.4.5 regression: the admin's document view evaluates the same access
+    // function purely to build its permissions object, and it always identifies
+    // the document by id. Throwing there left the view with no permissions at
+    // all, so every production-copied upload rendered as "Nothing found" instead
+    // of opening read-only.
+    it('answers false, without throwing, to the admin’s permission probe on a production-copied document', async () => {
+      const { call } = makeCollection({ documents: productionCopied, env: 'development' })
+      const storedDocument = { id: 12095, _status: 'draft', createdDuringDevelopment: false }
+
+      await expect(call('update', { id: 12095, data: storedDocument })).resolves.toBe(false)
+      await expect(call('delete', { id: 12095, data: storedDocument })).resolves.toBe(false)
+    })
+
+    it('answers false to a REST access probe (GET /access/:id) on a production-copied document', async () => {
+      const { call } = makeCollection({ documents: productionCopied, env: 'development' })
+
+      await expect(call('update', { id: 12095, method: 'GET' })).resolves.toBe(false)
+      await expect(call('delete', { id: 12095, method: 'GET' })).resolves.toBe(false)
+    })
+
+    it('reserves the public 403 explanation for requests that actually mutate', async () => {
+      const { call } = makeCollection({ documents: productionCopied, env: 'development' })
+
+      await expect(
+        call('update', { id: 12095, data: { alt: 'renamed' }, method: 'PATCH' }),
+      ).rejects.toMatchObject({ isPublic: true, status: 403 })
+      await expect(call('delete', { id: 12095, method: 'DELETE' })).rejects.toMatchObject({
+        isPublic: true,
+        status: 403,
+      })
     })
 
     it('reads the stored flag rather than trusting the incoming data', async () => {
       const { call } = makeCollection({ documents: productionCopied, env: 'development' })
 
       await expect(
-        call('update', { id: 12095, data: { createdDuringDevelopment: true } }),
+        call('update', { id: 12095, data: { createdDuringDevelopment: true }, method: 'PATCH' }),
       ).rejects.toThrow(/not created during development/)
     })
 
