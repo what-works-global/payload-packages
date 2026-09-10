@@ -49,7 +49,7 @@ export const addAccessSettingsToUploadCollection = (
               collection.slug,
             )
             if (!allowed) {
-              if (identifiedDocuments) {
+              if (identifiedDocuments && isMutationRequest(args.req)) {
                 throw new APIError(
                   'Cannot delete upload collection documents that were not created during development, as it will delete the file(s) in cloud storage.',
                   403,
@@ -72,7 +72,7 @@ export const addAccessSettingsToUploadCollection = (
               collection.slug,
             )
             if (!allowed) {
-              if (identifiedDocuments) {
+              if (identifiedDocuments && isMutationRequest(args.req)) {
                 throw new APIError(
                   'Cannot update upload collection documents that were not created during development, as it will potentially modify the file(s) in cloud storage.',
                   403,
@@ -703,6 +703,29 @@ const anyDocumentNotCreatedDuringDevelopment = async (
       typeof doc.createdDuringDevelopment !== 'boolean' || doc.createdDuringDevelopment === false,
   )
 }
+
+/**
+ * Whether the request is an actual write, as opposed to a permission probe.
+ *
+ * Payload evaluates the same access function in two situations that look
+ * identical from `id` and `data`: as the gate of a real write (a REST `PATCH` or
+ * `DELETE`, the admin's saves and bulk actions) and as a probe —
+ * `docAccessOperation` asking "may this user update/delete this document?" to
+ * build the permissions object behind the admin's document view and the REST
+ * `/access/:id` endpoint. A probe even carries the full stored document as
+ * `data`. Throwing during a probe is not a refusal Payload can act on:
+ * `getDocumentPermissions` catches it, continues with no permissions at all, and
+ * the admin renders "Nothing found" for a document that should simply open
+ * read-only. So the descriptive 403 is reserved for requests that actually
+ * mutate; a probe gets a plain `false`.
+ *
+ * REST requests carry their HTTP method. Requests built by `createLocalReq` (the
+ * admin's page renders, the local API) carry none, and neither is a REST write.
+ * GraphQL always arrives as `POST`, so a GraphQL access *query* receives the 403
+ * message rather than `false` — the price of keeping the message on mutations.
+ */
+const isMutationRequest = (req: PayloadRequest): boolean =>
+  ['DELETE', 'PATCH', 'POST', 'PUT'].includes((req.method ?? '').toUpperCase())
 
 /**
  * Whether a development-mode write may touch the documents it targets, and
