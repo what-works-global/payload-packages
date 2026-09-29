@@ -31,13 +31,11 @@ export type DevelopmentFileStorageArgs =
       /**
        * The upload collection options (slugs and prefixes) of your cloud storage plugin.
        *
-       * On payload >= 3.83.0 this can be a separate object — this plugin rewrites the
-       * `docPrefix` of client uploads at request time, which overrides the collection
-       * prefix in the storage key computation. On older payload versions it must be
-       * the *same object* passed to your cloud storage plugin, so that this plugin's
-       * prefix mutations are visible to the storage plugin's request-time lookups.
-       * Sharing the object is harmless on newer versions, so it remains the safe
-       * default.
+       * Pass the *same object* you pass to your cloud storage plugin. In `copy` mode
+       * this plugin then gives it the development prefix before the storage plugin
+       * reads it, which keeps the `staging/public/...` layout (see `prefix`). A separate
+       * object also works, but development uploads are then nested inside the
+       * collection prefix instead.
        */
       collections: Partial<
         Record<
@@ -49,11 +47,15 @@ export type DevelopmentFileStorageArgs =
         >
       >
       mode: 'cloud-storage'
-      /** This will prepend a prefix to all files uploaded to
-       * cloud storage, taking into account any existing prefix.
+      /** A prefix applied to all files uploaded to cloud storage in development, taking
+       * into account any existing prefix.
        *
        * For example, if set to `staging` and the Media file is `image.png`, and the Media
        * collection prefix is `public`, the file will be uploaded to `staging/public/image.png`
+       * in `copy` mode (with `collections` shared with the storage plugin). Otherwise —
+       * `switch` mode, or a separate `collections` object — it is nested inside the
+       * collection prefix: `public/staging/image.png`. Admin client uploads add their
+       * `_objectKey` folder: `staging/public/<_objectKey>/image.png`.
        */
       prefix: string
     }
@@ -148,15 +150,6 @@ export interface SwitchEnvPluginArgs<DBA> {
    * @default false
    */
   logDatabaseSize?: boolean
-  /**
-   * Installed Payload version, used for compatibility logic across upstream behavior
-   * changes (e.g. hook timing at 3.70.0, client upload context at 3.83.0).
-   *
-   * Auto-detected from the installed `payload` package by default. Only pass this to
-   * override detection, e.g. when a bundler setup prevents resolving payload's
-   * package.json at runtime. Example: `3.70.0`
-   */
-  payloadVersion?: string
   /**
    * This will prevent the modal from appearing when clicking the switch button.
    * Instead the environment will be switched immediately. Only applies to `switch` mode.

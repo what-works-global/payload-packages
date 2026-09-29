@@ -90,7 +90,6 @@ describe('mongo: superseded filename index cleanup', () => {
           db: { developmentArgs: dbArgs, function: mongooseAdapter, productionArgs: dbArgs },
           developmentFileStorage,
           developmentSafetyMode: false,
-          payloadVersion: '3.84.1',
         }),
       ],
       secret: 'test-secret-do-not-use-in-prod',

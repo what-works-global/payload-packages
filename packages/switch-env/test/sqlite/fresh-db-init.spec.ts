@@ -25,7 +25,6 @@ const makePluginConfig = (devUrl: string, prodUrl: string) => {
         buttonMode: 'switch',
         db: { developmentArgs, function: sqliteAdapter, productionArgs },
         developmentSafetyMode: false,
-        payloadVersion: '3.84.1',
       }),
     ],
     secret: 'test-secret-do-not-use-in-prod',

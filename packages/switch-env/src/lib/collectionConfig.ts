@@ -1,9 +1,7 @@
-import path from 'path'
 import {
   APIError,
   type CollectionAfterChangeHook,
   type CollectionAfterDeleteHook,
-  type CollectionBeforeChangeHook,
   type CollectionBeforeOperationHook,
   type CollectionConfig,
   type CollectionSlug,
@@ -24,6 +22,11 @@ import type {
 } from '../types.js'
 
 import { developmentStorageModeFieldName } from './developmentFileStorage.js'
+import {
+  getCollectionPrefix,
+  getDevelopmentPrefixPlacement,
+  toDevelopmentPrefix,
+} from './developmentPrefix.js'
 import { getModifiedHandler } from './handlers.js'
 import {
   getModifiedAdminThumbnail,
@@ -125,7 +128,6 @@ export const addDevelopmentSettingsToUploadCollection = <
   collection: T,
   getEnv: GetEnv,
   developmentFileStorage: DevelopmentFileStorageArgs,
-  payloadVersion: string | undefined,
 ): T => {
   if (collection.upload === true) {
     collection.upload = {}
@@ -147,49 +149,6 @@ export const addDevelopmentSettingsToUploadCollection = <
         collection.upload.filenameCompoundIndex = ['filename', 'prefix']
       }
     }
-    if (!collection.upload.handlers) {
-      collection.upload.handlers = []
-    }
-    // Payload validates client uploads by reading the file back from cloud storage
-    // (addDataAndFileToRequest). The signed-URL upload key is computed from the live
-    // collection options — which switchEnvironments has already rewritten to include the
-    // development prefix — but the storage adapter's staticHandler captured the original
-    // collection prefix in a closure before this plugin ran. Without intervention the
-    // read-back resolves a stale key, gets no file, and mimeTypes validation fails.
-    //
-    // What clientUploadContext.prefix carries changed in payload 3.83.0 (#16230):
-    // - < 3.83.0: the collection prefix (captured at build time, missing the development
-    //   prefix), so joining the development prefix onto it yields the uploaded key.
-    // - >= 3.83.0: the doc prefix (normally empty). A non-empty doc prefix replaces the
-    //   collection prefix entirely in the key computation (non-composite mode), so mirror
-    //   the signed-URL logic instead: leave a non-empty doc prefix untouched, otherwise
-    //   pin it to the rewritten collection prefix.
-    const contextCarriesDocPrefix = isPayloadAtLeast(payloadVersion, '3.83.0')
-    collection.upload.handlers.unshift(async (req, args) => {
-      if ('clientUploadContext' in args.params) {
-        const env = await getEnv(req.payload)
-        if (env === 'development' && developmentFileStorage.mode === 'cloud-storage') {
-          const clientUploadContext = args.params.clientUploadContext as {
-            prefix?: string
-          }
-          if (!contextCarriesDocPrefix) {
-            clientUploadContext.prefix = path.posix.join(
-              developmentFileStorage.prefix,
-              clientUploadContext.prefix || '',
-            )
-          } else if (!clientUploadContext.prefix) {
-            const collectionOptions = developmentFileStorage.collections[collection.slug]
-            if (
-              typeof collectionOptions === 'object' &&
-              typeof collectionOptions.prefix === 'string' &&
-              collectionOptions.prefix
-            ) {
-              clientUploadContext.prefix = collectionOptions.prefix
-            }
-          }
-        }
-      }
-    })
     const developmentFileStorageMode = developmentFileStorage.mode
     const fields: Field[] = [
       ...(collection.fields || []),
@@ -248,12 +207,20 @@ export const addDevelopmentSettingsToUploadCollection = <
  * the development prefix already applied here, that check sees the same prefix
  * new documents are stored under, so duplicate filenames get deduplicated
  * (-1, -2, ...) instead of tripping the collection-wide unique filename index.
+ *
+ * A client upload's prefix is set by payload from its signed receipt — the
+ * location the bytes were already written to, which the signed-URL endpoint placed
+ * in the development area — so it is left as is.
  */
 const getDevelopmentBeforeOperationHook = (
   collectionSlug: string,
   getEnv: GetEnv,
   developmentFileStorage: DevelopmentFileStorageArgs,
 ): CollectionBeforeOperationHook => {
+  const developmentPrefixPlacement = getDevelopmentPrefixPlacement(
+    developmentFileStorage,
+    collectionSlug,
+  )
   return async ({ args, operation, req }) => {
     if (operation !== 'create' || !args.data) {
       return args
@@ -265,20 +232,24 @@ const getDevelopmentBeforeOperationHook = (
     const data = args.data as Record<string, unknown>
     data.createdDuringDevelopment = true
     data[developmentStorageModeFieldName] = developmentFileStorage.mode
-    if (developmentFileStorage.mode === 'cloud-storage' && developmentFileStorage.prefix) {
-      if (typeof data.prefix === 'string' && data.prefix) {
-        data.prefix = prependPathPrefixIfMissing(data.prefix, developmentFileStorage.prefix)
-      } else {
-        // No prefix in the incoming data (the field's baked defaultValue only
-        // applies later, during beforeValidate) — pin it to this plugin's
-        // already-rewritten copy of the collection prefix, like the client
-        // upload endpoints do.
-        const collectionOptions = developmentFileStorage.collections[collectionSlug]
-        data.prefix =
-          (typeof collectionOptions === 'object' && collectionOptions.prefix) ||
-          developmentFileStorage.prefix
-      }
+    if (developmentFileStorage.mode !== 'cloud-storage' || !developmentFileStorage.prefix) {
+      return args
     }
+    const file = req.file as { clientUploadContext?: unknown } | undefined
+    if (file?.clientUploadContext) {
+      return args
+    }
+    // No prefix in the incoming data (the field's defaultValue only applies later,
+    // during beforeValidate) starts from the collection prefix.
+    const collectionPrefix = getCollectionPrefix(developmentFileStorage, collectionSlug)
+    data.prefix = toDevelopmentPrefix(
+      (typeof data.prefix === 'string' && data.prefix) || collectionPrefix,
+      {
+        collectionPrefix,
+        developmentPrefix: developmentFileStorage.prefix,
+        placement: developmentPrefixPlacement,
+      },
+    )
     return args
   }
 }
@@ -298,139 +269,46 @@ export const toggleLocalStorage = <T extends CollectionConfig | SanitizedCollect
 }
 
 interface UploadHooks {
+  afterChangeHook: CollectionAfterChangeHook
   afterDeleteHook: CollectionAfterDeleteHook
-  changeHook: CollectionAfterChangeHook | CollectionBeforeChangeHook
 }
 
 const hooks: Record<CollectionSlug, UploadHooks> = {}
-type CloudStorageUploadHookPhase = 'afterChange' | 'beforeChange'
-
-const hasLeadingPathPrefix = (value: string, prefix: string): boolean =>
-  value === prefix || value.startsWith(`${prefix}/`)
-
-const prependPathPrefixIfMissing = (value: string, prefix: string): string => {
-  if (!prefix || hasLeadingPathPrefix(value, prefix)) {
-    return value
-  }
-  return path.posix.join(prefix, value)
-}
-
-const removeLeadingPathPrefix = (value: string, prefix: string): string => {
-  if (!prefix) {
-    return value
-  }
-  if (value === prefix) {
-    return ''
-  }
-  if (value.startsWith(`${prefix}/`)) {
-    return value.slice(prefix.length + 1)
-  }
-  return value
-}
-
-const parseVersionPart = (part: string): number => {
-  const match = part.match(/^\d+/)
-  return match ? Number(match[0]) : 0
-}
-
-const isPayloadAtLeast = (payloadVersion: string | undefined, minVersion: string): boolean => {
-  // An unknown version means neither an explicit `payloadVersion` was passed nor
-  // could one be detected — assume a current payload release.
-  if (payloadVersion === undefined) {
-    return true
-  }
-  const [currentMajor = '0', currentMinor = '0', currentPatch = '0'] = payloadVersion.split('.')
-  const [minMajor = '0', minMinor = '0', minPatch = '0'] = minVersion.split('.')
-  const current = [
-    parseVersionPart(currentMajor),
-    parseVersionPart(currentMinor),
-    parseVersionPart(currentPatch),
-  ]
-  const target = [
-    parseVersionPart(minMajor),
-    parseVersionPart(minMinor),
-    parseVersionPart(minPatch),
-  ]
-
-  for (let i = 0; i < target.length; i++) {
-    if (current[i] > target[i]) {
-      return true
-    }
-    if (current[i] < target[i]) {
-      return false
-    }
-  }
-
-  return true
-}
-
-const getCloudStorageUploadHookPhase = (
-  payloadVersion: string | undefined,
-): CloudStorageUploadHookPhase =>
-  isPayloadAtLeast(payloadVersion, '3.70.0') ? 'afterChange' : 'beforeChange'
-
-const getChangeHooks = <T extends CollectionConfig | SanitizedCollectionConfig>(
-  collection: T,
-  cloudStorageUploadHookPhase: CloudStorageUploadHookPhase,
-): (CollectionAfterChangeHook | CollectionBeforeChangeHook)[] => {
-  if (cloudStorageUploadHookPhase === 'afterChange') {
-    return collection.hooks?.afterChange || []
-  }
-  return collection.hooks?.beforeChange || []
-}
-
-const setChangeHooks = (
-  hooksConfig: NonNullable<CollectionConfig['hooks']>,
-  changeHooks: (CollectionAfterChangeHook | CollectionBeforeChangeHook)[],
-  cloudStorageUploadHookPhase: CloudStorageUploadHookPhase,
-) => {
-  if (cloudStorageUploadHookPhase === 'afterChange') {
-    hooksConfig.afterChange = changeHooks as CollectionAfterChangeHook[]
-  } else {
-    hooksConfig.beforeChange = changeHooks as CollectionBeforeChangeHook[]
-  }
-}
 
 /**
- * Prevents files from being uploaded or deleted by removing those hooks in development.
- * Payload >=3.70.0 moved the cloud-storage upload hook from beforeChange to afterChange.
+ * Prevents files from being uploaded or deleted in development by removing the
+ * cloud-storage plugin's `afterChange` (upload) and `afterDelete` hooks.
  */
 const toggleCollectionHooks = <T extends CollectionConfig | SanitizedCollectionConfig>(
   collection: T,
   enabled: boolean,
-  cloudStorageUploadHookPhase: CloudStorageUploadHookPhase,
 ): T => {
   if (enabled) {
     if (hooks[collection.slug]) {
-      const changeHooks = getChangeHooks(collection, cloudStorageUploadHookPhase)
-      const hooksConfig = {
+      collection.hooks = {
         ...(collection.hooks || {}),
+        afterChange: [
+          ...(collection.hooks?.afterChange || []),
+          hooks[collection.slug].afterChangeHook,
+        ],
         afterDelete: [
           ...(collection.hooks?.afterDelete || []),
           hooks[collection.slug].afterDeleteHook,
         ],
-      } satisfies NonNullable<CollectionConfig['hooks']>
-      setChangeHooks(
-        hooksConfig,
-        [...changeHooks, hooks[collection.slug].changeHook],
-        cloudStorageUploadHookPhase,
-      )
-      collection.hooks = {
-        ...hooksConfig,
       }
       delete hooks[collection.slug]
     }
   } else {
-    const changeHooks = getChangeHooks(collection, cloudStorageUploadHookPhase)
+    const afterChangeHooks = collection.hooks?.afterChange || []
     const afterDeleteHooks = collection.hooks?.afterDelete || []
-    const changeHook = changeHooks.at(-1)
+    const afterChangeHook = afterChangeHooks.at(-1)
     const afterDeleteHook = afterDeleteHooks.at(-1)
-    if (changeHook && afterDeleteHook) {
+    if (afterChangeHook && afterDeleteHook) {
       hooks[collection.slug] = {
+        afterChangeHook,
         afterDeleteHook,
-        changeHook,
       }
-      changeHooks.pop()
+      afterChangeHooks.pop()
       afterDeleteHooks.pop()
     }
   }
@@ -485,20 +363,18 @@ export const toggleUploadProviders = (
 const wrappedClientUploadHandlers = new WeakSet<object>()
 
 /**
- * Payload >= 3.83.0 (#16230) sends the doc `prefix` field value as `docPrefix` with
- * client uploads, and a non-empty docPrefix replaces the collection prefix in the
- * storage key computation. The default doc prefix is baked from the original
- * collection prefix at config build time — before this plugin rewrites prefixes —
- * so signed-URL uploads would land outside the development prefix while the stored
- * doc (and thus the generated URL) carries it.
+ * Places client uploads in the development area. The admin sends the doc `prefix`
+ * field value as `docPrefix` with the signed-URL request, and the storage plugin
+ * resolves the upload key from it, contained beneath its collection prefix. That
+ * field's default is the collection prefix the storage plugin read, so unless the
+ * development prefix was applied before it read its options, a development upload
+ * would land in the production area.
  *
  * Wrap the cloud-storage plugin's signed-URL endpoint(s) — located via the
- * serverHandlerPath that initClientUploads stores on the admin providers — and pin
- * the development prefix onto docPrefix at request time. This covers default,
- * user-defined, and function-generated doc prefixes, and (because docPrefix
- * overrides the collection prefix) makes the upload key independent of the storage
- * plugin's own, possibly unrewritten, collection prefix. Payload < 3.83.0 ignores
- * docPrefix entirely, so the rewrite is harmless there.
+ * serverHandlerPath that initClientUploads stores on the admin providers — and move
+ * docPrefix into the development area at request time (see developmentPrefix.ts).
+ * This covers default, user-defined and function-generated doc prefixes; the
+ * signed receipt then carries the location through to the stored document.
  */
 export const wrapClientUploadEndpoints = (
   config: Config | SanitizedConfig,
@@ -542,24 +418,16 @@ export const wrapClientUploadEndpoints = (
           docPrefix?: string
         } | null
         if (body && typeof body === 'object') {
-          if (typeof body.docPrefix === 'string' && body.docPrefix) {
-            body.docPrefix = prependPathPrefixIfMissing(
-              body.docPrefix,
-              developmentFileStorage.prefix,
-            )
-          } else if (typeof body.collectionSlug === 'string') {
-            // An empty docPrefix falls back to the storage plugin's own collection
-            // prefix, which may predate the development rewrite — pin it to this
-            // plugin's (rewritten) copy instead.
-            const collectionOptions = developmentFileStorage.collections[body.collectionSlug]
-            if (
-              typeof collectionOptions === 'object' &&
-              typeof collectionOptions.prefix === 'string' &&
-              collectionOptions.prefix
-            ) {
-              body.docPrefix = collectionOptions.prefix
-            }
-          }
+          // An empty docPrefix falls back to the collection prefix.
+          const collectionPrefix = getCollectionPrefix(developmentFileStorage, body.collectionSlug)
+          body.docPrefix = toDevelopmentPrefix(
+            (typeof body.docPrefix === 'string' && body.docPrefix) || collectionPrefix,
+            {
+              collectionPrefix,
+              developmentPrefix: developmentFileStorage.prefix,
+              placement: getDevelopmentPrefixPlacement(developmentFileStorage, body.collectionSlug),
+            },
+          )
         }
         req.json = () => Promise.resolve(body)
       }
@@ -618,24 +486,8 @@ export const switchEnvironments = (
   config: Config | SanitizedConfig,
   env: Env,
   developmentFileStorage: DevelopmentFileStorageArgs,
-  payloadVersion: string | undefined,
 ) => {
-  if (developmentFileStorage.mode === 'cloud-storage') {
-    Object.values(developmentFileStorage.collections).forEach((collectionOptions) => {
-      if (typeof collectionOptions === 'object' && typeof collectionOptions.prefix === 'string') {
-        const devPrefix = developmentFileStorage.prefix
-        if (env === 'development') {
-          collectionOptions.prefix = prependPathPrefixIfMissing(
-            collectionOptions.prefix || '',
-            devPrefix,
-          )
-        } else {
-          collectionOptions.prefix = removeLeadingPathPrefix(collectionOptions.prefix, devPrefix)
-        }
-      }
-    })
-  }
-  modifyUploadCollections(config.collections || [], env, developmentFileStorage, payloadVersion)
+  modifyUploadCollections(config.collections || [], env, developmentFileStorage)
   toggleUploadProviders(config, env, developmentFileStorage.mode)
 }
 
@@ -643,17 +495,14 @@ export const modifyUploadCollections = (
   collections: (CollectionConfig | SanitizedCollectionConfig)[],
   env: Env,
   developmentFileStorage: DevelopmentFileStorageArgs,
-  payloadVersion: string | undefined,
 ) => {
   const production = env === 'production'
-  const cloudStorageUploadHookPhase = getCloudStorageUploadHookPhase(payloadVersion)
   collections
     .filter((c) => c.upload)
     .forEach((collection) => {
       toggleCollectionHooks(
         collection,
         production || developmentFileStorage.mode === 'cloud-storage',
-        cloudStorageUploadHookPhase,
       )
       toggleLocalStorage(collection, !production && developmentFileStorage.mode === 'file-system')
     })
