@@ -30,6 +30,9 @@ interface UploadDoc {
 // collection prefix), so unless the development prefix is applied before the
 // operation starts, the check misses existing development docs and the insert
 // trips the unique index ("The following field is invalid: filename").
+//
+// This fixture runs `switch` mode, so the development prefix is applied per
+// request and nests inside the collection prefix: `private/staging`.
 describe('development cloud-storage uploads', () => {
   let workDir: string
   let payload: BasePayload | undefined
@@ -67,7 +70,6 @@ describe('development cloud-storage uploads', () => {
             prefix: 'staging',
           },
           developmentSafetyMode: false,
-          payloadVersion: '3.84.1',
         }),
       ],
       secret: 'test-secret-do-not-use-in-prod',
@@ -97,7 +99,7 @@ describe('development cloud-storage uploads', () => {
     // The admin form submits the prefix field's baked defaultValue.
     const doc = await createUpload('alpha.zip', { prefix: 'private' })
     expect(doc.filename).toBe('alpha.zip')
-    expect(doc.prefix).toBe('staging/private')
+    expect(doc.prefix).toBe('private/staging')
     expect(doc.createdDuringDevelopment).toBe(true)
     expect(doc.developmentStorageMode).toBe('cloud-storage')
   })
@@ -105,22 +107,22 @@ describe('development cloud-storage uploads', () => {
   it('dedupes a duplicate filename instead of tripping the unique filename index', async () => {
     const first = await createUpload('dup.zip', { prefix: 'private' })
     expect(first.filename).toBe('dup.zip')
-    expect(first.prefix).toBe('staging/private')
+    expect(first.prefix).toBe('private/staging')
 
     const second = await createUpload('dup.zip', { prefix: 'private' })
     expect(second.filename).toBe('dup-1.zip')
-    expect(second.prefix).toBe('staging/private')
+    expect(second.prefix).toBe('private/staging')
   })
 
   it('dedupes when the incoming data already carries the development prefix', async () => {
-    const third = await createUpload('dup.zip', { prefix: 'staging/private' })
+    const third = await createUpload('dup.zip', { prefix: 'private/staging' })
     expect(third.filename).toBe('dup-2.zip')
-    expect(third.prefix).toBe('staging/private')
+    expect(third.prefix).toBe('private/staging')
   })
 
-  it('pins the rewritten collection prefix when no prefix is provided', async () => {
+  it('pins the development prefix when no prefix is provided', async () => {
     const doc = await createUpload('no-prefix.zip')
-    expect(doc.prefix).toBe('staging/private')
+    expect(doc.prefix).toBe('private/staging')
     expect(doc.createdDuringDevelopment).toBe(true)
   })
 

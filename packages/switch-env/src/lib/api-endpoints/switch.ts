@@ -45,7 +45,6 @@ export interface SwitchEndpointArgs {
   getDatabaseAdapter: GetDatabaseAdapter
   getEnv: GetEnv
   logDatabaseSize: boolean
-  payloadVersion: string | undefined
   setEnv: SetEnv
 }
 
@@ -55,7 +54,6 @@ export const switchEndpoint = ({
   getDatabaseAdapter,
   getEnv,
   logDatabaseSize,
-  payloadVersion,
   setEnv,
 }: SwitchEndpointArgs): Endpoint => ({
   handler: async (req: PayloadRequest) => {
@@ -208,7 +206,7 @@ export const switchEndpoint = ({
       await fetch(`${switchDbConnectionUrl}?${queryString}`)
     }
 
-    switchEnvironments(payload.config, newEnv, developmentFileStorage, payloadVersion)
+    switchEnvironments(payload.config, newEnv, developmentFileStorage)
 
     // After landing on the development cloud-storage database, drop any
     // superseded global `filename` unique index left behind from before upload

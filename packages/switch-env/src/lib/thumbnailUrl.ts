@@ -17,8 +17,9 @@ import { getDevelopmentStorageMode } from './developmentFileStorage.js'
 type AdminThumbnail = UploadConfig['adminThumbnail']
 
 type DocWithSizes = {
+  _objectKey?: null | string
   filename?: string
-  prefix?: string
+  prefix?: null | string
   sizes?: Record<string, { filename?: string; width?: number } | undefined>
 }
 
@@ -94,6 +95,13 @@ export interface AdminThumbnailArgs {
   imageSize?: string
 }
 
+/**
+ * Builds a direct storage URL: `${basePath}/${prefix}/${_objectKey}/${filename}`.
+ *
+ * Client uploads are stored in a per-upload folder named by the doc's `_objectKey`
+ * (image sizes included), which the cloud-storage plugin joins onto the prefix for
+ * every key and URL it builds; either part may be empty.
+ */
 export const adminThumbnail =
   ({ basePath, imageSize }: AdminThumbnailArgs): GetAdminThumbnail =>
   ({ doc }) => {
@@ -105,9 +113,11 @@ export const adminThumbnail =
         filename = sizeFilename
       }
     }
-    const prefix =
-      typeof typedDoc.prefix === 'string' && typedDoc.prefix ? `${typedDoc.prefix}/` : ''
-    return `${basePath}/${prefix}${filename}`
+    const folder = [typedDoc.prefix, typedDoc._objectKey]
+      .filter((segment): segment is string => typeof segment === 'string' && segment !== '')
+      .map((segment) => `${segment}/`)
+      .join('')
+    return `${basePath}/${folder}${filename}`
   }
 
 const localFileExists = async (

@@ -24,7 +24,6 @@ describe('@whatworks/payload-switch-env peer smoke', () => {
         function: stubDatabaseAdapter,
         productionArgs: { url: 'http://localhost' },
       },
-      payloadVersion: '3.54.0',
     })
     expect(typeof plugin).toBe('function')
   })
@@ -36,7 +35,6 @@ describe('@whatworks/payload-switch-env peer smoke', () => {
         function: stubDatabaseAdapter,
         productionArgs: { url: 'http://localhost' },
       },
-      payloadVersion: '3.54.0',
     })
     const result = await plugin(baseConfig as Config)
     expect(result).toBeDefined()

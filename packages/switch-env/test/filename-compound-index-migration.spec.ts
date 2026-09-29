@@ -39,7 +39,6 @@ const buildUploadConfig = (): Promise<SanitizedConfig> =>
           prefix: 'staging',
         },
         developmentSafetyMode: false,
-        payloadVersion: '3.84.1',
       }),
     ],
     secret: 'test-secret-do-not-use-in-prod',

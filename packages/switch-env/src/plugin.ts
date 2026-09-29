@@ -19,7 +19,10 @@ import { normalizeCopyConfig, warnOnInvalidOverrideTargets } from './lib/copyUti
 import { dropSupersededFilenameIndexes } from './lib/db/dropSupersededFilenameIndexes.js'
 import { getDbaFunction } from './lib/db/getDbaFunction.js'
 import { switchDbConnection } from './lib/db/switchDbConnection.js'
-import { detectPayloadVersion } from './lib/detectPayloadVersion.js'
+import {
+  applyDevelopmentPrefixesBeforeStoragePlugin,
+  confirmDevelopmentPrefixesAppliedBeforeStoragePlugin,
+} from './lib/developmentPrefix.js'
 import { getEnv, setEnv } from './lib/env.js'
 
 const basePath = '@whatworks/payload-switch-env/client'
@@ -37,11 +40,17 @@ export function switchEnvPlugin<DBA>({
   developmentSafetyMode = true,
   enable = true,
   logDatabaseSize = false,
-  payloadVersion,
   quickSwitch = false,
 }: SwitchEnvPluginArgs<DBA>): Plugin {
+  // Runs when `switchEnvPlugin({...})` is called — while the plugins array is being
+  // built, before buildConfig applies the storage plugin listed ahead of this one —
+  // so that plugin records the development prefix itself (see developmentPrefix.ts).
+  if (enable && buttonMode === 'copy' && developmentFileStorage.mode === 'cloud-storage') {
+    applyDevelopmentPrefixesBeforeStoragePlugin(developmentFileStorage)
+  }
+
   return async (config) => {
-    const copyWarnings: string[] = []
+    const initWarnings: string[] = []
     const developmentFileStorageMode = developmentFileStorage.mode
     config.admin = {
       ...(config.admin || {}),
@@ -66,15 +75,17 @@ export function switchEnvPlugin<DBA>({
       return config
     }
 
-    // An undefined resolved version means "assume a current payload release" —
-    // version gates treat unknown as at-least. Throwing here would take the
-    // whole deployment down, so users on older payloads pin explicitly instead.
-    const resolvedPayloadVersion = payloadVersion ?? (await detectPayloadVersion())
-    if (resolvedPayloadVersion === undefined) {
-      console.warn(
-        '[payload-plugin-switch-env] Could not auto-detect the installed payload version — assuming a current release. ' +
-          'If you are running payload < 3.83.0, pass the `payloadVersion` plugin argument explicitly.',
-      )
+    if (developmentFileStorage.mode === 'cloud-storage') {
+      for (const slug of confirmDevelopmentPrefixesAppliedBeforeStoragePlugin(
+        config.collections || [],
+        developmentFileStorage,
+      )) {
+        initWarnings.push(
+          `The storage plugin did not pick up the development prefix for "${slug}", so its development uploads are placed per request instead. ` +
+            'Pass the same collections object to the storage plugin and to `developmentFileStorage.collections` to keep the ' +
+            `\`${developmentFileStorage.prefix}/<collection prefix>/...\` layout.`,
+        )
+      }
     }
 
     if (process.env.NODE_ENV === 'development') {
@@ -109,7 +120,7 @@ export function switchEnvPlugin<DBA>({
     const resolvedCopy = normalizeCopyConfig({
       copy,
       warn: (message) => {
-        copyWarnings.push(message)
+        initWarnings.push(message)
       },
     })
     warnOnInvalidOverrideTargets({
@@ -117,7 +128,7 @@ export function switchEnvPlugin<DBA>({
       copy: resolvedCopy,
       globals: config.globals || [],
       warn: (message) => {
-        copyWarnings.push(message)
+        initWarnings.push(message)
       },
     })
 
@@ -170,7 +181,6 @@ export function switchEnvPlugin<DBA>({
         getDatabaseAdapter,
         getEnv,
         logDatabaseSize,
-        payloadVersion: resolvedPayloadVersion,
         setEnv,
       }),
       copyEndpoint({
@@ -184,12 +194,7 @@ export function switchEnvPlugin<DBA>({
     config.collections = (config.collections || [])
       .map((collection) => addAccessSettingsToUploadCollection(collection, getEnv))
       .map((collection) =>
-        addDevelopmentSettingsToUploadCollection(
-          collection,
-          getEnv,
-          developmentFileStorage,
-          resolvedPayloadVersion,
-        ),
+        addDevelopmentSettingsToUploadCollection(collection, getEnv, developmentFileStorage),
       )
 
     if (developmentFileStorageMode === 'file-system') {
@@ -199,11 +204,11 @@ export function switchEnvPlugin<DBA>({
     // signed-URL endpoints and admin providers already exist on the config.
     wrapClientUploadEndpoints(config, getEnv, developmentFileStorage)
     const env = await getEnv()
-    switchEnvironments(config, env, developmentFileStorage, resolvedPayloadVersion)
+    switchEnvironments(config, env, developmentFileStorage)
 
     const oldInit = config.onInit
     config.onInit = async (payload) => {
-      for (const warning of copyWarnings) {
+      for (const warning of initWarnings) {
         payload.logger.warn(`[payload-plugin-switch-env] ${warning}`)
       }
 
@@ -214,7 +219,7 @@ export function switchEnvPlugin<DBA>({
       const env = await getEnv(payload)
       if (env === 'production') {
         if (buttonMode === 'switch') {
-          switchEnvironments(config, 'production', developmentFileStorage, resolvedPayloadVersion)
+          switchEnvironments(config, 'production', developmentFileStorage)
           await switchDbConnection(payload, 'production', getDatabaseAdapter)
         } else {
           // We never want to be in production env when using the 'copy' buttonMode

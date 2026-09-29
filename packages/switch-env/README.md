@@ -28,7 +28,7 @@ pnpm i @whatworks/payload-switch-env
 
 ## Requirements & limitations
 
-- Payload `3.0.2`+. On Payload < `3.6.0`, the development flags are not applied when using **Duplicate** on upload collections (the duplicated document is treated as a production document).
+- Payload `3.90.0`+. For older Payload versions use `@whatworks/payload-switch-env@1`.
 - Databases: MongoDB, or a Drizzle SQL adapter — Postgres (`@payloadcms/db-postgres`) or SQLite (`@payloadcms/db-sqlite`). See [SQL adapters](#sql-adapters-postgres--sqlite) for the extra schema rules that apply.
 - Production uploads must use a cloud storage adapter (e.g. `@payloadcms/storage-s3`). Production setups relying solely on local file storage are not supported.
 - In development, uploads can use either the local file system or cloud storage (see `developmentFileStorage`).
@@ -40,7 +40,9 @@ pnpm i @whatworks/payload-switch-env
 <details>
 <summary>Why?</summary>
 
-The cloud storage plugin adds `url` fields plus `beforeChange`/`afterDelete` hooks to upload collections. `switchEnv` modifies the `afterRead` hooks on those `url` fields and assumes the cloud storage hooks are last in the array. Keeping cloud storage second-last ensures no other plugin breaks that assumption.
+The cloud storage plugin adds `url` fields plus `afterChange`/`afterDelete` hooks to upload collections, and (with `clientUploads`) a signed-URL endpoint. In `file-system` development mode `switchEnv` removes those upload/delete hooks and wraps the `afterRead` hooks on the `url` fields, assuming the cloud storage hooks are last in each array; in `cloud-storage` mode it wraps the signed-URL endpoint, which must already exist. Keeping cloud storage second-last ensures no other plugin breaks those assumptions.
+
+Being last doesn't stop `switchEnv` from giving `copy`-mode storage options their development prefix before the storage plugin reads them: that happens when `switchEnvPlugin({...})` is _called_, while the `plugins` array is built, and `buildConfig` only applies plugins afterwards (see [Development storage prefix](#development-storage-prefix)).
 
 </details>
 
@@ -74,7 +76,6 @@ export default buildConfig({
     }),
     // switchEnvPlugin: last
     switchEnvPlugin({
-      payloadVersion: '3.70.0',
       enable: process.env.NODE_ENV === 'development',
       db: {
         function: mongooseAdapter,
@@ -97,6 +98,7 @@ export default buildConfig({
       fields: [{ name: 'alt', type: 'text' }],
       upload: {
         // Optional: link admin thumbnails directly to cloud storage
+        // (`${basePath}/${prefix}/${_objectKey}/${filename}`)
         adminThumbnail: adminThumbnail({
           basePath: `https://${process.env.S3_BUCKET}.s3.${process.env.S3_REGION}.amazonaws.com`,
           imageSize: 'thumbnail',
@@ -110,17 +112,16 @@ export default buildConfig({
 
 ## Options
 
-| Option                   | Type                                                 | Default                   | Description                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------ | ---------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `db`                     | object                                               | **required**              | Database adapter `function` plus `productionArgs` and `developmentArgs`.                                                                                                                                                                                                                                                                                        |
-| `payloadVersion`         | string                                               | **required**              | Installed Payload version (e.g. `'3.70.0'`), used for hook-timing compatibility.                                                                                                                                                                                                                                                                                |
-| `buttonMode`             | `'switch' \| 'copy'`                                 | `'switch'`                | `'switch'` toggles between production and development; `'copy'` shows a button that copies the production DB into development (useful for staging).                                                                                                                                                                                                             |
-| `enable`                 | boolean                                              | `true`                    | Enable or disable the plugin.                                                                                                                                                                                                                                                                                                                                   |
-| `quickSwitch`            | `false \| { overwriteDevelopmentDatabase: boolean }` | `false`                   | Skip the confirmation modal and switch immediately (`'switch'` mode only).                                                                                                                                                                                                                                                                                      |
-| `developmentFileStorage` | object                                               | `{ mode: 'file-system' }` | Where dev uploads go: `{ mode: 'file-system' }` or `{ mode: 'cloud-storage', prefix, collections }`. In `cloud-storage` mode, `collections` mirrors the storage plugin's collection options; on Payload < 3.83.0 it must be the _same object_ you pass to the storage plugin (so prefix rewrites are visible to it), on >= 3.83.0 a separate object also works. |
-| `developmentSafetyMode`  | boolean                                              | `true`                    | When `NODE_ENV=development`, throws if `developmentArgs.url` is not `localhost`/`127.0.0.1`.                                                                                                                                                                                                                                                                    |
-| `logDatabaseSize`        | boolean                                              | `false`                   | Logs the serialized backup size when copying the DB (adds a serialization cost).                                                                                                                                                                                                                                                                                |
-| `copy`                   | object                                               | —                         | Control which documents and versions are copied to development. See below.                                                                                                                                                                                                                                                                                      |
+| Option                   | Type                                                 | Default                   | Description                                                                                                                                                                                                                                                           |
+| ------------------------ | ---------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `db`                     | object                                               | **required**              | Database adapter `function` plus `productionArgs` and `developmentArgs`.                                                                                                                                                                                              |
+| `buttonMode`             | `'switch' \| 'copy'`                                 | `'switch'`                | `'switch'` toggles between production and development; `'copy'` shows a button that copies the production DB into development (useful for staging).                                                                                                                   |
+| `enable`                 | boolean                                              | `true`                    | Enable or disable the plugin.                                                                                                                                                                                                                                         |
+| `quickSwitch`            | `false \| { overwriteDevelopmentDatabase: boolean }` | `false`                   | Skip the confirmation modal and switch immediately (`'switch'` mode only).                                                                                                                                                                                            |
+| `developmentFileStorage` | object                                               | `{ mode: 'file-system' }` | Where dev uploads go: `{ mode: 'file-system' }` or `{ mode: 'cloud-storage', prefix, collections }`. In `cloud-storage` mode, pass as `collections` the _same object_ you pass to your storage plugin. See [Development storage prefix](#development-storage-prefix). |
+| `developmentSafetyMode`  | boolean                                              | `true`                    | When `NODE_ENV=development`, throws if `developmentArgs.url` is not `localhost`/`127.0.0.1`.                                                                                                                                                                          |
+| `logDatabaseSize`        | boolean                                              | `false`                   | Logs the serialized backup size when copying the DB (adds a serialization cost).                                                                                                                                                                                      |
+| `copy`                   | object                                               | —                         | Control which documents and versions are copied to development. See below.                                                                                                                                                                                            |
 
 ### `copy`
 
@@ -141,6 +142,50 @@ copy: {
   },
 }
 ```
+
+### Development storage prefix
+
+In `cloud-storage` mode, uploads made in development are stored under `prefix` so they never share storage keys with production files. With a collection prefix of `public` and `prefix: 'staging'`:
+
+| Setup                                                     | Development uploads        |
+| --------------------------------------------------------- | -------------------------- |
+| `copy` mode, `collections` shared with the storage plugin | `staging/public/image.png` |
+| `switch` mode, or a separate `collections` object         | `public/staging/image.png` |
+
+Admin (client) uploads add their per-upload `_objectKey` folder, e.g. `staging/public/<_objectKey>/image.png`.
+
+For the `staging/public` layout, give the storage plugin and `developmentFileStorage.collections` the same object — typically on a staging deployment in `copy` mode:
+
+```ts
+const storageCollections = {
+  media: { prefix: 'public' },
+}
+
+export default buildConfig({
+  // ...
+  plugins: [
+    s3Storage({
+      bucket: process.env.S3_BUCKET!,
+      clientUploads: true,
+      collections: storageCollections,
+      // ...
+    }),
+    switchEnvPlugin({
+      buttonMode: 'copy',
+      developmentFileStorage: {
+        mode: 'cloud-storage',
+        prefix: 'staging',
+        collections: storageCollections, // the same object as above
+      },
+      // ...
+    }),
+  ],
+})
+```
+
+Payload contains every new upload beneath the collection prefix its storage plugin read when the config was built. In `copy` mode the environment is always development, so the plugin gives the shared collection options the development prefix as soon as `switchEnvPlugin({...})` is called — before `buildConfig` applies the storage plugin — and the storage plugin then works under `staging/public` itself. `switch` mode changes environment at runtime, so there the development area is nested inside the collection prefix instead. Documents always resolve from the prefix they were stored with.
+
+If the storage plugin did not pick up the development prefix — for example because it was given a separate `collections` object — the plugin falls back to the nested layout for that collection and logs a warning on init.
 
 ### Duplicate filenames in `cloud-storage` mode
 
@@ -233,6 +278,13 @@ switchEnvPlugin({
 ```
 
 > Migration completeness is checked by comparing the files in `migrationDir` against the `payload_migrations` rows. A serverless bundle usually doesn't ship the `.ts` migration sources, in which case the check reports "unchecked" rather than "clean". The read-only Drizzle diff that runs alongside it is logged as advisory only: drizzle-kit re-emits no-op statements (a `numeric` column with a numeric default — every Payload app has one in `login_attempts`) against a database that already matches the code exactly, and this mode has no in-sync baseline database to subtract that noise against.
+
+## Upgrading from 1.x
+
+- Payload `3.90.0`+ is required (`payload` and every `@payloadcms/*` peer).
+- The `payloadVersion` option is removed — delete it from your `switchEnvPlugin()` call.
+- In `cloud-storage` mode, pass the _same_ `collections` object to your storage plugin and to `developmentFileStorage.collections`. In `copy` mode that keeps development uploads under `staging/public/...`; in `switch` mode, or with a separate object, new development uploads are nested inside the collection prefix (`public/staging/...`). Documents uploaded earlier keep resolving from their stored prefix. See [Development storage prefix](#development-storage-prefix).
+- `adminThumbnail()` now includes the `_objectKey` folder Payload 3.90 gives client uploads, so admin thumbnails for those uploads resolve again.
 
 ## Caution
 
