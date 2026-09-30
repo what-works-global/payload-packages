@@ -45,6 +45,7 @@
     "@payloadcms/next": "catalog:",
     "@payloadcms/richtext-lexical": "catalog:",
     "@payloadcms/translations": "catalog:",
+    "@payloadcms/ui": "catalog:",
     "@playwright/test": "^1.52.0",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
@@ -74,6 +75,7 @@
   "peerDependencies": {
     "@payloadcms/richtext-lexical": ">=3.29.0 <4",
     "@payloadcms/translations": ">=3.29.0 <4",
+    "@payloadcms/ui": ">=3.29.0 <4",
     "payload": ">=3.29.0 <4"
   },
   "whatworks": {
@@ -82,9 +84,6 @@
         "min": "3.29.0"
       }
     }
-  },
-  "dependencies": {
-    "@payloadcms/ui": "catalog:"
   },
   "engines": {
     "node": ">=20.9.0",

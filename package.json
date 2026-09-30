@@ -11,6 +11,7 @@
     "changeset": "changeset",
     "check:exports": "pnpm -r --filter './packages/*' check:exports",
     "check:package-scripts": "node scripts/sync-package-scripts.mjs --check",
+    "check:peer-dependencies": "node scripts/check-peer-dependencies.mjs",
     "check:publish-config": "node scripts/sync-publish-config.mjs --check",
     "check:use-client": "node scripts/check-use-client.mjs",
     "clean": "pnpm -r clean",

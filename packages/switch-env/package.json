@@ -76,7 +76,6 @@
     "@payloadcms/db-postgres": ">=3.90.0 <4",
     "@payloadcms/db-sqlite": ">=3.90.0 <4",
     "@payloadcms/drizzle": ">=3.90.0 <4",
-    "@payloadcms/plugin-cloud-storage": ">=3.90.0 <4",
     "@payloadcms/ui": ">=3.90.0 <4",
     "mongoose": "^8.8.1",
     "next": ">=15.0.3",
