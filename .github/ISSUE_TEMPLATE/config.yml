@@ -1,6 +1,9 @@
 # Force contributors to use a structured form instead of a blank issue.
 blank_issues_enabled: false
 contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/what-works-global/payload-packages/blob/main/SECURITY.md
+    about: Please don't file security issues publicly. Follow the security policy to report privately.
   - name: Question or discussion
     url: https://github.com/what-works-global/payload-packages/discussions
     about: For usage questions, ideas, and general discussion, please open a Discussion instead of an issue.

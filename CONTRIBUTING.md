@@ -2,7 +2,7 @@
 
 Thanks for taking a look. Bug reports, reproductions, docs fixes, ideas and code are all useful. You don't need to write code to help.
 
-This guide covers what is specific to this monorepo. The organisation-wide [contributing guide](https://github.com/what-works-global/.github/blob/main/CONTRIBUTING.md) and [code of conduct](https://github.com/what-works-global/.github/blob/main/CODE_OF_CONDUCT.md) apply too.
+Everyone here is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Keep technical disagreement about the code, not the person.
 
 ## Questions and ideas
 
