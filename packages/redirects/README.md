@@ -224,7 +224,7 @@ createRedirectsMiddleware({
   list: undefined, // the read-through origin — see "Serving from more than one region"
   cacheMemoMs: undefined, // in-memory memo; bounds edit propagation (default 5000 in production)
   trackHits: true, // report matches to the hit endpoint (disable with trackHits: false)
-  refreshOnMiss: true, // fallback only, for when the list route is unreachable
+  refreshOnMiss: true, // only when there is no list route (list.disabled, no path)
   secret: process.env.REDIRECTS_SECRET, // sent as x-payload-redirects-secret on background calls
   debug: false, // console.debug('[payload-redirects] …') for misses, matches, skips
   trailingSlash: false, // match your next.config trailingSlash: true
@@ -237,7 +237,7 @@ createRedirectsMiddleware({
 
 - **`cache`** — **optional.** A store in front of the list route: a hit answers with no HTTP hop at all. Omit it and the serving side runs on the list route alone, which is correct (just a fetch per memo expiry) — a store is never the source of truth, `list` is. Sharing one adapter with the plugin means its writes warm the store directly, which is what you want in a single deployment; it is no longer a requirement, because the read-through seeds whatever store the serving side has. That is what makes a store the writer cannot reach — a Worker's KV binding, a per-instance `memoryCache()` — a sensible choice.
 - **`list`** — the read-through origin. On a miss the resolver fetches the list from `list.path`, answers the current request from it, and seeds `cache` — which is what makes a multi-region read path correct (see [Serving from more than one region](#serving-from-more-than-one-region)). `path` defaults to the plugin's own list endpoint, derived from `api` and `endpointsPath`, so there is nothing to set; a relative path is `basePath`-prefixed and resolved against the request origin exactly like `api`, an absolute URL is used verbatim. `list: { disabled: true }` stops the plugin registering the endpoint; combined with a `path` it means "I serve the list myself", and on its own it means "there is no list route", which restores the legacy miss path.
-- **`refreshOnMiss`** — the fallback when the list is disabled or the list route is unreachable. It POSTs `refresh-cache`, which rebuilds wherever the Payload function runs — so on a multi-region read path it warms a cache the missing region cannot see, and the current request still passes through unredirected. The read-through is the real mechanism; this is a weak backstop.
+- **`refreshOnMiss`** — the miss path when there is **no list route** (`list: { disabled: true }` with no `path`). It POSTs `refresh-cache`, which rebuilds wherever the Payload function runs — so on a multi-region read path it warms a cache the missing region cannot see, and the current request still passes through unredirected. Each instance sends one refresh at a time, and successive ones back off (1s, doubling to 30s) until a cache read succeeds. With a list route it never fires: a failed read-through is not a reason to boot the origin again.
 - **`api`** — base of the Payload REST API the background refresh and hit-tracking calls target. A **relative path** (default `/api`) is resolved against each request's own origin and, in an app with a `basePath`, prefixed with it automatically — so keep it `/api`, not `/<basePath>/api`. An **absolute URL** (`https://cms.example.com/api`) is used verbatim, for split-origin deployments (see below), and is never `basePath`-prefixed.
 - **`cacheMemoMs`** — micro-memo (per middleware instance) of the last resolved list, whether it came from `cache` or from a read-through, so bursts of requests don't each hit the backing store. Defaults to `5000` when `NODE_ENV === 'production'`, otherwise `0` (off). A miss is never memoized, so a fresh list is picked up on the very next request. **This is the only layer no purge can reach**, which makes it the floor on how quickly an edit is seen: keep it at the few-second default when `cache` is set, and raise it (`60_000`) when it is not, trading propagation delay for fewer fetches.
 - **`debug`** — opt-in diagnostics for cache misses, matches (`from → destination` + status), open-redirect rejections, and self-redirect skips. Never logs request bodies.
@@ -600,7 +600,7 @@ Run it from a one-off script or a `payload.jobs`/migration task, then remove the
 
 Registered under the Payload API route at `endpointsPath`:
 
-- `POST /api/payload-redirects/refresh-cache` — rebuild the cache from the database.
+- `POST /api/payload-redirects/refresh-cache` — rebuild the cache from the database. Never calls `list.invalidate`: a refresh re-reads unchanged data, so it is not an edit, and a purge per call would re-cold every region each time. Edits purge through the collection's hooks.
 - `GET /api/payload-redirects/list` — the redirect list, CDN-cacheable and purgeable by tag, that the serving side reads through to on a miss. Registered unless `list: { disabled: true }`.
 - `POST /api/payload-redirects/hit/:id` — increment a redirect's hit counter (only when `trackHits` is enabled).
 
@@ -611,5 +611,5 @@ The two `POST` endpoints are open unless you configure a `secret` (see [Security
 - Hooks on the **redirects collection** propagate cache-write failures — a redirect an editor believes is live but never reached the cache is worse than a failed save.
 - Hooks on **destination collections** only log failures — a broken cache backend must not block content publishing.
 - The **serving side** treats a throwing cache adapter as a miss rather than as "no redirects", so a misconfigured store degrades to the list route instead of silently disabling every redirect. It never seeds a store that is already failing.
-- A **failed list fetch** falls back to `refreshOnMiss` and passes the request through — that is the only path on which a miss still goes unredirected.
+- A **failed list fetch** (an error status, a network failure, or a malformed body) passes the request through unredirected — the only path on which a miss still goes unredirected — and backs that instance off the list route: no further read-through for 1s, doubling per consecutive failure to 30s, reset by any successful read. Requests in the meantime pass through without calling the origin, so an origin that cannot answer is not asked again by every request that misses. It does not fall back to `refresh-cache`.
 - A **failed `list.invalidate`** is logged and swallowed: stale entries then expire on their own TTL, which is a freshness problem, not a correctness one, and it must not fail the write that triggered it.
