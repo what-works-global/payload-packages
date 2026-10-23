@@ -42,7 +42,10 @@ export type RedirectsMiddlewareOptions = {
   }) => Promise<void> | void
   /**
    * On a cache miss, POST the plugin's refresh endpoint in the background so
-   * the next request is answered from a warm cache.
+   * the next request is answered from a warm cache. Only applies when there is
+   * no list route (`list.disabled` with no `path`); with one, a miss reads
+   * through to it instead. One refresh at a time per instance, backing off
+   * until a cache read succeeds.
    * @default true
    */
   refreshOnMiss?: boolean

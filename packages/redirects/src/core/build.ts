@@ -350,9 +350,10 @@ export const buildRedirectsCacheEntries = async ({
 export type SyncRedirectsCacheOptions = {
   /**
    * Call `list.invalidate` after the write. Pass `false` when nothing actually
-   * changed — a boot-time prime, say — so a cold start does not issue a global
-   * cache purge. Every purge is platform-wide and, on serverless, cold starts are
-   * far more frequent than edits.
+   * changed — a boot-time prime, or the `refresh-cache` endpoint — so a cold
+   * start or a refresh does not issue a global cache purge. Every purge is
+   * platform-wide and, on serverless, cold starts are far more frequent than
+   * edits.
    * @default true
    */
   invalidate?: boolean
@@ -361,8 +362,8 @@ export type SyncRedirectsCacheOptions = {
 /**
  * Rebuilds the redirects cache from the database, then invalidates the list
  * route's cache tags so every other region picks the change up. The plugin calls
- * this from its hooks and the refresh endpoint; call it yourself after seeding
- * redirects programmatically. Pass `req` when running inside a Payload request so
+ * this from its hooks, and without the purge from boot and the refresh endpoint;
+ * call it yourself after seeding redirects programmatically. Pass `req` when running inside a Payload request so
  * the rebuild sees uncommitted transaction state.
  */
 export const syncRedirectsCache = async (

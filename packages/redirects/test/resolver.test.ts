@@ -49,6 +49,7 @@ const headerOf = (init: RequestInit | undefined, name: string) =>
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('createRedirectsResolver', () => {
@@ -110,14 +111,12 @@ describe('createRedirectsResolver', () => {
     expect(await resolver('https://site.com/old', ctx)).toBeNull()
 
     await Promise.all(ctx.tasks)
-    // The read-through is attempted first; the refresh POST is the fallback when
-    // the list route yields nothing usable.
-    expect(urlsOf(fetchMock)).toEqual([
-      'https://site.com/api/payload-redirects/list',
-      'https://site.com/api/payload-redirects/refresh-cache',
-    ])
+    // With a list route (the default) a miss reads through to it, and nothing
+    // else: this one yields nothing usable, and that is not a reason to boot the
+    // origin again with a refresh POST.
+    expect(urlsOf(fetchMock)).toEqual(['https://site.com/api/payload-redirects/list'])
 
-    // With the read-through opted out, the refresh POST is the only call.
+    // Without a list route, the refresh POST is the only call.
     fetchMock.mockClear()
     const legacy = createRedirectsResolver({ cache: memoryCache(), list: { disabled: true } })
     const legacyCtx = fakeCtx()
@@ -139,6 +138,62 @@ describe('createRedirectsResolver', () => {
     })
     expect(await disabled('https://site.com/old', fakeCtx())).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('sends one refresh at a time without a list route, backing off until the cache answers', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(0)
+
+    let settle: (() => void) | undefined
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          settle = () => resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cache = memoryCache()
+    const resolver = createRedirectsResolver({
+      cache,
+      cacheMemoMs: 0,
+      list: { disabled: true },
+      trackHits: false,
+    })
+
+    // A burst of misses while the first refresh is still running sends one.
+    const ctx = fakeCtx()
+    for (let index = 0; index < 20; index++) {
+      expect(await resolver('https://site.com/old', ctx)).toBeNull()
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Even once it settles, the next waits out the back-off: this instance cannot
+    // tell whether it helped until a read succeeds (on a multi-region read path
+    // it never will).
+    settle?.()
+    await Promise.all(ctx.tasks)
+    await resolver('https://site.com/old', ctx)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    vi.setSystemTime(1000)
+    await resolver('https://site.com/old', ctx)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    settle?.()
+    await Promise.all(ctx.tasks)
+
+    // 2s next…
+    vi.setSystemTime(2999)
+    await resolver('https://site.com/old', ctx)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    // …unless the cache answers, which resets it.
+    await cache.set([entry()])
+    expect((await resolver('https://site.com/old', ctx))?.status).toBe(301)
+    await cache.set(null as unknown as CachedRedirect[])
+    await resolver('https://site.com/old', ctx)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    settle?.()
+    await Promise.all(ctx.tasks)
   })
 
   it('tracks hits through the plugin endpoint', async () => {
@@ -500,7 +555,7 @@ describe('read-through via list.path', () => {
     ).toBe('sh')
   })
 
-  it('falls back to the refresh POST when the list route fails', async () => {
+  it('never falls back to the refresh POST when the list route fails', async () => {
     const fetchMock = vi.fn((input: string | URL, _init?: RequestInit) =>
       String(input).includes('/list')
         ? Promise.resolve(new Response('nope', { status: 500 }))
@@ -512,9 +567,123 @@ describe('read-through via list.path', () => {
     const ctx = fakeCtx()
     expect(await resolver('https://site.com/old', ctx)).toBeNull()
 
+    // The refresh rebuilds wherever Payload runs, which this region may not see;
+    // under an origin outage it only adds a cold start per miss.
     await Promise.all(ctx.tasks)
-    const urls = fetchMock.mock.calls.map(([input]) => String(input))
-    expect(urls).toContain('https://site.com/api/payload-redirects/refresh-cache')
+    expect(urlsOf(fetchMock)).toEqual(['https://site.com/list'])
+  })
+
+  it('backs off the list route after a failure, doubling, until a read succeeds', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(0)
+
+    let listUp = false
+    const fetchMock = vi.fn((input: string | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        String(input).includes('/list') && listUp
+          ? new Response(JSON.stringify({ redirects: [entry()] }), { status: 200 })
+          : new Response('nope', { status: 500 }),
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const listCalls = () => urlsOf(fetchMock).filter((url) => url.includes('/list')).length
+
+    // No store, no memo: every request is a miss, so each one would read through.
+    const resolver = createRedirectsResolver({
+      cacheMemoMs: 0,
+      list: { path: '/list' },
+      trackHits: false,
+    })
+
+    // The first failure: the request passes through, and the origin rests 1s.
+    expect(await resolver('https://site.com/old')).toBeNull()
+    expect(listCalls()).toBe(1)
+
+    // A burst inside the window passes through without asking the origin again.
+    for (let index = 0; index < 50; index++) {
+      expect(await resolver('https://site.com/old')).toBeNull()
+    }
+    expect(listCalls()).toBe(1)
+
+    // After 1s it tries once more; a second failure doubles the wait to 2s.
+    vi.setSystemTime(1000)
+    expect(await resolver('https://site.com/old')).toBeNull()
+    expect(listCalls()).toBe(2)
+    vi.setSystemTime(2999)
+    expect(await resolver('https://site.com/old')).toBeNull()
+    expect(listCalls()).toBe(2)
+
+    // A malformed body is a failure too: 4s.
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(new Response(JSON.stringify({ redirects: 'nope' }), { status: 200 })),
+    )
+    vi.setSystemTime(3000)
+    expect(await resolver('https://site.com/old')).toBeNull()
+    expect(listCalls()).toBe(3)
+
+    // The waits stop doubling at 30s.
+    for (const at of [7000, 15_000, 31_000, 61_000]) {
+      vi.setSystemTime(at - 1)
+      await resolver('https://site.com/old')
+      const before = listCalls()
+      vi.setSystemTime(at)
+      await resolver('https://site.com/old')
+      expect(listCalls()).toBe(before + 1)
+    }
+    vi.setSystemTime(91_000)
+    await resolver('https://site.com/old')
+    expect(listCalls()).toBe(8)
+
+    // The origin is back: the next attempt redirects, and resets the back-off.
+    listUp = true
+    vi.setSystemTime(121_000)
+    expect((await resolver('https://site.com/old'))?.status).toBe(301)
+    expect(listCalls()).toBe(9)
+
+    // So a later failure starts again at 1s, not 30s.
+    listUp = false
+    await resolver('https://site.com/old')
+    expect(listCalls()).toBe(10)
+    vi.setSystemTime(122_000)
+    await resolver('https://site.com/old')
+    expect(listCalls()).toBe(11)
+  })
+
+  it('resets the back-off when the cache answers', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(0)
+
+    const fetchMock = vi.fn((_input: string | URL, _init?: RequestInit) =>
+      Promise.resolve(new Response('nope', { status: 500 })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cache = memoryCache()
+    const resolver = createRedirectsResolver({
+      cache,
+      cacheMemoMs: 0,
+      list: { path: '/list' },
+      trackHits: false,
+    })
+
+    // Fail three times: the next attempt is 4s away.
+    for (const at of [0, 1000, 3000]) {
+      vi.setSystemTime(at)
+      await resolver('https://site.com/old')
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    // A plugin write lands in this region's store; the next read hits it.
+    await cache.set([entry()])
+    expect((await resolver('https://site.com/old'))?.status).toBe(301)
+
+    // Emptied again, the next miss reads through at once and backs off 1s.
+    await cache.set(null as unknown as CachedRedirect[])
+    await resolver('https://site.com/old')
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    vi.setSystemTime(4000)
+    await resolver('https://site.com/old')
+    expect(fetchMock).toHaveBeenCalledTimes(5)
   })
 
   it('ignores a malformed list payload and never fetches when the list is disabled', async () => {

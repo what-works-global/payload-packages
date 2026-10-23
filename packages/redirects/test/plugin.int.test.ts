@@ -472,6 +472,14 @@ describe('the list route and cache invalidation', () => {
       invalidated.length = 0
       await instanceCache.set([])
       expect(invalidated).toEqual([])
+
+      // A refresh re-reads unchanged data, so it is not an edit. Its callers can
+      // be many at once, and a purge per call would re-cold every region each time.
+      invalidated.length = 0
+      const refresh = findEndpointOn(payload, '/payload-redirects/refresh-cache').handler
+      expect((await refresh(fakeRequest(payload))).status).toBe(200)
+      expect(await instanceCache.get()).toHaveLength(1)
+      expect(invalidated).toEqual([])
     } finally {
       await destroy()
     }

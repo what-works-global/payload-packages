@@ -58,11 +58,14 @@ export type RedirectsResolverOptions = {
    * On a cache miss, POST the plugin's refresh endpoint in the background so
    * the next request is answered from a warm cache.
    *
-   * This is a **fallback**, and a weak one: the rebuild runs wherever the Payload
-   * function runs, so on a multi-region read path it warms a cache the missing
-   * region cannot see, and the current request still returns "no redirect". The
-   * read-through via `list` is the real mechanism; this only applies when the
-   * list route is unreachable or `list.disabled` is set.
+   * Only applies when there is **no list route** — `list.disabled` with no
+   * `path`. With a list route (the default), a miss reads through to it and
+   * never POSTs: the rebuild runs wherever the Payload function runs, so on a
+   * multi-region read path it warms a cache the missing region cannot see, and
+   * each one boots the origin for nothing.
+   *
+   * At most one refresh is in flight per instance, and successive ones back off
+   * (1s, doubling to 30s) until a cache read succeeds.
    * @default true
    */
   refreshOnMiss?: boolean
@@ -124,6 +127,11 @@ type Memo = { at: number; entries: CachedRedirect[] }
 // default. Guarded so non-Node runtimes (Workers) don't throw on the reference.
 const defaultCacheMemoMs =
   typeof process !== 'undefined' && process.env?.NODE_ENV === 'production' ? 5000 : 0
+
+/** The wait after the miss path's first failed origin call, doubled per consecutive failure. */
+const ORIGIN_BACKOFF_MS = 1000
+/** The longest an instance waits between origin calls while they keep failing. */
+const ORIGIN_BACKOFF_MAX_MS = 30_000
 
 /**
  * Builds a framework-agnostic redirect resolver. It owns the memoized cache
@@ -209,6 +217,31 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
     }
   }
 
+  // The miss path's origin calls — the list read-through, or the refresh POST
+  // when there is no list route — back off per instance while they fail. Without
+  // it, an origin that cannot answer is asked again by every request that misses,
+  // and each ask boots a Payload instance: a burst of traffic against a database
+  // that is refusing connections turns into thousands of cold starts, all
+  // opening connections of their own. Reset by any successful read.
+  let originRetryAt = 0
+  let originBackoffMs = 0
+
+  const originReady = () => Date.now() >= originRetryAt
+
+  const backOffOrigin = () => {
+    originBackoffMs =
+      originBackoffMs === 0
+        ? ORIGIN_BACKOFF_MS
+        : Math.min(originBackoffMs * 2, ORIGIN_BACKOFF_MAX_MS)
+    originRetryAt = Date.now() + originBackoffMs
+    log(`backing off the origin: next call in ${originBackoffMs}ms`)
+  }
+
+  const resetOriginBackoff = () => {
+    originBackoffMs = 0
+    originRetryAt = 0
+  }
+
   const readEntries = async (): Promise<'error' | CachedRedirect[] | null> => {
     if (cacheMemoMs > 0 && memo && Date.now() - memo.at < cacheMemoMs) {
       return memo.entries
@@ -231,6 +264,7 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
 
     if (entries !== null) {
       memoize(entries)
+      resetOriginBackoff()
     }
 
     return entries
@@ -240,6 +274,7 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
   // on a cold instance should cost a single request to the list route, not one
   // per request.
   let inflightList: Promise<CachedRedirect[] | null> | undefined
+  let refreshInFlight = false
 
   const fetchList = async (requestUrl: URL, path: string): Promise<CachedRedirect[] | null> => {
     // No `cache: 'no-store'` here, deliberately — the whole point of the list
@@ -259,6 +294,15 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
   const readThrough = (requestUrl: URL, path: string): Promise<CachedRedirect[] | null> => {
     inflightList ??= fetchList(requestUrl, path)
       .catch(() => null)
+      .then((fetched) => {
+        // A malformed payload is as much a failure as a 500: back off from both.
+        if (fetched) {
+          resetOriginBackoff()
+        } else {
+          backOffOrigin()
+        }
+        return fetched
+      })
       .finally(() => {
         inflightList = undefined
       })
@@ -284,15 +328,34 @@ export const createRedirectsResolver = (options: RedirectsResolverOptions): Redi
     if (entries === null) {
       log('cache miss')
 
+      // No list route: the refresh POST is the only lever, and this request
+      // passes through unredirected whatever it does. One at a time, and each
+      // pushes the next out, since this instance cannot see whether it helped
+      // until a cache read succeeds.
+      if (!listTarget) {
+        if (refreshOnMiss && !refreshInFlight && originReady()) {
+          refreshInFlight = true
+          backOffOrigin()
+          runInBackground(ctx, () =>
+            postEndpoint(requestUrl, '/refresh-cache').finally(() => {
+              refreshInFlight = false
+            }),
+          )
+        }
+        return null
+      }
+
       // Read through to the list route: answer THIS request correctly, then seed
-      // the local cache so the region stops missing. With the list disabled there
-      // is no origin to fall back to, and the request passes through unredirected.
-      const fetched = listTarget ? await readThrough(requestUrl, listTarget) : null
+      // the local cache so the region stops missing. A failed read-through falls
+      // back to nothing — never to the refresh POST, which rebuilds a cache this
+      // region may not see — and the request passes through unredirected.
+      if (!originReady()) {
+        return null
+      }
+
+      const fetched = await readThrough(requestUrl, listTarget)
 
       if (!fetched) {
-        if (refreshOnMiss) {
-          runInBackground(ctx, () => postEndpoint(requestUrl, '/refresh-cache'))
-        }
         return null
       }
 

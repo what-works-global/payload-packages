@@ -165,12 +165,20 @@ const createListEndpoint = (config: ResolvedRedirectsConfig): Endpoint => ({
   path: `${config.endpointsPath}${DEFAULT_LIST_SUBPATH}`,
 })
 
+/**
+ * Rebuilds the cache from the database. Never purges: a refresh only re-reads
+ * what is already there, so it is not an edit, and its callers — a serving
+ * side's miss, an uptime probe, anyone holding the secret — can be many at
+ * once. A purge per call would mark every region's copy stale on each, so the
+ * regions that missed would miss again. Edits purge through the collection's
+ * hooks.
+ */
 const createRefreshCacheEndpoint = (config: ResolvedRedirectsConfig): Endpoint => ({
   handler: async (req) => {
     if (!isAuthorized(req, config)) {
       return forbidden()
     }
-    await syncRedirectsCache(req.payload, req)
+    await syncRedirectsCache(req.payload, req, { invalidate: false })
     return Response.json({ ok: true })
   },
   method: 'post',
