@@ -103,8 +103,32 @@ const bindValue = (value: unknown, isJsonColumn: boolean): unknown => {
   return value
 }
 
-const insertRows = async (
-  client: PgClient,
+/**
+ * Postgres caps one statement at 65,535 bind parameters (the wire protocol
+ * counts them in an Int16), so a batch holds at most this many values.
+ */
+const MAX_BIND_PARAMETERS = 65_535
+
+/**
+ * Rows per INSERT, before the parameter cap. Each statement is a network round
+ * trip, so the restore's speed is set by how many statements it sends: against
+ * a remote database a few ms away, one INSERT per row makes a copy of a few
+ * hundred thousand rows take around ten minutes. A thousand rows keeps each
+ * statement's text and values modest while making round trips negligible.
+ */
+const MAX_ROWS_PER_INSERT = 1_000
+
+/** How many rows of a table with `columnCount` columns fit in one INSERT. */
+export const rowsPerInsert = (columnCount: number): number =>
+  Math.max(1, Math.min(MAX_ROWS_PER_INSERT, Math.floor(MAX_BIND_PARAMETERS / columnCount)))
+
+/**
+ * Loads `rows` with multi-row INSERTs. A VALUES list written directly in an
+ * INSERT is coerced to the target columns' types, so the parameters bind
+ * exactly as they would one row at a time.
+ */
+export const insertRows = async (
+  client: { query: (text: string, values?: unknown[]) => Promise<unknown> },
   schema: string,
   tableName: string,
   rows: Record<string, unknown>[],
@@ -118,14 +142,45 @@ const insertRows = async (
     return
   }
 
-  const columnList = columns.map(quoteIdent).join(', ')
-  const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
-  const text = `INSERT INTO ${qualify(schema, tableName)} (${columnList}) VALUES (${placeholders})`
+  const prefix = `INSERT INTO ${qualify(schema, tableName)} (${columns.map(quoteIdent).join(', ')}) VALUES `
+  const batchSize = rowsPerInsert(columns.length)
 
-  for (const row of rows) {
-    const values = columns.map((column) => bindValue(row[column], jsonColumns.has(column)))
-    await client.query(text, values)
+  for (let start = 0; start < rows.length; start += batchSize) {
+    const batch = rows.slice(start, start + batchSize)
+    const values: unknown[] = []
+    const tuples: string[] = []
+    for (const row of batch) {
+      const placeholders: string[] = []
+      for (const column of columns) {
+        values.push(bindValue(row[column], jsonColumns.has(column)))
+        placeholders.push(`$${values.length}`)
+      }
+      tuples.push(`(${placeholders.join(', ')})`)
+    }
+    try {
+      await client.query(prefix + tuples.join(', '), values)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(
+        `[switch-env] could not restore rows ${start + 1}–${start + batch.length} of ${rows.length} into "${tableName}": ${reason}`,
+        { cause: error },
+      )
+    }
   }
+}
+
+/**
+ * How long the restore waits for each lock before giving up. Dropping the
+ * schema needs an exclusive lock on every table, so a connection that keeps a
+ * transaction open on the target would otherwise stall the copy until the
+ * host kills it — while every other query on those tables queues behind it.
+ */
+export const RESTORE_LOCK_TIMEOUT_MS = 30_000
+
+/** SQLSTATE 55P03: a lock was not granted within `lock_timeout`. */
+const isLockTimeout = (error: unknown): boolean => {
+  const { cause, code } = (error ?? {}) as { cause?: { code?: unknown }; code?: unknown }
+  return code === '55P03' || cause?.code === '55P03'
 }
 
 /**
@@ -254,6 +309,7 @@ const replayDdlStatement = async (
 
 export const restorePostgres = async ({
   backupData,
+  lockTimeoutMs = RESTORE_LOCK_TIMEOUT_MS,
   logger,
   targetAdapter,
 }: RestoreSqlArgs): Promise<RestoreSqlResult> => {
@@ -269,6 +325,9 @@ export const restorePostgres = async ({
     // irrelevant. SET LOCAL is transaction-scoped and reverts on COMMIT.
     // Requires a sufficiently privileged role (the local development user).
     await client.query("SET LOCAL session_replication_role = 'replica'")
+    // Fail fast, with nothing changed, rather than wait indefinitely behind a
+    // connection that holds the target's tables (see RESTORE_LOCK_TIMEOUT_MS).
+    await client.query(`SET LOCAL lock_timeout = ${Math.max(1, Math.floor(lockTimeoutMs))}`)
 
     // Capture the target schema's OWN privileges before the drop discards them:
     // the schema-level ACL + default privileges. A managed target (Supabase,
@@ -330,6 +389,12 @@ export const restorePostgres = async ({
     await client.query('COMMIT')
   } catch (error) {
     await client.query('ROLLBACK')
+    if (isLockTimeout(error)) {
+      throw new Error(
+        `[switch-env] could not lock the target database's tables within ${Math.round(lockTimeoutMs / 1000)}s: another connection is holding them, often a transaction left open. Nothing was changed. Try again, or end that connection first.`,
+        { cause: error },
+      )
+    }
     throw error
   } finally {
     client.release()
