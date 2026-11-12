@@ -4,6 +4,7 @@ import { expect, it } from 'vitest'
 
 import { getDbaFunction } from '../../src/lib/db/getDbaFunction.js'
 import { openAdapter } from '../../src/lib/db/openAdapter.js'
+import { insertRows, rowsPerInsert } from '../../src/lib/db/postgres.js'
 import { backupSql, restoreSql } from '../../src/lib/db/sql.js'
 import { runCopyScenarios } from '../shared/copyScenarios.js'
 import { makePostgresConfig } from './config.js'
@@ -385,6 +386,147 @@ runCopyScenarios(
           await target.query(`DROP OWNED BY switch_env_api`).catch(() => {})
           await target.query(`DROP ROLE IF EXISTS switch_env_api`).catch(() => {})
         }
+      })
+
+      it('copies a collection larger than one insert batch row for row', async () => {
+        const { runCopy, sourcePayload, targetPayload } = getContext()
+        const source = pgPool(sourcePayload)
+        const target = pgPool(targetPayload)
+
+        // Rows written straight into a Payload table, so they survive the dev
+        // push that ends a copy. 2,345 crosses two batch boundaries unevenly,
+        // and the json column mixes objects, arrays, scalars and NULLs.
+        await source.query(
+          `INSERT INTO "public"."kitchen_sink" (text_field, number_field, checkbox_field, json_field)
+           SELECT 'bulk ' || g,
+                  g * 1.5,
+                  g % 2 = 0,
+                  CASE g % 4
+                    WHEN 0 THEN to_jsonb(g)
+                    WHEN 1 THEN jsonb_build_array(g, 'x', NULL)
+                    WHEN 2 THEN NULL
+                    ELSE jsonb_build_object('n', g, 'nested', jsonb_build_object('ok', true))
+                  END
+           FROM generate_series(1, 2345) AS g`,
+        )
+
+        try {
+          await runCopy()
+
+          const bulk = `SELECT id, text_field, number_field, checkbox_field, json_field
+                        FROM "public"."kitchen_sink" WHERE text_field LIKE 'bulk %' ORDER BY id`
+          const sourceRows = (await source.query(bulk)).rows
+          const targetRows = (await target.query(bulk)).rows
+          expect(targetRows).toHaveLength(2345)
+          expect(targetRows).toEqual(sourceRows)
+
+          // The id sequence was advanced past the restored rows.
+          const fresh = await targetPayload.create({
+            collection: 'kitchen-sink',
+            data: { textField: 'after bulk copy' },
+          })
+          expect(Number(fresh.id)).toBeGreaterThan(Number(sourceRows.at(-1)?.id))
+        } finally {
+          await source.query(`DELETE FROM "public"."kitchen_sink" WHERE text_field LIKE 'bulk %'`)
+        }
+      })
+
+      it('insertRows batches rows exactly and stays under the bind-parameter limit', async () => {
+        if (!server) {
+          throw new Error('postgres test server is not running')
+        }
+        // 80 columns × 1,000 rows would be 80,000 parameters in one statement,
+        // past Postgres's 65,535: the batch has to shrink to fit.
+        expect(rowsPerInsert(80)).toBe(819)
+        expect(rowsPerInsert(5)).toBe(1000)
+        expect(rowsPerInsert(70_000)).toBe(1)
+
+        await server.createDatabase('insert_batches')
+        const client = await server.connectClient('insert_batches')
+        try {
+          // Every shape bindValue handles: arrays, jsonb scalars/arrays/objects,
+          // NULLs and numerics, over 2,345 rows (three uneven batches).
+          await client.query(
+            `CREATE TABLE src (id integer PRIMARY KEY, label text NOT NULL, tags text[],
+                               meta jsonb, note text, amount numeric(10, 2))`,
+          )
+          await client.query(`CREATE TABLE dst (LIKE src INCLUDING ALL)`)
+          await client.query(
+            `INSERT INTO src
+             SELECT g, 'row ' || g, ARRAY['a' || g, 'b'],
+                    CASE g % 3
+                      WHEN 0 THEN to_jsonb(g)
+                      WHEN 1 THEN jsonb_build_array(g, 'x', NULL)
+                      ELSE jsonb_build_object('n', g)
+                    END,
+                    CASE WHEN g % 7 = 0 THEN NULL ELSE 'note ' || g END,
+                    g * 1.25
+             FROM generate_series(1, 2345) AS g`,
+          )
+          const all = (table: string) => client.query(`SELECT * FROM ${table} ORDER BY id`)
+          await insertRows(client, 'public', 'dst', (await all('src')).rows, new Set(['meta']))
+          expect((await all('dst')).rows).toEqual((await all('src')).rows)
+
+          // 80 columns: three batches of at most 819 rows.
+          const columns = Array.from({ length: 80 }, (_, i) => `c${i}`)
+          const wideDdl = columns.map((c) => `${c} integer NOT NULL`).join(', ')
+          await client.query(`CREATE TABLE wide_src (${wideDdl})`)
+          await client.query(`CREATE TABLE wide_dst (${wideDdl})`)
+          await client.query(
+            `INSERT INTO wide_src SELECT ${columns.map((_, i) => `g + ${i}`).join(', ')}
+             FROM generate_series(1, 2000) AS g`,
+          )
+          const wideRows = (await client.query(`SELECT * FROM wide_src`)).rows
+          await insertRows(client, 'public', 'wide_dst', wideRows, new Set())
+          const checksum = (table: string) =>
+            client.query(
+              `SELECT COUNT(*)::int AS n, SUM(${columns.join(' + ')})::bigint AS total FROM ${table}`,
+            )
+          expect((await checksum('wide_dst')).rows[0]).toEqual((await checksum('wide_src')).rows[0])
+        } finally {
+          await client.end()
+        }
+      })
+
+      it('fails fast with nothing changed when another connection holds the target tables', async () => {
+        const { sourcePayload, targetPayload } = getContext()
+        if (!server) {
+          throw new Error('postgres test server is not running')
+        }
+
+        await targetPayload.create({ collection: 'posts', data: { title: 'kept on failure' } })
+        const before = await countRows(targetPayload, 'posts')
+
+        // An open transaction that has read `posts` keeps a lock DROP SCHEMA
+        // must wait for: the state of a target whose connection was left open.
+        const blocker = await server.connectClient('target')
+        await blocker.query('BEGIN')
+        await blocker.query('SELECT 1 FROM "public"."posts" LIMIT 1')
+
+        try {
+          const backupData = await backupSql({
+            copyConfig: undefined,
+            payload: sourcePayload,
+            sourceAdapter: sourcePayload.db,
+          })
+          const started = Date.now()
+          await expect(
+            restoreSql({
+              backupData,
+              lockTimeoutMs: 500,
+              logger: targetPayload.logger,
+              payload: targetPayload,
+              targetAdapter: targetPayload.db,
+            }),
+          ).rejects.toThrow(/could not lock the target database's tables/)
+          expect(Date.now() - started).toBeLessThan(10_000)
+        } finally {
+          await blocker.query('ROLLBACK')
+          await blocker.end()
+        }
+
+        // The failed restore rolled back: the target still holds its own rows.
+        expect(await countRows(targetPayload, 'posts')).toBe(before)
       })
     },
   },

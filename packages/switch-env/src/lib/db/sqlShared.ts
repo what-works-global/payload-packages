@@ -43,6 +43,12 @@ export interface BackupSqlArgs {
 
 export interface RestoreSqlArgs {
   backupData: SqlBackupData
+  /**
+   * Postgres only: how long the restore waits for each lock on the target
+   * before failing with nothing changed. Defaults to RESTORE_LOCK_TIMEOUT_MS;
+   * tests shorten it.
+   */
+  lockTimeoutMs?: number
   logger: BasePayload['logger']
   payload: BasePayload
   targetAdapter: DatabaseAdapter
